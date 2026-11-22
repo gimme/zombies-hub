@@ -316,32 +316,51 @@ func launchers() bool {
 // up. A Windows mutex belongs to its thread, so one goroutine, locked to its thread, takes the mutex and releases
 // it.
 func filesTurn(waits func()) (release func()) {
+	release, _ = takeFilesTurn(waits)
+	return release
+}
+
+// tryFilesTurn takes the turn only when no other launcher has it now: it does not wait. ok is false when another
+// launcher has it. The tray's menu takes it so to delete game files (menu.go).
+func tryFilesTurn() (release func(), ok bool) { return takeFilesTurn(nil) }
+
+// takeFilesTurn is filesTurn, which waits for the turn, and tryFilesTurn, which does not when waits is nil. When the
+// turn can't be had from Windows at all, it goes on without it, as before there was a turn.
+func takeFilesTurn(waits func()) (release func(), ok bool) {
 	name, err := windows.UTF16PtrFromString(`Local\zombies-launcher-files`)
 	if err != nil {
-		return func() {}
+		return func() {}, true
 	}
-	got, done := make(chan bool), make(chan struct{})
+	const none, got, taken = 0, 1, 2
+	result, done := make(chan int), make(chan struct{})
 	go func() {
 		runtime.LockOSThread()
 		defer runtime.UnlockOSThread()
 		h, _ := windows.CreateMutex(nil, false, name)
 		if h == 0 {
-			got <- false
+			result <- none
 			return
 		}
 		defer windows.CloseHandle(h)
 		if e, _ := windows.WaitForSingleObject(h, 0); e == uint32(windows.WAIT_TIMEOUT) {
+			if waits == nil {
+				result <- taken
+				return
+			}
 			waits()
 			windows.WaitForSingleObject(h, windows.INFINITE)
 		}
-		got <- true
+		result <- got
 		<-done
 		windows.ReleaseMutex(h)
 	}()
-	if !<-got {
-		return func() {}
+	switch <-result {
+	case none:
+		return func() {}, true
+	case taken:
+		return nil, false
 	}
-	return func() { close(done) }
+	return func() { close(done) }, true
 }
 
 var (

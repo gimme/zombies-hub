@@ -20,14 +20,17 @@ Black Ops runs in the browser tab.
 
 Black Ops II runs on your Windows PC, on [Plutonium](https://plutonium.pw/). The Zombies Launcher starts it for you and joins your room's game.
 
-- **Game files:** Black Ops II installed from Steam. If the host has turned on downloads, the launcher can download the files instead (about 9 GB). It asks before the first download.
+- **Game files:** Black Ops II installed from Steam, or a copy of it anywhere on the PC. If the launcher doesn't find it, it asks: choose Choose folder… and pick the game's folder, the one with `t6zm.exe` in it. If the host has turned on downloads, the launcher can download the files instead (about 9 GB), into its own folder or one you choose.
 - **First time:** install the launcher with the link under the room's button. It downloads from GitHub. Windows does not know the program and asks whether to run it: choose More info, then Run anyway.
 - **Each game:** if the room's button says Connect, press it. The launcher brings Plutonium up to date, checks the game files and stays in the tray. Then press Ready. When the room's game starts, the launcher starts your game and joins it. You don't need to install Plutonium or sign in to it.
 - **Updates:** the launcher updates itself from GitHub. If the room says that your launcher is too old, install the new one with the link there, then press Connect.
+- **The launcher's icon in the tray:** its menu shows which game folder the launcher uses. Choose Black Ops II folder… points it at another copy, from the game's next start. Delete downloaded Black Ops II files… frees the space of files the launcher downloaded.
 - **Same PC:** keep the room's page open on the PC you play on. The server matches your game to your page by address.
 
 If something goes wrong:
 
+- **The launcher doesn't find your Black Ops II, or uses the wrong copy:** click its icon in the tray, choose Choose Black Ops II folder… and pick the game's folder. A folder above it works too, such as a Steam library.
+- **"Black Ops II can't start from that folder":** the folder's path has a letter other than A to Z, such as é or я. Move the game to a folder such as `D:\Games\Black Ops II` and choose it there.
 - **A file is missing (`d3dx9_43.dll`, `XINPUT1_3.dll`, `MSVCR100.dll`):** run `redist\DirectX\DXSETUP.exe` and `redist\vcredist_x86.exe` from the game's folder, once.
 - **"Your game is outdated":** press Join the game again.
 - **Antivirus removes Plutonium's files:** add an exception for `%LOCALAPPDATA%\Plutonium`.

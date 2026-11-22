@@ -882,8 +882,7 @@ func TestGameFilesFolder(t *testing.T) {
 		t.Errorf("the next run, with the copy kept: %d, %+v\n%s", code, tl.started, tl.out)
 	}
 	// "none" for their copy: the server's files, whatever the PC has
-	tl.cfg.T6 = "none"
-	tl.saveConfig()
+	tl.change(func(c *config) { c.T6 = "none" })
 	tl.copies = func() []string { return []string{own} }
 	tl.again("\n")
 	if code := tl.run(context.Background(), []string{l.link()}); code != 0 || len(tl.started) != 1 ||
@@ -911,8 +910,7 @@ func TestGameFilesFolder(t *testing.T) {
 	l.play.Downloads = false
 	l.mu.Unlock()
 	tl = newTestLauncher(t, ""+other+"\n")
-	tl.cfg.T6Files = other
-	tl.saveConfig()
+	tl.change(func(c *config) { c.T6Files = other })
 	if code := tl.run(context.Background(), []string{l.link()}); code != 0 || !strings.Contains(tl.started[0].line, `t6zm "`+other+`" -lan`) {
 		t.Errorf("the files downloaded earlier, with a server that sends none now: %d, %+v\n%s", code, tl.started, tl.out)
 	}
@@ -929,49 +927,53 @@ func TestGameFilesFolder(t *testing.T) {
 	}
 }
 
-// A launcher with no window asks before its first download, with a yes-or-no question, and asks for no folder.
+// A launcher with no window, in a build without task dialogs (a developer's), asks yes-or-no questions before its
+// first download: whether the game is on the PC, for its folder; else whether to download the game files. It asks for
+// no folder to be typed.
 func TestGameFilesWithoutAWindow(t *testing.T) {
 	l := newFakeServer(t)
 	l.files = map[string]string{"binkw32.dll": "bink", "zone/all/patch_zm.ff": "the patch"}
 	l.play = launcherapi.Play{Player: "Ann", Downloads: true, Room: "ABCD",
 		Game: &launcherapi.Game{Port: 4000, Password: "pw", Name: "Ann"}}
 	tl := newTestLauncher(t, "")
-	tl.boxes = true
-	var asked []string
-	answer := false
-	tl.confirm = func(question string) bool {
-		asked = append(asked, question)
-		return answer
-	}
+	d := answer(tl, false)
+	d.confirms = []bool{false, false}
 	files := filepath.Join(tl.home, "t6")
-	if code := tl.run(context.Background(), []string{l.link()}); code == 0 || len(tl.started) != 0 || len(asked) != 1 ||
-		!strings.Contains(asked[0], "Download its game files from") || !strings.Contains(asked[0], files) ||
-		isFile(filepath.Join(files, "binkw32.dll")) || !strings.Contains(tl.out.String(), "Nothing was downloaded.") {
-		t.Fatalf("answered No: %d, started %+v, asked %q\n%s", code, tl.started, asked, tl.out)
+	if code := tl.run(context.Background(), []string{l.link()}); code == 0 || len(tl.started) != 0 || len(d.asked) != 2 ||
+		!strings.Contains(d.asked[0], "Choose Yes to show the launcher its folder") ||
+		!strings.Contains(d.asked[1], "Download its game files from") || !strings.Contains(d.asked[1], files) ||
+		len(d.titles) != 0 || isFile(filepath.Join(files, "binkw32.dll")) || !strings.Contains(tl.out.String(), "Nothing was downloaded.") {
+		t.Fatalf("answered No, No: %d, started %+v, asked %q\n%s", code, tl.started, d.asked, tl.out)
 	}
-	answer = true
+	d.confirms = []bool{false, true}
 	tl.again("")
-	if code := tl.run(context.Background(), []string{l.link()}); code != 0 || len(tl.started) != 1 || len(asked) != 2 ||
+	if code := tl.run(context.Background(), []string{l.link()}); code != 0 || len(tl.started) != 1 || len(d.asked) != 4 ||
 		!strings.Contains(tl.started[0].line, `t6zm "`+files+`" -lan`) || read(t, filepath.Join(files, "binkw32.dll")) != "bink" {
-		t.Fatalf("answered Yes: %d, started %+v, asked %q\n%s", code, tl.started, asked, tl.out)
+		t.Fatalf("answered No, Yes: %d, started %+v, asked %q\n%s", code, tl.started, d.asked, tl.out)
 	}
 	tl.again("")
-	if code := tl.run(context.Background(), []string{l.link()}); code != 0 || len(tl.started) != 1 || len(asked) != 2 {
-		t.Errorf("the next run, with the files downloaded: %d, started %+v, asked %q\n%s", code, tl.started, asked, tl.out)
+	if code := tl.run(context.Background(), []string{l.link()}); code != 0 || len(tl.started) != 1 || len(d.asked) != 4 {
+		t.Errorf("the next run, with the files downloaded: %d, started %+v, asked %q\n%s", code, tl.started, d.asked, tl.out)
 	}
-	// a server that sends no game files, and a PC with none: no question, since no one can type a folder
+	// a server that sends no game files, and a PC with none: the one question is for the game's folder
 	l.mu.Lock()
 	l.play.Downloads = false
 	l.mu.Unlock()
+	own := filepath.Join(t.TempDir(), "Black Ops II")
+	write(t, filepath.Join(own, "zone", "all", "patch_zm.ff"), "the patch")
+	write(t, filepath.Join(own, "binkw32.dll"), "bink")
 	tl = newTestLauncher(t, "")
-	tl.boxes = true
-	tl.confirm = func(question string) bool {
-		asked = append(asked, question)
-		return true
-	}
-	if code := tl.run(context.Background(), []string{l.link()}); code == 0 || len(tl.started) != 0 || len(asked) != 2 ||
+	d = answer(tl, false)
+	d.confirms = []bool{false}
+	if code := tl.run(context.Background(), []string{l.link()}); code == 0 || len(tl.started) != 0 || len(d.asked) != 1 ||
 		strings.Contains(tl.out.String(), "type its folder") || !strings.Contains(tl.out.String(), "has to be on this PC first") {
-		t.Errorf("no copy, and no files from the server: %d, asked %q\n%s", code, asked, tl.out)
+		t.Errorf("no copy, no files from the server, and answered No: %d, asked %q\n%s", code, d.asked, tl.out)
+	}
+	tl.again("")
+	d.confirms, d.picks = []bool{true}, []string{own}
+	if code := tl.run(context.Background(), []string{l.link()}); code != 0 || len(tl.started) != 1 ||
+		!strings.Contains(tl.started[0].line, `t6zm "`+own+`" -lan`) {
+		t.Errorf("no copy, no files from the server, and the game's folder chosen: %d, started %+v\n%s", code, tl.started, tl.out)
 	}
 }
 
@@ -1347,8 +1349,7 @@ func TestUninstall(t *testing.T) {
 			t.Fatalf("the install: %d, registered %q\n%s", code, tl.registered, tl.out)
 		}
 		// what a link's runs left: the player's answers, and what the last run said
-		tl.cfg = config{Servers: []string{"https://zombies.example"}}
-		if err := tl.saveConfig(); err != nil {
+		if err := tl.change(func(c *config) { c.Servers = []string{"https://zombies.example"} }); err != nil {
 			t.Fatal(err)
 		}
 		write(t, filepath.Join(tl.home, "launcher.log"), "a run")

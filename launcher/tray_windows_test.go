@@ -28,7 +28,7 @@ func TestTrayWindow(t *testing.T) {
 			}
 		}
 	}
-	stop := showTray("zombies.example.com", func() {}, func() {})
+	stop := showTray("zombies.example.com", func() []menuItem { return []menuItem{{text: "Quit", do: func() {}}} })
 	if !mine() {
 		t.Error("no window behind the tray icon")
 	}

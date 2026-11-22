@@ -4,14 +4,15 @@ package main
 
 import (
 	"runtime"
+	"strings"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
 )
 
 // The launcher's icon in the tray is all that the launcher shows while it stays (serve). A click opens the icon's
-// menu, which opens the server's page or quits the launcher. Windows needs a window to send an icon's clicks to. The
-// launcher makes a hidden window for them, on a thread of its own.
+// menu (menu.go), which opens the server's page, shows and changes the game files, or quits the launcher. Windows
+// needs a window to send an icon's clicks to. The launcher makes a hidden window for them, on a thread of its own.
 
 var (
 	user32              = windows.NewLazySystemDLL("user32.dll")
@@ -42,7 +43,6 @@ var (
 const (
 	wmDestroy   = 0x0002
 	wmClose     = 0x0010
-	wmCommand   = 0x0111
 	wmLButtonUp = 0x0202
 	wmRButtonUp = 0x0205
 	wmTray      = 0x8000 + 1 // WM_APP + 1: the icon's clicks
@@ -51,7 +51,7 @@ const (
 	nifMessage, nifIcon, nifTip = 1, 2, 4
 	mfString, mfGrayed, mfSep   = 0x0, 0x1, 0x800
 	tpmRightButton, tpmBottom   = 0x2, 0x20
-	menuOpen, menuQuit          = 1, 2
+	tpmNoNotify, tpmReturnCmd   = 0x80, 0x100
 	imageIcon, lrDefaultSize    = 1, 0x40
 	lrShared, idiApplication    = 0x8000, 32512
 	swShowNormal                = 1
@@ -95,16 +95,15 @@ type message struct {
 // tray is the program's one tray icon. It is a global for the window's procedure, which Windows calls with no
 // reference to the icon.
 var tray struct {
-	host        string
-	open, quit  func()
+	menu        func() []menuItem
 	icon        notifyIconData
 	taskbarMade uint32 // the message Explorer sends every window when its taskbar restarts: add the icon again
 }
 
-// showTray puts the launcher's icon in the tray, with the server's host in its tip. The icon's menu has open and
-// quit, each called on a goroutine of its own. stop removes the icon.
-func showTray(host string, open, quit func()) (stop func()) {
-	tray.host, tray.open, tray.quit = host, open, quit
+// showTray puts the launcher's icon in the tray, with the server's host in its tip. A click on the icon shows the
+// items that menu returns then. The item the player chooses is done on a goroutine of its own. stop removes the icon.
+func showTray(host string, menu func() []menuItem) (stop func()) {
+	tray.menu = menu
 	ready, done := make(chan windows.Handle), make(chan struct{})
 	go func() {
 		defer close(done)
@@ -157,15 +156,11 @@ func showTray(host string, open, quit func()) (stop func()) {
 	}
 }
 
-// trayProc is the hidden window's procedure. It handles the icon's clicks, the menu's choices and the window's end.
+// trayProc is the hidden window's procedure. It handles the icon's clicks and the window's end.
 func trayProc(wnd windows.Handle, msg uint32, wParam, lParam uintptr) uintptr {
 	switch {
 	case msg == wmTray && (lParam == wmLButtonUp || lParam == wmRButtonUp):
 		trayMenu(wnd)
-	case msg == wmCommand && wParam&0xffff == menuOpen:
-		go tray.open()
-	case msg == wmCommand && wParam&0xffff == menuQuit:
-		go tray.quit()
 	case msg == wmClose:
 		destroyWindow.Call(uintptr(wnd))
 	case msg == wmDestroy:
@@ -180,28 +175,37 @@ func trayProc(wnd windows.Handle, msg uint32, wParam, lParam uintptr) uintptr {
 	return 0
 }
 
-// trayMenu shows the icon's menu at the pointer: the launcher's name and its server, an item that opens the server's
-// page, and an item that quits.
+// trayMenu shows the icon's menu at the pointer, with the items that tray.menu returns now, and does the item that
+// the player chooses. An item's number in the menu is its place in the list, from 1. A menu takes & for the mark of a
+// shortcut key, and && for &: a folder's name may have one.
 func trayMenu(wnd windows.Handle) {
 	menu, _, _ := createPopupMenu.Call()
 	if menu == 0 {
 		return
 	}
 	defer destroyMenu.Call(menu)
-	item := func(flags, id uintptr, text string) {
-		t, _ := windows.UTF16PtrFromString(text)
-		appendMenu.Call(menu, flags, id, uintptr(unsafe.Pointer(t)))
+	items := tray.menu()
+	for i, it := range items {
+		flags := uintptr(mfString)
+		switch {
+		case it.text == "":
+			flags = mfSep
+		case it.do == nil:
+			flags |= mfGrayed
+		}
+		t, _ := windows.UTF16PtrFromString(strings.ReplaceAll(it.text, "&", "&&"))
+		appendMenu.Call(menu, flags, uintptr(i+1), uintptr(unsafe.Pointer(t)))
 	}
-	item(mfString|mfGrayed, 0, appName+": "+tray.host)
-	item(mfSep, 0, "")
-	item(mfString, menuOpen, "Open the page")
-	item(mfString, menuQuit, "Quit")
 	var at point
 	getCursorPos.Call(uintptr(unsafe.Pointer(&at)))
 	// The menu closes on a click elsewhere only when its window is in front (Windows' own note on tray menus).
 	setForegroundWindow.Call(uintptr(wnd))
-	trackPopupMenu.Call(menu, tpmRightButton|tpmBottom, uintptr(at.x), uintptr(at.y), 0, uintptr(wnd), 0)
+	chosen, _, _ := trackPopupMenu.Call(menu, tpmRightButton|tpmBottom|tpmReturnCmd|tpmNoNotify, uintptr(at.x),
+		uintptr(at.y), 0, uintptr(wnd), 0)
 	postMessage.Call(uintptr(wnd), 0, 0, 0)
+	if i := int(chosen) - 1; i >= 0 && i < len(items) && items[i].do != nil {
+		go items[i].do()
+	}
 }
 
 // openPage opens a page in the player's browser.

@@ -22,18 +22,43 @@ type config struct {
 	T6Files string `json:"t6Files,omitempty"`
 }
 
+// The run and the tray's menu (menu.go) both change the config, each on a goroutine of its own. Each change loads the
+// file, changes it and saves it, under cfgLock (rewrite). So neither saves a config it read before the other's change,
+// which would undo that change. la.cfg is the run's copy: only the run reads or sets it.
+
 func (la *launcher) configFile() string { return filepath.Join(la.home, "launcher.json") }
 
+// loadConfig reads the config into the run's copy.
 func (la *launcher) loadConfig() {
-	la.cfg = config{}
-	if data, err := os.ReadFile(la.configFile()); err == nil {
-		json.Unmarshal(data, &la.cfg)
-	}
+	la.cfgLock.Lock()
+	defer la.cfgLock.Unlock()
+	la.cfg = la.readConfig()
 }
 
-func (la *launcher) saveConfig() error {
-	data, _ := json.MarshalIndent(la.cfg, "", "  ")
-	return writeFile(la.configFile(), append(data, '\n'))
+func (la *launcher) readConfig() config {
+	var c config
+	if data, err := os.ReadFile(la.configFile()); err == nil {
+		json.Unmarshal(data, &c)
+	}
+	return c
+}
+
+// rewrite loads the config, changes it with change, and saves it, all under cfgLock. It returns the config as it
+// saved it.
+func (la *launcher) rewrite(change func(c *config)) (config, error) {
+	la.cfgLock.Lock()
+	defer la.cfgLock.Unlock()
+	c := la.readConfig()
+	change(&c)
+	data, _ := json.MarshalIndent(c, "", "  ")
+	return c, writeFile(la.configFile(), append(data, '\n'))
+}
+
+// change is rewrite for the run, which keeps the config as it saved it.
+func (la *launcher) change(change func(c *config)) error {
+	c, err := la.rewrite(change)
+	la.cfg = c
+	return err
 }
 
 // writeFile writes a whole file by way of a temporary file next to it. A launcher that is closed while it writes

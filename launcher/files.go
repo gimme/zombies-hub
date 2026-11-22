@@ -45,14 +45,16 @@ func steamLibraries(steam string) []string {
 
 // ownCopy returns the folder of the player's own copy of Black Ops II, or "" when there is none. It is the folder
 // that the player named, or else a folder where Steam installed the game.
-func (la *launcher) ownCopy() string {
-	if la.cfg.T6 == "none" {
+func (la *launcher) ownCopy() string { return la.cfg.ownCopy(la.copies) }
+
+func (c config) ownCopy(copies func() []string) string {
+	if c.T6 == "none" {
 		return ""
 	}
-	if hasT6(la.cfg.T6) {
-		return la.cfg.T6
+	if hasT6(c.T6) {
+		return c.T6
 	}
-	for _, dir := range la.copies() {
+	for _, dir := range copies() {
 		if hasT6(dir) {
 			return dir
 		}
@@ -60,15 +62,42 @@ func (la *launcher) ownCopy() string {
 	return ""
 }
 
-// plainFolder returns dir, the folder where the launcher is to keep the game files. When dir has a letter that isn't
-// plain ASCII, as the folder of a Windows user named Zoë has, plainFolder returns a folder at the root of the same
-// disk instead. The game reads its files by names in the PC's old code page, and finds none under such a folder.
+// gameIn returns the folder of the player's own copy of Black Ops II in dir, a folder that they chose, or "" when it
+// has none. That is dir itself, or the game's folder in it where a Steam library has it: dir may be the folder of
+// the library, or of its steamapps, or the folder above the game's. A folder with game files that the launcher
+// downloaded is not the player's own copy, as in gameFiles.
+func gameIn(dir string) string {
+	if dir == "" {
+		return ""
+	}
+	for _, d := range []string{dir, filepath.Join(dir, t6Folder), filepath.Join(dir, "steamapps", "common", t6Folder),
+		filepath.Join(dir, "common", t6Folder)} {
+		if hasT6(d) && !isFile(filepath.Join(d, syncFile)) {
+			return d
+		}
+	}
+	return ""
+}
+
+// plain reports whether the game can read its files under dir: whether dir has only plain ASCII letters. The game
+// reads its files by names in the PC's old code page, and finds none under a folder with another letter, as the
+// folder of a Windows user named Zoë has.
+func plain(dir string) bool {
+	return !strings.ContainsFunc(dir, func(r rune) bool { return r > 0x7e })
+}
+
+// plainFolder returns dir, the folder where the launcher is to keep the game files. When the game can't read files
+// under dir (plain), plainFolder returns a folder at the root of the same disk instead.
 func plainFolder(dir string) string {
-	if !strings.ContainsFunc(dir, func(r rune) bool { return r > 0x7e }) {
+	if plain(dir) {
 		return dir
 	}
 	return filepath.Join(filepath.VolumeName(dir)+string(filepath.Separator), appName, "t6")
 }
+
+// notPlain says why the game can't use a folder that the player chose: its path has a letter that the game can't
+// read (plain).
+const notPlain = "Its path has a letter other than A to Z (such as é or я), and the game can't read its files under such a path."
 
 // folder returns a folder that a player typed or pasted, without the quotes that Explorer's "Copy as path" puts
 // around it.
@@ -78,19 +107,25 @@ func folder(answer string) string {
 
 // downloads returns the folder where the launcher keeps the game files it downloads: t6 in its own folder, or the
 // folder that the player named.
-func (la *launcher) downloads() string {
-	if la.cfg.T6Files != "" {
-		return la.cfg.T6Files
+func (la *launcher) downloads() string { return la.cfg.downloads(la.home) }
+
+func (c config) downloads(home string) string {
+	if c.T6Files != "" {
+		return c.T6Files
 	}
-	return plainFolder(filepath.Join(la.home, "t6"))
+	return plainFolder(filepath.Join(home, "t6"))
 }
 
 // gameFiles returns the folder of Black Ops II's game files that the player's game runs on. It is the player's own
 // copy, as it is, when they have one. Otherwise, when the server sends game files, it is the launcher's folder. The
-// launcher downloads that folder from the server and keeps it the same as the server's (sync). It asks the player
-// before the first download. In a terminal the player can also type a folder: their own copy's, or another folder
-// for the download. A run with no window can only ask yes or no (boxes).
-func (la *launcher) gameFiles(ctx context.Context, srv *server, l link, play *launcherapi.Play) (string, error) {
+// launcher downloads that folder from the server and keeps it the same as the server's (sync). When it finds no copy,
+// it asks the player before the first download. In a terminal the player can type a folder: their own copy's, or
+// another folder for the download. A run with no window asks in a dialog, where the player chooses their copy's
+// folder in Windows' folder picker, or has the launcher download the game files (askFiles).
+func (la *launcher) gameFiles(ctx context.Context, srv *server, l link, play *launcherapi.Play) (dir string, err error) {
+	la.finding()
+	defer func() { la.found(dir) }()
+	la.loadConfig() // the player may have chosen a folder in the tray's menu since the run began
 	if own := la.ownCopy(); own != "" {
 		la.say("Black Ops II: your own copy, in %s", own)
 		if play.Downloads {
@@ -98,7 +133,7 @@ func (la *launcher) gameFiles(ctx context.Context, srv *server, l link, play *la
 		}
 		return own, nil
 	}
-	dir := la.downloads()
+	dir = la.downloads()
 	first := !isFile(filepath.Join(dir, launcherapi.StateFile))
 	if !play.Downloads {
 		if !first && hasT6(dir) {
@@ -108,9 +143,10 @@ func (la *launcher) gameFiles(ctx context.Context, srv *server, l link, play *la
 		la.say("The launcher found no Black Ops II on this PC, and %s sends no game files.", l.host)
 		if !la.boxes {
 			if own := folder(la.ask("If this PC has it, type its folder (the one with t6zm.exe in it) and press Enter: ")); hasT6(own) {
-				la.cfg.T6 = own
-				return own, la.saveConfig()
+				return own, la.change(func(c *config) { c.T6 = own })
 			}
+		} else if own, _, err := la.askFiles(l.host, nil, dir); err != nil || own != "" {
+			return own, err
 		}
 		return "", errors.New("Black Ops II has to be on this PC first, with its Zombies: Steam has it. Then join from the room's page again.")
 	}
@@ -121,26 +157,27 @@ func (la *launcher) gameFiles(ctx context.Context, srv *server, l link, play *la
 	if first {
 		la.say("The launcher found no Black Ops II on this PC: its game files come from %s, %s, into", l.host, megabytes(list.Bytes))
 		la.say("  %s", dir)
-		answer := ""
 		if la.boxes {
-			if !la.confirm(fmt.Sprintf("The launcher found no Black Ops II on this PC.\n\nDownload its game files from %s (%s) into this folder?\n\n%s",
-				l.host, megabytes(list.Bytes), dir)) {
-				return "", errors.New("Nothing was downloaded. To play, join from the room's page again and answer Yes, or install Black Ops II with Steam.")
+			own, to, err := la.askFiles(l.host, list, dir)
+			switch {
+			case err != nil || own != "":
+				return own, err
+			case to == "":
+				return "", errors.New("Nothing was downloaded. To play, join from the room's page again: choose the folder of your Black Ops II, or download its game files.")
 			}
+			dir = to
 		} else {
-			answer = folder(la.ask("Press Enter to download them; or type another folder for them, or your own copy's, first: "))
-		}
-		switch {
-		case answer == "":
-		case hasT6(answer) && !isFile(filepath.Join(answer, launcherapi.StateFile)):
-			la.cfg.T6 = answer
-			return answer, la.saveConfig()
-		case !filepath.IsAbs(answer):
-			return "", errors.New("That is no folder's full path (as in D:\\Games\\Zombies): nothing was downloaded.")
-		default:
-			dir, la.cfg.T6Files = answer, answer
-			if err := la.saveConfig(); err != nil {
-				return "", err
+			switch answer := folder(la.ask("Press Enter to download them; or type another folder for them, or your own copy's, first: ")); {
+			case answer == "":
+			case hasT6(answer) && !isFile(filepath.Join(answer, launcherapi.StateFile)):
+				return answer, la.change(func(c *config) { c.T6 = answer })
+			case !filepath.IsAbs(answer):
+				return "", errors.New("That is no folder's full path (as in D:\\Games\\Zombies): nothing was downloaded.")
+			default:
+				dir = answer
+				if err := la.change(func(c *config) { c.T6Files = answer }); err != nil {
+					return "", err
+				}
 			}
 		}
 	}
@@ -158,6 +195,144 @@ func (la *launcher) gameFiles(ctx context.Context, srv *server, l link, play *la
 		la.say("  %s", filepath.Join(dir, "redist", "vcredist_x86.exe"))
 	}
 	return dir, nil
+}
+
+// askFiles asks the player what to do, in a run with no window, when the launcher found no copy of Black Ops II on
+// the PC. list is the server's game files, or nil when the server sends none. The player chooses the folder of their
+// own copy in Windows' folder picker, which askFiles returns as own. Or, when the server sends game files, they have
+// the launcher download them, into dir or into a folder that they choose, which askFiles returns as to. It keeps
+// either folder in the config. It returns neither when the player cancelled.
+//
+// The question is a task dialog, whose buttons say what they do (choose). A build without one asks two yes-or-no
+// questions instead (confirm), and then downloads only into dir.
+func (la *launcher) askFiles(host string, list *launcherapi.Files, dir string) (own, to string, err error) {
+	question := "The launcher found no Black Ops II on this PC.\n\n"
+	var answers []string
+	yes := "Choose Yes to show the launcher its folder."
+	if list == nil {
+		question += fmt.Sprintf("%s sends no game files, so the game has to be on this PC, with its Zombies. If it is, "+
+			"choose its folder: the one with t6zm.exe in it.", host)
+		answers = []string{"Choose folder…"}
+	} else {
+		size := megabytes(list.Bytes)
+		question += fmt.Sprintf("If it is on this PC, choose its folder. Or download its game files from %s.", host)
+		answers = []string{
+			"Choose folder…\nBlack Ops II is on this PC: show the launcher the folder with t6zm.exe in it.",
+			fmt.Sprintf("Download\n%s of game files, into %s", size, dir),
+			fmt.Sprintf("Download into another folder…\nChoose where the %s of game files go.", size),
+		}
+		yes = "Choose Yes to show the launcher its folder, or No to download its game files instead."
+	}
+	answer := -1
+	switch {
+	case la.choose != nil:
+		answer = la.choose(question, answers)
+	case la.confirm(question + "\n\n" + yes):
+		answer = 0
+	case list != nil && la.confirm(fmt.Sprintf("The launcher found no Black Ops II on this PC.\n\n"+
+		"Download its game files from %s (%s) into this folder?\n\n%s", host, megabytes(list.Bytes), dir)):
+		answer = 1
+	}
+	switch answer {
+	case 0:
+		if own, err = la.pickOwn(); own == "" {
+			return "", "", err
+		}
+	case 1:
+		return "", dir, nil
+	case 2:
+		if own, to, err = la.pickDownloads(list.Bytes); err != nil {
+			return "", "", err
+		}
+		if to != "" {
+			la.say("The game files go into %s", to)
+			return "", to, la.change(func(c *config) { c.T6Files = to })
+		}
+	}
+	if own == "" {
+		return "", "", nil
+	}
+	la.say("Black Ops II: your own copy, in %s", own)
+	return own, "", la.change(func(c *config) { c.T6 = own })
+}
+
+// pickOwn asks the player for the folder of their own copy of Black Ops II, in Windows' folder picker. It takes the
+// game's folder in the folder they chose (gameIn). When there is none, or the game can't start from it, it says so
+// and offers to choose again. It returns "" when the player cancelled. The tray's menu asks with it too, so it writes
+// nothing to the run's log.
+func (la *launcher) pickOwn() (string, error) {
+	for {
+		dir, err := la.pick("Choose the folder of Black Ops II: the one with t6zm.exe in it")
+		if err != nil {
+			return "", fmt.Errorf("Windows' folder picker didn't open: %v", err)
+		}
+		if dir == "" {
+			return "", nil
+		}
+		own := gameIn(dir)
+		problem := ""
+		switch {
+		case own == "":
+			problem = fmt.Sprintf("That folder has no Black Ops II in it.\n\n%s\n\nChoose the game's own folder: the one with "+
+				"t6zm.exe and the zone folder in it.", dir)
+		case !plain(own):
+			problem = fmt.Sprintf("Black Ops II can't start from that folder.\n\n%s\n\n%s Move the game's folder to one such as "+
+				"D:\\Games\\Black Ops II, and choose it there.", own, notPlain)
+		default:
+			return own, nil
+		}
+		if !la.chooseAgain(problem) {
+			return "", nil
+		}
+	}
+}
+
+// pickDownloads asks the player for a folder to download the game files into, of bytes, in Windows' folder picker.
+// A folder with their own copy of the game in it needs no download: pickDownloads returns that copy as own.
+// Otherwise it returns the folder for the files as to (into). It returns neither when the player cancelled.
+func (la *launcher) pickDownloads(bytes int64) (own, to string, err error) {
+	for {
+		dir, err := la.pick(fmt.Sprintf("Choose a folder for Black Ops II's game files (%s)", megabytes(bytes)))
+		if err != nil {
+			return "", "", fmt.Errorf("Windows' folder picker didn't open: %v", err)
+		}
+		if dir == "" {
+			return "", "", nil
+		}
+		problem := ""
+		switch own := gameIn(dir); {
+		case own != "" && plain(own):
+			return own, "", nil
+		case !filepath.IsAbs(dir):
+			problem = "That is no folder's full path (as in D:\\Games\\Zombies)."
+		case !plain(dir):
+			problem = fmt.Sprintf("The game can't use that folder.\n\n%s\n\n%s Choose another one, such as D:\\Games.", dir, notPlain)
+		default:
+			return "", into(dir), nil
+		}
+		if !la.chooseAgain(problem) {
+			return "", "", nil
+		}
+	}
+}
+
+// into returns the folder for the game files when the player chose dir for them: dir itself when it is empty, or
+// when the launcher downloaded into it before. Otherwise it is a new folder in dir. The game's files, 9 GB of them,
+// then don't mix with what dir has, as a disk's root has.
+func into(dir string) string {
+	entries, err := os.ReadDir(dir)
+	if err != nil || len(entries) == 0 || isFile(filepath.Join(dir, syncFile)) {
+		return dir
+	}
+	return filepath.Join(dir, t6Folder)
+}
+
+// chooseAgain tells the player what is wrong with the folder they chose, and returns whether they choose another.
+func (la *launcher) chooseAgain(problem string) bool {
+	if la.choose != nil {
+		return la.choose(problem, []string{"Choose another folder…"}) == 0
+	}
+	return la.confirm(problem + "\n\nChoose another folder?")
 }
 
 // lacks prints which of the server's map files the player's own copy does not have: games on those maps don't load

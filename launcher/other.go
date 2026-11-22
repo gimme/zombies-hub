@@ -33,11 +33,17 @@ func launchers() bool { return false }
 
 func filesTurn(waits func()) (release func()) { return func() {} }
 
+func tryFilesTurn() (release func(), ok bool) { return func() {}, true }
+
 func interactive() bool { return false }
 
 func windowless() bool { return false }
 
-func showTray(host string, open, quit func()) (stop func()) { return func() {} }
+func showTray(host string, menu func() []menuItem) (stop func()) { return func() {} }
+
+func pickFolder(title string) (string, error) { return "", errWindows }
+
+func taskDialogs() func(question string, answers []string) int { return nil }
 
 func openPage(url string) {}
 

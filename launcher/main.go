@@ -29,9 +29,12 @@
 //     turns away a player's game of another revision. Plutonium is in %LOCALAPPDATA%\Plutonium, where Plutonium's
 //     own launcher keeps it too (plutonium.Copy). When the revisions differ, the launcher updates the PC's copy from
 //     Plutonium's own updater, as the server does before each game. When they match, it does not contact Plutonium.
-//   - finds Black Ops II's game files. It uses the player's own copy (the one Steam installed, or the folder the
-//     player named), which it only reads. Without one, and when the server sends game files, it downloads the
-//     server's into a folder of its own and keeps that folder the same as the server's (sync.go).
+//   - finds Black Ops II's game files. It uses the player's own copy (the folder the player chose, or else the one
+//     Steam installed), which it only reads. When it finds none, it asks the player (files.go: askFiles). They show
+//     it their copy's folder in Windows' folder picker. Or, when the server sends game files, it downloads the
+//     server's into a folder of its own, or one they choose, and keeps that folder the same as the server's
+//     (sync.go). The menu of its icon in the tray says which folder the game starts from, chooses another, and
+//     deletes the game files it downloaded (menu.go).
 //   - waits for the room's game when there is none yet, and starts Plutonium's bootstrapper to join it, in LAN mode,
 //     under the player's name in the game, with the game's password (launch.go).
 //   - stays with the player's game for as long as it runs, with no window, as the player's one launcher. For the
@@ -120,15 +123,28 @@ type launcher struct {
 	notify  func(text string, bad bool)
 	confirm func(question string) bool
 	// boxes is set for a run that has no window. The player can't type an answer there (ask), so the run asks only
-	// yes-or-no questions (confirm).
+	// yes-or-no questions (confirm), or picks a folder in Windows' folder picker (pick) and answers in a task dialog
+	// (choose).
 	boxes bool
+	// pick shows Windows' folder picker, with title, and returns the folder that the player chose, or "" when they
+	// cancelled. choose asks question in a task dialog, whose answers are buttons that say what they do. It returns the
+	// number of the answer that the player chose, or -1 when they cancelled. A build without the release's manifest
+	// can't show a task dialog: choose is nil there, and the run asks yes or no instead (confirm).
+	pick   func(title string) (string, error)
+	choose func(question string, answers []string) int
+	// The run and the tray's menu both use the config and the game files, each on a goroutine of its own. cfgLock
+	// guards the config's file (config.go). state is what they share of the game files, under stateLock (menu.go).
+	cfgLock, stateLock sync.Mutex
+	state              gameState
 	// turn gives up the program's turn to run its player's links (single). It is set when the program took the turn
 	// at its start.
 	turn func()
 	// stays marks a launcher that stays in the tray once its link has run, for its player's next game (serve). tray
-	// shows the launcher's icon there. The icon's menu opens the server's page and quits. quit ends the program.
+	// shows the launcher's icon there, with the server's host. The icon's menu has what menu returns as the player
+	// opens it: it opens the server's page, shows and changes the game files that the launcher uses (menu.go), and
+	// quits. quit ends the program.
 	stays bool
-	tray  func(host string, open, quit func()) (stop func())
+	tray  func(host string, menu func() []menuItem) (stop func())
 	quit  func()
 	// left is the ID of the room's game that the player's game last ran in, once the player's game was closed. The
 	// launcher starts the player's game into that room's game again only when the player asks (pressed).
@@ -193,11 +209,12 @@ func main() {
 		start:  startProgram, rerun: rerun, register: register, unregister: unregister, later: removeLater,
 		copies: steamCopies,
 		tick:   time.Second, retry: time.Second, away: 5 * time.Minute,
-		stays: link, tray: showTray,
+		stays: link, tray: showTray, pick: pickFolder,
 	}
 	la.notify, la.confirm, la.turn, la.pressed, la.hide = la.tell, la.yes, turn, pressed, func() {}
 	if boxes {
 		la.out, la.status, la.notify, la.confirm, la.boxes = io.Discard, io.Discard, box, boxAsk, true
+		la.choose = taskDialogs()
 	}
 	if err != nil {
 		la.notify(fmt.Sprintf("The launcher can't find this PC's folder for programs' data: %v", err), true)
@@ -365,7 +382,7 @@ func (la *launcher) serve(ctx context.Context, url string) int {
 	srv, stop := la.open(ctx, l)
 	defer stop()
 	if la.tray != nil {
-		stop := la.tray(l.host, func() { openPage(l.base) }, la.quit)
+		stop := la.tray(l.host, la.menu(l.host, func() { openPage(l.base) }))
 		defer stop()
 	}
 	for {
@@ -633,8 +650,11 @@ func (la *launcher) trust(l link) error {
 			return errors.New("Nothing was started.")
 		}
 	}
-	la.cfg.Servers = append(la.cfg.Servers, l.base)
-	return la.saveConfig()
+	return la.change(func(c *config) {
+		if !slices.Contains(c.Servers, l.base) {
+			c.Servers = append(c.Servers, l.base)
+		}
+	})
 }
 
 // matchPlutonium makes sure that the PC's copy of Plutonium can join the server's games. A room's game accepts only
@@ -704,6 +724,10 @@ func (la *launcher) launch(ctx context.Context, srv *server, l link, play *launc
 		}
 	}
 	to := play.Game
+	dir, err := la.startFrom(dir) // or the folder the player chose in the tray's menu since
+	if err != nil {
+		return nil, err
+	}
 	exe := filepath.Join(la.plutonium, filepath.FromSlash(plutonium.Bootstrapper))
 	line, err := commandLine(exe, dir, to.Name, to.Password, l.host+":"+strconv.Itoa(to.Port))
 	if err != nil {
@@ -713,6 +737,7 @@ func (la *launcher) launch(ctx context.Context, srv *server, l link, play *launc
 	if err != nil {
 		return nil, fmt.Errorf("Plutonium could not be started: %v\n\n%s", err, la.plutoniumHint())
 	}
+	la.started(g)
 	la.launched = true
 	la.say("")
 	la.say("Black Ops II is starting, and joins the room's game as %s.", to.Name)
