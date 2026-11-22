@@ -1,5 +1,5 @@
-// A Black Ops II room: its players get ready, their own Plutonium joins its game through the relay, and they see its
-// report and the leaderboards.
+// A Black Ops II room: its host picks the game, then a map of it; its players get ready, their own Plutonium joins its
+// game through the relay, and they see its report and the game's own leaderboards.
 import { createSocket, type Socket } from 'node:dgram';
 import { expect, test } from '../fixtures';
 
@@ -24,6 +24,8 @@ test('a room plays its game to game over, and its round is on the leaderboards',
   const bob = await player('Bob');
 
   await ann.locator('#make').click();
+  await ann.locator('#titlepick').getByRole('radio', { name: 'Black Ops II', exact: true }).click();
+  await expect(ann.locator('#maptitle')).toHaveText('TranZit'); // its first map: the server's default is Black Ops'
   await ann.locator('#mapgrid').getByRole('radio', { name: 'Town', exact: true }).click();
   await expect(ann.locator('#maptitle')).toHaveText('Town');
   await expect(ann.locator('#roomcode')).toHaveText(/^[A-Z]{4}$/);
@@ -48,8 +50,11 @@ test('a room plays its game to game over, and its round is on the leaderboards',
   }
   for (const game of games) game.close();
 
+  // the leaderboards open on the room's game, whose card has Ann's round on Town
   await ann.locator('#resultsback').click();
   await ann.locator('#boardsopen').click();
-  await ann.locator('#boardtabs').getByRole('radio', { name: 'Black Ops II' }).click();
+  await expect(ann.locator('#boardtitles button[aria-checked=true]')).toHaveText('Black Ops II');
+  await expect(ann.locator('#boardtables .tile.lit')).toHaveCount(1);
+  await expect(ann.locator('#boardtables .tile.lit .name')).toHaveText('Town');
   await expect(ann.locator('#boardtables')).toContainText('Ann');
 });

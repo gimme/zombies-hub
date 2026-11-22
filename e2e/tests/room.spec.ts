@@ -1,9 +1,11 @@
-// A Black Ops room's game, as its players come and go: a player leaves the game and rejoins it, reloads in it, leaves
-// the room, and plays the server's new build; the room takes no one while it plays; its size; and a game that no one
-// joins, or that a client of another build can't join, is called off.
+// A room's game: its host picks Black Ops or Black Ops II, then a map of it, and a server of one game offers no
+// choice. A Black Ops room's game, as its players come and go: a player leaves the game and rejoins it, reloads in it,
+// leaves the room, and plays the server's new build; the room takes no one while it plays; its size; and a game that
+// no one joins, or that a client of another build can't join, is called off.
+import type { Page } from '@playwright/test';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { apiPlayer, expect, joinRoom, makeRoom, playRoomGame, said, test } from '../fixtures';
+import { apiPlayer, expect, gameFiles, joinRoom, makeRoom, playRoomGame, said, test } from '../fixtures';
 
 declare global {
   // eslint-disable-next-line no-var
@@ -11,6 +13,72 @@ declare global {
   // eslint-disable-next-line no-var
   var marked: boolean | undefined;
 }
+
+test("the host picks the room's game, and the room's maps are that game's; the others see it, and the list of rooms",
+  async ({ server, player }) => {
+    const ann = await player('Ann');
+    const bob = await player('Bob');
+    const code = await makeRoom(ann);
+    await joinRoom(bob, code);
+    const badge = (page: Page, name: string) => page.locator('#members li', { hasText: name }).locator('.badge');
+    // Black Ops: its maps, its game over the map's name, and its settings under Ready; none at the top
+    await expect(ann.locator('#titlepick button')).toHaveText(['Black Ops', 'Black Ops II']);
+    await expect(ann.locator('#titlepick button[aria-checked=true]')).toHaveText('Black Ops');
+    await expect(bob.locator('#titlepick')).toBeHidden(); // the host's to pick
+    await expect(bob.locator('#mapkicker')).toHaveText('Black Ops');
+    await expect(bob.locator('#mapgrid button')).toHaveCount(10);
+    for (const page of [ann, bob]) await expect(page.locator('#roomsettings')).toBeVisible();
+    await expect(ann.locator('header #settings, header #roomsettings')).toHaveCount(0);
+    // Bob suggests Five, and is ready
+    await bob.locator('#mapgrid button:nth-child(2)').click();
+    await expect(ann.locator('#mapgrid button:nth-child(2) .marks .avatar')).toHaveCount(1);
+    await bob.locator('#ready').click();
+    await expect(badge(ann, 'Bob')).toHaveText('Ready');
+
+    // Black Ops II: its first map, its maps alone, Bob's mark of Five gone and Bob not ready, and no Black Ops
+    // settings
+    await ann.locator('#titlepick').getByRole('radio', { name: 'Black Ops II', exact: true }).click();
+    for (const page of [ann, bob]) {
+      await expect(page.locator('#maptitle')).toHaveText('TranZit');
+      await expect(page.locator('#mapkicker')).toHaveText('Black Ops II');
+      await expect(page.locator('#mapgrid button')).toHaveCount(9);
+      await expect(page.locator('#mapgrid .marks')).toHaveCount(0);
+      await expect(page.locator('#roomsettings')).toBeHidden();
+    }
+    await expect(badge(ann, 'Bob')).toHaveText('Not ready');
+    await server.waitFor(new RegExp(`^server: room ${code} plays Black Ops II$`));
+    // the list of rooms says each room's game
+    const cy = await player('Cy');
+    await expect(cy.locator('#rooms li .sub')).toHaveText(/^Black Ops II · Ann's room/);
+
+    // Bob suggests Origins; back on Black Ops the room has the map it had, and Bob's mark of Origins is gone
+    await bob.locator('#mapgrid').getByRole('radio', { name: 'Origins', exact: true }).click();
+    await expect(ann.locator('#mapgrid .marks .avatar')).toHaveCount(1);
+    await ann.locator('#titlepick').getByRole('radio', { name: 'Black Ops', exact: true }).click();
+    await expect(bob.locator('#maptitle')).toHaveText('Kino der Toten');
+    await expect(bob.locator('#mapgrid button')).toHaveCount(10);
+    await expect(bob.locator('#mapgrid .marks')).toHaveCount(0);
+    await expect(cy.locator('#rooms li .sub')).toHaveText(/^Black Ops · Ann's room/);
+  });
+
+test.describe('a server of Black Ops alone', () => {
+  // eslint-disable-next-line no-empty-pattern
+  test.use({ serverArgs: async ({}, use) => use(['-game-dir', gameFiles('game-t5')]) });
+
+  test('offers no choice of game, in a room, the list of rooms or the leaderboards', async ({ player }) => {
+    const ann = await player('Ann');
+    await makeRoom(ann);
+    await expect(ann.locator('#mapgrid button')).toHaveCount(10);
+    await expect(ann.locator('#titlepick')).toBeHidden();
+    await expect(ann.locator('#mapkicker')).toHaveText('Map');
+    await expect(ann.locator('#roomsettings')).toBeVisible();
+    const bob = await player('Bob');
+    await expect(bob.locator('#rooms li .sub')).toHaveText(/^Ann's room/);
+    await bob.locator('#boardsopen').click();
+    await expect(bob.locator('#boardtabs button')).toHaveText(['Rounds', 'Easter eggs']);
+    await expect(bob.locator('#boardtitles')).toBeHidden();
+  });
+});
 
 test('a player leaves the game and rejoins it, then leaves the room, and the game lets their character go', async (
   { server, player }) => {

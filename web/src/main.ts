@@ -156,20 +156,21 @@ function makePlayer(host: Host): void {
   }));
 }
 
-// Shows the button at the top that opens the game's options menu (settings.ts). The menu changes the player's
-// config, which the browser's store keeps for the next game. A game starts once the changes are saved (game.ts:
-// startEngine).
+// Makes the buttons work that open Black Ops' options menu (settings.ts): the one of the page to play offline, and
+// the one of a room on a Black Ops map. The views show them (solo.ts, room.ts). The menu changes the player's config,
+// which the browser's store keeps for the next game. A game starts once the changes are saved (game.ts: startEngine).
+// When the menu closes, the focus is back on the button that opened it.
 function settingsInit(): void {
-  if (!lobbyMode || !bo1Settings.available) return;
-  const button = $('settings');
-  button.classList.remove('hidden');
-  button.onclick = () => {
-    button.setAttribute('aria-expanded', 'true');
-    bo1Settings.open('settings', () => {
-      button.setAttribute('aria-expanded', 'false');
-      button.focus();
-    });
-  };
+  for (const id of ['settings', 'roomsettings']) {
+    const button = $(id);
+    button.onclick = () => {
+      button.setAttribute('aria-expanded', 'true');
+      bo1Settings.open('settings', () => {
+        button.setAttribute('aria-expanded', 'false');
+        button.focus();
+      });
+    };
+  }
 }
 
 // What a click on the room's button does, by what the button is at (room.ts: showRoomButton).

@@ -5,6 +5,10 @@ import "slices"
 // title is a Call of Duty game that the server hosts: Black Ops (t5.go) or Black Ops II (t6.go). The rooms, the
 // page's view and the runner (game.go) deal with a title only through this interface. Hosting another title then
 // takes a new file, and no changes to those. The caller holds l.mu for every method.
+//
+// A room's title is its map's (lobby.title). The host picks the title, and the room goes to a map of it (titleMap),
+// or picks a map, and the room's title follows. The page shows the titles apart: a room's maps, and the leaderboards
+// (leaderboards.go), are of one title.
 type title interface {
 	id() string    // its folder among the game files, and its id for the page: "t5"
 	label() string // its name in messages to players: "Black Ops II"
@@ -32,13 +36,20 @@ type title interface {
 
 // title returns the title of a map. For a map the server doesn't list, it returns the first title, Black Ops.
 func (l *lobby) title(mapName string) title {
-	of := titleOf(mapName)
+	if t := l.titleByID(titleOf(mapName)); t != nil {
+		return t
+	}
+	return l.titles[0]
+}
+
+// titleByID returns the title whose id is id, or nil when there is none.
+func (l *lobby) titleByID(id string) title {
 	for _, t := range l.titles {
-		if t.id() == of {
+		if t.id() == id {
 			return t
 		}
 	}
-	return l.titles[0]
+	return nil
 }
 
 // titleOf returns the id of a map's title. It returns t5 for a map the server doesn't list.
@@ -47,6 +58,37 @@ func titleOf(mapName string) string {
 		return m.of
 	}
 	return t5
+}
+
+// hosted returns the titles the server hosts: those that the game files have a map of, in the order of l.titles. The
+// page offers a choice of title where there are two.
+func (l *lobby) hosted() []title {
+	have := l.maps()
+	var out []title
+	for _, t := range l.titles {
+		if slices.ContainsFunc(have, func(m string) bool { return titleOf(m) == t.id() }) {
+			out = append(out, t)
+		}
+	}
+	return out
+}
+
+// titleMap returns the map that r goes to when its host picks the title of (setRoom): r's own map when it is of that
+// title, else the map r last had of it, else the server's default map when that is of it, else the first map of it
+// that the game files have. It returns "" when the game files have no map of it.
+func (l *lobby) titleMap(r *room, of string) string {
+	have := l.maps()
+	for _, m := range []string{r.mapName, r.had[of], l.defaultMap} {
+		if titleOf(m) == of && slices.Contains(have, m) {
+			return m
+		}
+	}
+	for _, m := range have {
+		if titleOf(m) == of {
+			return m
+		}
+	}
+	return ""
 }
 
 // mapEntry is a Zombies map: the id of its title (of), its name in the game, its name on the page (title), and where

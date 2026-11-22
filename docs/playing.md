@@ -1,17 +1,18 @@
 # Playing
 
-Open the server's page in Chrome. Make a room, or join one from the list or with its code. The host picks the map. When everyone has pressed Ready, the game starts.
+Open the server's page in Chrome. Make a room, or join one from the list or with its code. The host picks the game, Black Ops or Black Ops II, then a map of it. The others can suggest a map with a click on it. When everyone has pressed Ready, the game starts.
 
-A room shows only the games the server hosts.
+The page offers only the games the server hosts, and a server of one game has nothing to pick. The list of rooms says each room's game, and each game has its own leaderboards.
 
 ## Black Ops
 
 Black Ops runs in the browser tab.
 
 - **Browser:** Chrome, or another browser with WebGPU.
-- **Game files:** you need your own copy of Black Ops. Open the menu under your name, choose Game folder and select the game's install folder. Each map then has an Import button. The browser keeps the imported files, and nothing from the folder is sent to the server. If the host has turned on downloads, the button says Download and no copy is needed.
+- **Game files:** you need your own copy of Black Ops. Open the menu under your name, and under Black Ops game folder choose the game's install folder. Each map then has an Import button. The browser keeps the imported files, and nothing from the folder is sent to the server. If the host has turned on downloads, the button says Download and no copy is needed.
+- **Settings:** Black Ops settings, under Ready in a Black Ops room and under Play when you play offline, opens the game's graphics, sound and controls. Your next game in this browser starts with them. In a game, the game's own menu has them.
 - **Mouse and full screen:** a click captures the mouse and goes full screen. Esc opens the game's menu. Hold Esc or press F11 to leave full screen.
-- **Gamepads:** Xbox and PlayStation controllers work. Press any button to turn the gamepad on.
+- **Gamepads:** Xbox and PlayStation controllers work. Press any button to turn the gamepad on. Start opens the settings where the page has them.
 - **Play offline:** plays a map alone in the browser. It also works without the server, for maps you have imported.
 - **Dropped from a game:** rejoin within 5 minutes to get your character back.
 

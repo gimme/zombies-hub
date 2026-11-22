@@ -9,9 +9,11 @@ Each game it hosts is a title, named after its engine:
 - **`t5`, Black Ops.** The game process is `BO1Zombies.exe` from [bo1-zombies](https://github.com/gimme/bo1-zombies), running as a dedicated server. Players run the same engine in the browser, as WebAssembly, and connect over WebTransport.
 - **`t6`, Black Ops II.** The game process is Plutonium's dedicated server. Players run Plutonium on their own PC. The launcher installs and starts it, and their game connects over UDP.
 
+A room plays one title: its map's. The page keeps the titles apart. A room's host picks the title, then a map of it, and the leaderboards are by title. Where the server hosts one title, the page offers no choice.
+
 ## Layout
 
-- `server/`: the server. `rooms.go` has the rooms, `game.go` runs a game process, `relay.go` relays players' packets, and `web.go` serves the page and the game files. Each title has a file: `t5.go`, `t6.go`. `store.go` is the SQLite database that keeps the players and the games' reports, and has its schema.
+- `server/`: the server. `rooms.go` has the rooms, `game.go` runs a game process, `relay.go` relays players' packets, and `web.go` serves the page and the game files. Each title has a file: `t5.go`, `t6.go`. `title.go` has what the rest of the server knows of a title, and which map a room goes to when its host picks one. `store.go` is the SQLite database that keeps the players and the games' reports, and has its schema.
 - `launcher/`: Zombies Launcher, the Windows program that starts a player's Black Ops II. The image's build compiles it and puts it inside the server, which hands it out.
 - `internal/`: Go packages.
   - `bo1zombies/`: downloads and unpacks the Black Ops engine build.
@@ -21,7 +23,7 @@ Each game it hosts is a title, named after its engine:
 - `cmd/launcher-release/`: makes the launcher's signing key and signs a build.
 - `web/`: the page, built with [Vite](https://vite.dev/).
   - `index.html`: the page's markup.
-  - `src/`: the page's code, in TypeScript. It is in parts, one for each thing the page does, such as `room.ts`, `profile.ts`, `game.ts` and `boards.ts` (the leaderboards). `main.ts` is the entry, and its header lists the parts and the URL parameters. The parts are layered: a part imports only from the parts below it. `api.ts` has the types of what the server sends, and `settings.ts` is the game's options menu. A part's tests are next to it, in `<part>.test.ts`. The `.css` files are the style sheets.
+  - `src/`: the page's code, in TypeScript. It is in parts, one for each thing the page does, such as `room.ts`, `profile.ts`, `game.ts` and `boards.ts` (the leaderboards). `main.ts` is the entry, and its header lists the parts and the URL parameters. The parts are layered: a part imports only from the parts below it. `api.ts` has the types of what the server sends, `titles.ts` keeps the titles apart, and `settings.ts` is Black Ops' options menu. A part's tests are next to it, in `<part>.test.ts`. The `.css` files are the style sheets.
   - `public/`: files that are served as they are. `player.js` runs the Black Ops engine in a page, `store.js` keeps game files in the browser, and `sw.js` is the service worker.
   - `dist/` (not in the repo): the built page, which the server serves.
 - `e2e/`: the page tests and the game tests, with [Playwright Test](https://playwright.dev/).
@@ -61,7 +63,7 @@ Two things in this repo depend on the engine build:
 ## Testing
 
 - `make test-go` runs the Go tests in about a minute. It needs no game files. GitHub runs the same tests on every push to `main` and on every pull request, on Linux and on Windows (`.github/workflows/test.yml`). It also checks, tests and builds the page there.
-- `make test-e2e` runs the page tests: the built page in Chromium, against the server, with stand-ins for the games and for the engine in the page. A stand-in game answers the server as the real one does, and the test tells it on the server's console when a round begins and when the game is over. The pages join it through the relay, as the engine does. The tests cover what the page and the server do around a game: rooms and their games for both titles, mods, a player's tabs, playing alone, the leaderboards, missing maps and game folders, the gamepad in the lobby, and the Windows client's join. They need no game files, run in Docker in about three minutes, and also run on GitHub. `docker/test-e2e.sh tests/room.spec.ts` runs one file, and a failed test leaves its screenshot, trace and logs in `build/e2e/results`.
+- `make test-e2e` runs the page tests: the built page in Chromium, against the server, with stand-ins for the games and for the engine in the page. A stand-in game answers the server as the real one does, and the test tells it on the server's console when a round begins and when the game is over. The pages join it through the relay, as the engine does. The tests cover what the page and the server do around a game: rooms and their games for both titles, the choice of a room's title, mods, a player's tabs, playing alone, the leaderboards, missing maps and game folders, the gamepad in the lobby, and the Windows client's join. They need no game files, run in Docker in about three minutes, and also run on GitHub. `docker/test-e2e.sh tests/room.spec.ts` runs one file, and a failed test leaves its screenshot, trace and logs in `build/e2e/results`.
 - `make test` runs the game tests (`docker/test-games.sh`): real games against the server image, played in this machine's Chrome on its GPU, and by the Windows client under Wine. Each test has a server container of its own, and they run four at a time. They need the Black Ops game files, Node, `npm ci` in `e2e`, and Chrome. They are in three groups:
   - `smoke`: what a deploy needs to work. The server image as Unraid runs it, a room's game of two to game over, playing alone offline and from the player's own install, downloads at a capped rate, and the Windows client.
   - `engine`: what the engine does in the page and as a room's game. Playing alone with the settings menu, the gamepad, tabs, the end scoreboard, mods, a hung game and a client of another build.

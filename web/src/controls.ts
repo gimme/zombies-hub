@@ -1,5 +1,5 @@
-// web/src/controls.ts - the kinds of control that the lobby's views share: a copy button, a switch, a row of options,
-// a badge, and a view's main button.
+// web/src/controls.ts - the kinds of control that the lobby's views share: a copy button, a switch, a row of options
+// (a room's size, its game), a badge, and a view's main button.
 import { el } from './dom';
 import { act, page } from './lobby';
 import { showToast } from './screen';
@@ -106,22 +106,25 @@ export function showOnOff(badge: HTMLElement, on: boolean): void {
   badgeSay(badge, on ? 'On' : 'Off', on);
 }
 
-/** What a row of options picks from. An option with soon is yet to come, and can't be picked. */
-export interface Options {
+/**
+ * What a row of options picks from: numbers, such as a room's size, or names, such as a room's game. An option's
+ * button says its label, or its value where it has none. An option with soon is yet to come, and can't be picked.
+ */
+export interface Options<V extends number | string = number> {
   name: string;
-  options: { value: number; soon?: boolean }[];
+  options: { value: V; label?: string; soon?: boolean }[];
 }
 
 /**
  * Makes a row of options (.seg): a button for each, of which one is checked. A click shows its pick at once, and the
  * lobby is asked for the change that set(value) describes.
  */
-export function optionButtons(of: Options, set: (value: number) => object): HTMLDivElement {
+export function optionButtons<V extends number | string>(of: Options<V>, set: (value: V) => object): HTMLDivElement {
   const box = el('div', 'seg');
   box.setAttribute('role', 'radiogroup');
   box.setAttribute('aria-label', of.name);
   for (const o of of.options) {
-    const b = el('button', '', String(o.value));
+    const b = el('button', '', o.label ?? String(o.value));
     b.type = 'button';
     b.setAttribute('role', 'radio');
     b.dataset.value = String(o.value);
@@ -136,14 +139,14 @@ export function optionButtons(of: Options, set: (value: number) => object): HTML
   return box;
 }
 
-function optionSet(box: Element, value: number): void {
+function optionSet(box: Element, value: number | string): void {
   for (const b of box.children) {
-    b.setAttribute('aria-checked', String(Number((b as HTMLElement).dataset.value) === value));
+    b.setAttribute('aria-checked', String((b as HTMLElement).dataset.value === String(value)));
   }
 }
 
 /** Sets a row of options to what a view says of it. */
-export function optionShow(box: Element, value: number): void {
+export function optionShow(box: Element, value: number | string): void {
   if (!changing.get(box)) optionSet(box, value);
 }
 

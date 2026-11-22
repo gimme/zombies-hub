@@ -9,8 +9,9 @@
 //     go as the W3C's spatial navigation finds it. Up and down go a row at a time, and keep the column (move).
 //   - A presses the control that has the focus. In a text field, A is Enter (activate).
 //   - B goes back (back).
-//   - Start opens the options menu, and closes it, as the game's Start does with its menu. The options menu has a
-//     cursor of its own, which takes the presses while the menu is open (settings.ts: pad).
+//   - Start opens the options menu, and closes it, as the game's Start does with its menu. It opens the menu where the
+//     view has the button for it: a room on a Black Ops map, or the page to play offline (settingsButton). The
+//     options menu has a cursor of its own, which takes the presses while the menu is open (settings.ts: pad).
 //   - The right stick scrolls (scroll).
 //
 // Chrome has no events for the buttons of a gamepad, so the page reads them each frame while a gamepad is connected
@@ -280,6 +281,10 @@ const viewOf = (): string => [
 // text field can be disabled. A link or another element can't.
 const usable = (e: Element & { disabled?: boolean }) =>
   !e.disabled && e.getClientRects().length > 0 && getComputedStyle(e).visibility !== 'hidden';
+
+// Returns the button of the view that shows which opens the options menu, or undefined where the view has none: the
+// page to play offline's, or the room's on a Black Ops map (main.ts: settingsInit).
+const settingsButton = (): HTMLElement | undefined => [$('settings'), $('roomsettings')].find(usable);
 
 // Returns the controls that the focus can go to, in the page's order.
 const controls = (): HTMLElement[] => [...scope().querySelectorAll<HTMLElement>(CONTROL)].filter(usable);
@@ -634,9 +639,10 @@ function press(n: Press): void {
   if (!had) pictureTip('focus'); // a picture that has the focus now has its ring, and so its tip (profile.ts)
   if (settingsShown()) return n === 'start' ? bo1Settings.close() : bo1Settings.pad(n);
   if (n === 'start') {
-    if (asking() || !usable($('settings'))) return;
+    const settings = settingsButton();
+    if (asking() || !settings) return;
     openProfile(false); // a click outside the profile's menu closes it too
-    $('settings').click();
+    settings.click();
     return;
   }
   const list = controls();

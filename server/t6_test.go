@@ -400,19 +400,24 @@ func TestT6Room(t *testing.T) {
 		defer l.mu.Unlock()
 		return l.leaderboards(l.playerOf(a))
 	}
-	duo := func() []boardRow { return boards().T6Rounds[0].Duo }
+	duo := func() []boardRow { return boards().of(t6).Rounds.Maps[0].Duo }
 	waitFor(t, "both players on the duo board", func() bool { return len(duo()) == 2 })
 	b3 := boards()
-	if len(b3.Rounds) != 1 || len(b3.T6Rounds) != 2 || b3.T6Rounds[0].Map != "zm_standard_town" {
-		t.Fatalf("the boards' maps: %+v, T6's %+v", b3.Rounds, b3.T6Rounds)
+	if len(b3.Titles) != 2 || b3.Titles[0].ID != t5 || b3.Titles[1].ID != t6 || b3.of(t6).Name != "Black Ops II" ||
+		b3.of(t6).Eggs != nil {
+		t.Fatalf("the boards' titles: %+v", b3.Titles)
 	}
-	if rows := b3.T6Rounds[0].Duo; rows[0].Round != 3 || rows[1].Round != 3 || rows[0].Party != 2 {
+	t5Boards, t6Boards := b3.of(t5).Rounds, b3.of(t6).Rounds
+	if len(t5Boards.Maps) != 1 || len(t6Boards.Maps) != 2 || t6Boards.Maps[0].Map != "zm_standard_town" {
+		t.Fatalf("the boards' maps: %+v, T6's %+v", t5Boards.Maps, t6Boards.Maps)
+	}
+	if rows := t6Boards.Maps[0].Duo; rows[0].Round != 3 || rows[1].Round != 3 || rows[0].Party != 2 {
 		t.Errorf("the duo board after round 3: %+v", rows)
 	}
-	if all := b3.AllT6Rounds; len(all.Rows) != 2 || all.Mine.Round != 3 || b3.Games[all.Mine.Bests[0].Game] == nil {
+	if all := t6Boards.All; len(all.Rows) != 2 || all.Mine.Round != 3 || b3.Games[all.Mine.Bests[0].Game] == nil {
 		t.Errorf("T6's board of all its maps after round 3: %+v", all)
 	}
-	if n := len(b3.AllRounds.Rows); n != 0 {
+	if n := len(t5Boards.All.Rows); n != 0 {
 		t.Errorf("T5's board of all its maps has %d players of a T6 game", n)
 	}
 	// another room can't play T6 meanwhile
@@ -627,7 +632,7 @@ func TestT6RoomBeginsAsItsServerSays(t *testing.T) {
 		t.Fatalf("the game, its server having begun it without Bob: %s, %+v", v.Room.State, v.Room.Members[1])
 	}
 	l.mu.Lock()
-	rows := l.leaderboards(l.playerOf(a)).T6Rounds[0].Duo
+	rows := l.leaderboards(l.playerOf(a)).of(t6).Rounds.Maps[0].Duo
 	l.mu.Unlock()
 	if len(rows) != 1 || rows[0].Name != "Ann" || rows[0].Round != 1 || rows[0].Party != 2 {
 		t.Errorf("the duo board after round 1: %+v", rows)

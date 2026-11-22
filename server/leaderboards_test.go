@@ -29,6 +29,16 @@ func getBoards(t *testing.T, l *lobby, token string) (int, leaderboards) {
 	return rec.Code, b
 }
 
+// of is the boards of the title with that id, or no boards when the server hosts no such title.
+func (b leaderboards) of(id string) titleBoards {
+	for _, t := range b.Titles {
+		if t.ID == id {
+			return t
+		}
+	}
+	return titleBoards{}
+}
+
 // playerWith is a player of that name, whom change gives their stats and records; their token.
 func playerWith(l *lobby, name string, change func(p *player)) string {
 	h := l.hello("", name)
@@ -74,46 +84,52 @@ func TestLeaderboardsRankRounds(t *testing.T) {
 	if status != http.StatusOK {
 		t.Fatalf("the leaderboards answered %d", status)
 	}
-	if got := []string{b.Rounds[0].Map, b.Rounds[1].Map}; !slices.Equal(got, []string{theater, "zombie_cod5_asylum"}) {
+	if got := len(b.Titles); got != 1 || b.Titles[0].ID != t5 || b.Titles[0].Name != "Black Ops" {
+		t.Fatalf("the titles: %+v", b.Titles)
+	}
+	rounds := b.of(t5).Rounds.Maps
+	if got := []string{rounds[0].Map, rounds[1].Map}; !slices.Equal(got, []string{theater, "zombie_cod5_asylum"}) {
 		t.Errorf("the maps: %v", got)
 	}
+	kino, asylum := rounds[0], rounds[1]
 	want := []string{"Duo First", "Duo Later", "Both"}
-	if got := onBoard(b.Rounds[0].Duo); !slices.Equal(got, want) {
+	if got := onBoard(kino.Duo); !slices.Equal(got, want) {
 		t.Errorf("Kino's duos: %v, want %v", got, want)
 	}
-	if r := b.Rounds[0].Duo[2]; r.Round != 12 || r.Party != 2 {
+	if r := kino.Duo[2]; r.Round != 12 || r.Party != 2 {
 		t.Errorf("Both's duo: %+v", r)
 	}
-	if got, want := onBoard(b.Rounds[0].Squad), []string{"Four", "Both"}; !slices.Equal(got, want) {
+	if got, want := onBoard(kino.Squad), []string{"Four", "Both"}; !slices.Equal(got, want) {
 		t.Errorf("Kino's squads: %v, want %v", got, want)
 	}
-	if r := b.Rounds[0].Squad[0]; r.Round != 31 || r.Party != 4 {
+	if r := kino.Squad[0]; r.Round != 31 || r.Party != 4 {
 		t.Errorf("Four's: %+v", r)
 	}
-	if r := b.Rounds[0].Squad[1]; r.Round != 30 || r.Party != 3 {
+	if r := kino.Squad[1]; r.Round != 30 || r.Party != 3 {
 		t.Errorf("Both's squad, three of them: %+v", r)
 	}
-	if r := b.Rounds[1].Squad; len(r) != 1 || r[0].Name != "Asylum" || r[0].Round != 7 || r[0].Party != 3 {
+	if r := asylum.Squad; len(r) != 1 || r[0].Name != "Asylum" || r[0].Round != 7 || r[0].Party != 3 {
 		t.Errorf("Verrückt's squads: %+v", r)
 	}
-	if got, want := onBoard(b.Rounds[0].BigSquad), []string{"Eight", "Both"}; !slices.Equal(got, want) {
+	if got, want := onBoard(kino.BigSquad), []string{"Eight", "Both"}; !slices.Equal(got, want) {
 		t.Errorf("Kino's big squads: %v, want %v", got, want)
 	}
-	if r := b.Rounds[0].BigSquad[1]; r.Round != 18 || r.Party != 5 {
+	if r := kino.BigSquad[1]; r.Round != 18 || r.Party != 5 {
 		t.Errorf("Both's big squad, five of them: %+v", r)
 	}
-	if r := b.Rounds[1].BigSquad; r == nil || len(r) != 0 {
+	if r := asylum.BigSquad; r == nil || len(r) != 0 {
 		t.Errorf("Verrückt's big squads: %#v", r)
 	}
 	for size, want := range map[int][]string{6: {"Both"}, 4: {}} {
 		l.roomSize = size
-		if _, b := getBoards(t, l, viewer); !slices.Equal(onBoard(b.Rounds[0].BigSquad), want) {
-			t.Errorf("Kino's big squads in rooms of %d: %v, want %v", size, onBoard(b.Rounds[0].BigSquad), want)
+		if _, b := getBoards(t, l, viewer); !slices.Equal(onBoard(b.of(t5).Rounds.Maps[0].BigSquad), want) {
+			t.Errorf("Kino's big squads in rooms of %d: %v, want %v", size, onBoard(b.of(t5).Rounds.Maps[0].BigSquad),
+				want)
 		}
 	}
 	l.roomSize = 8
-	if len(b.Eggs) != 0 || b.Eggs == nil {
-		t.Errorf("the easter eggs of maps that have none: %#v", b.Eggs)
+	if eggs := b.of(t5).Eggs; eggs != nil {
+		t.Errorf("the easter eggs of maps that have none: %#v", eggs)
 	}
 
 	if status, _ := getBoards(t, l, "not a token"); status != http.StatusUnauthorized {
@@ -141,13 +157,14 @@ func TestLeaderboardsRankEggsByTime(t *testing.T) {
 		p.keepEgg(moon, 4, 600, "g")
 	})
 	_, b := getBoards(t, l, viewer)
-	if got, want := onBoard(b.Eggs[0].Duo), []string{"Fast", "Improved", "Slow"}; !slices.Equal(got, want) {
+	egg := b.of(t5).Eggs.Maps[0]
+	if got, want := onBoard(egg.Duo), []string{"Fast", "Improved", "Slow"}; !slices.Equal(got, want) {
 		t.Errorf("the duos: %v, want %v", got, want)
 	}
-	if r := b.Eggs[0].Duo[0]; r.Seconds != 300 || r.Game != "g" {
+	if r := egg.Duo[0]; r.Seconds != 300 || r.Game != "g" {
 		t.Errorf("the fastest duo: %+v", r)
 	}
-	if r := b.Eggs[0].Squad; len(r) != 1 || r[0].Seconds != 600 || r[0].Party != 4 {
+	if r := egg.Squad; len(r) != 1 || r[0].Seconds != 600 || r[0].Party != 4 {
 		t.Errorf("the squads: %+v", r)
 	}
 }
@@ -182,10 +199,11 @@ func TestLeaderboardsSumRounds(t *testing.T) {
 	playerWith(l, "Alone", func(p *player) { p.keepRound(theater, 1, 60, "g") }) // not on it
 
 	_, b := getBoards(t, l, viewer)
-	if got, want := onAll(b.AllRounds.Rows), []string{"One Map", "Three Maps", "Tied Later"}; !slices.Equal(got, want) {
+	all := b.of(t5).Rounds.All
+	if got, want := onAll(all.Rows), []string{"One Map", "Three Maps", "Tied Later"}; !slices.Equal(got, want) {
 		t.Fatalf("the board of all the maps: %v, want %v", got, want)
 	}
-	row := b.AllRounds.Rows[1]
+	row := all.Rows[1]
 	if row.Round != 34 || len(row.Bests) != 3 {
 		t.Fatalf("Three Maps's line: %+v", row)
 	}
@@ -195,23 +213,26 @@ func TestLeaderboardsSumRounds(t *testing.T) {
 			t.Errorf("Three Maps's best %d: %+v, want %+v", i, r, want)
 		}
 	}
-	if m := b.AllRounds.Mine; m.Name != "Viewer" || m.Round != 0 || m.Bests == nil || len(m.Bests) != 0 {
+	if m := all.Mine; m.Name != "Viewer" || m.Round != 0 || m.Bests == nil || len(m.Bests) != 0 {
 		t.Errorf("the line of a player with no record: %+v", m)
 	}
-	if _, b := getBoards(t, l, three); b.AllRounds.Mine.Round != 34 || len(b.AllRounds.Mine.Bests) != 3 {
-		t.Errorf("Three Maps's own line: %+v", b.AllRounds.Mine)
+	if _, b := getBoards(t, l, three); b.of(t5).Rounds.All.Mine.Round != 34 ||
+		len(b.of(t5).Rounds.All.Mine.Bests) != 3 {
+		t.Errorf("Three Maps's own line: %+v", b.of(t5).Rounds.All.Mine)
 	}
-	if r := b.AllEggs; r.Rows == nil || len(r.Rows) != 0 || r.Mine.Bests == nil {
+	// Moon has an easter egg, which no one has done
+	if r := b.of(t5).Eggs.All; r.Rows == nil || len(r.Rows) != 0 || r.Mine.Bests == nil {
 		t.Errorf("the board of all the easter eggs, with none done: %#v", r)
 	}
 
 	// in rooms of 8, the big squad's round counts
 	l.roomSize = 8
 	_, b = getBoards(t, l, viewer)
-	if got, want := onAll(b.AllRounds.Rows), []string{"Three Maps", "One Map", "Tied Later"}; !slices.Equal(got, want) {
+	all = b.of(t5).Rounds.All
+	if got, want := onAll(all.Rows), []string{"Three Maps", "One Map", "Tied Later"}; !slices.Equal(got, want) {
 		t.Errorf("the board of all the maps, in rooms of 8: %v, want %v", got, want)
 	}
-	if row := b.AllRounds.Rows[0]; row.Round != 59 || row.Bests[1].Party != 8 {
+	if row := all.Rows[0]; row.Round != 59 || row.Bests[1].Party != 8 {
 		t.Errorf("Three Maps's line, in rooms of 8: %+v", row)
 	}
 }
@@ -233,15 +254,16 @@ func TestLeaderboardsSumEggs(t *testing.T) {
 		p.keepEgg(cosmodrome, 4, 1000, "g")
 	})
 	_, b := getBoards(t, l, viewer)
-	if got, want := onAll(b.AllEggs.Rows), []string{"Two Fast", "Two Slow", "One Fast"}; !slices.Equal(got, want) {
+	all := b.of(t5).Eggs.All
+	if got, want := onAll(all.Rows), []string{"Two Fast", "Two Slow", "One Fast"}; !slices.Equal(got, want) {
 		t.Fatalf("the board of all the easter eggs: %v, want %v", got, want)
 	}
-	row := b.AllEggs.Rows[0]
+	row := all.Rows[0]
 	if row.Seconds != 2500 || len(row.Bests) != 2 || row.Bests[0].Map != cosmodrome || row.Bests[1].Map != moon ||
 		row.Bests[1].Party != 3 || row.Bests[1].Game != "three" {
 		t.Errorf("Two Fast's line: %+v", row)
 	}
-	if m := b.AllEggs.Mine; m.Name != "Two Slow" || m.Seconds != 7000 || len(m.Bests) != 2 {
+	if m := all.Mine; m.Name != "Two Slow" || m.Seconds != 7000 || len(m.Bests) != 2 {
 		t.Errorf("Two Slow's own line: %+v", m)
 	}
 }
@@ -258,11 +280,11 @@ func TestLeaderboardsOfAllAreCapped(t *testing.T) {
 	l.reports["last"] = &gameResult{ID: "last", Map: "zombie_theater", Round: 1, Players: []playerStats{}}
 	l.mu.Unlock()
 	_, b := getBoards(t, l, last)
-	if rows := b.AllRounds.Rows; len(rows) != boardRows || rows[0].Round != boardRows+6 ||
+	if rows := b.of(t5).Rounds.All.Rows; len(rows) != boardRows || rows[0].Round != boardRows+6 ||
 		slices.Contains(onAll(rows), "Last") {
 		t.Errorf("the board of all the maps: %d rows, the first %+v", len(rows), rows[0])
 	}
-	if m := b.AllRounds.Mine; m.Round != 1 || len(m.Bests) != 1 || b.Games[m.Bests[0].Game] == nil {
+	if m := b.of(t5).Rounds.All.Mine; m.Round != 1 || len(m.Bests) != 1 || b.Games[m.Bests[0].Game] == nil {
 		t.Errorf("the line of a player past the board's rows: %+v, its games %+v", m, b.Games)
 	}
 }
@@ -283,8 +305,8 @@ func TestLeaderboardsKeepGamesOfRecords(t *testing.T) {
 		t.Errorf("the reports kept: %v", kept)
 	}
 	_, b := getBoards(t, l, token)
-	if b.Games["first"] == nil || b.Rounds[0].Duo[0].Game != "first" {
-		t.Errorf("the report of the record: %+v, %+v", b.Games, b.Rounds[0].Duo)
+	if b.Games["first"] == nil || b.of(t5).Rounds.Maps[0].Duo[0].Game != "first" {
+		t.Errorf("the report of the record: %+v, %+v", b.Games, b.of(t5).Rounds.Maps[0].Duo)
 	}
 
 	l.mu.Lock()
@@ -305,7 +327,7 @@ func TestLeaderboardsAreCapped(t *testing.T) {
 		token = playerWith(l, fmt.Sprintf("P%d", i), func(p *player) { p.keepRound("zombie_theater", 2, i+1, "g") })
 	}
 	_, b := getBoards(t, l, token)
-	if rows := b.Rounds[0].Duo; len(rows) != boardRows || rows[0].Round != boardRows+5 {
+	if rows := b.of(t5).Rounds.Maps[0].Duo; len(rows) != boardRows || rows[0].Round != boardRows+5 {
 		t.Errorf("the duos: %d rows, the first %+v", len(rows), rows[0])
 	}
 }
@@ -324,7 +346,7 @@ func TestLeaderboardsListOnlySignedIn(t *testing.T) {
 	}
 	l.mu.Unlock()
 	_, b := getBoards(t, l, signedIn)
-	if got := onBoard(b.Rounds[0].Duo); !slices.Equal(got, []string{"Signed"}) {
+	if got := onBoard(b.of(t5).Rounds.Maps[0].Duo); !slices.Equal(got, []string{"Signed"}) {
 		t.Errorf("the duos: %v", got)
 	}
 }
@@ -380,9 +402,9 @@ func TestRoomsKeepRecords(t *testing.T) {
 		t.Errorf("Cy's rounds, who wasn't there for the end: %+v", rounds)
 	}
 	_, b := getBoards(t, l, ann.Token)
-	squad := b.Eggs[0].Squad
-	if b.Eggs[0].Map != "zombie_moon" || len(squad) != 1 || squad[0].Name != "Ann" || squad[0].Seconds < 1 {
-		t.Errorf("Moon's easter egg: %+v", b.Eggs[0])
+	squad := b.of(t5).Eggs.Maps[0].Squad
+	if b.of(t5).Eggs.Maps[0].Map != "zombie_moon" || len(squad) != 1 || squad[0].Name != "Ann" || squad[0].Seconds < 1 {
+		t.Errorf("Moon's easter egg: %+v", b.of(t5).Eggs.Maps[0])
 	}
 	report := b.Games[squad[0].Game]
 	if report == nil || report.Round != 21 || report.Map != "zombie_moon" || len(report.Players) != 2 ||
@@ -462,7 +484,7 @@ func TestRoomsKeepRoundsAsTheyBegin(t *testing.T) {
 		return len(l.busy) == 0 // and the server has room for the next
 	})
 	_, b := getBoards(t, l, ann.Token)
-	row := b.Rounds[0].Duo[0]
+	row := b.of(t5).Rounds.Maps[0].Duo[0]
 	report := b.Games[row.Game]
 	if row.Name != "Ann" || row.Round != 3 || report == nil {
 		t.Fatalf("the game no one finished: %+v, %+v", row, report)
@@ -484,11 +506,11 @@ func TestRoomsKeepRoundsAsTheyBegin(t *testing.T) {
 	}
 	waitFor(t, "the report of game over", func() bool {
 		_, b := getBoards(t, l, ann.Token)
-		res := b.Games[b.Rounds[0].Duo[0].Game]
+		res := b.Games[b.of(t5).Rounds.Maps[0].Duo[0].Game]
 		return res != nil && len(res.Players) > 0 && res.Players[0].Score == 2000
 	})
 	_, b = getBoards(t, l, ann.Token)
-	res := b.Games[b.Rounds[0].Duo[0].Game]
+	res := b.Games[b.of(t5).Rounds.Maps[0].Duo[0].Game]
 	if res.Round != 4 || len(res.Players) != 2 || res.Players[0].Score != 2000 {
 		t.Errorf("game over's report, in place of the last round's: %+v", res)
 	}

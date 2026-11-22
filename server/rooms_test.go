@@ -304,6 +304,133 @@ func listed(rooms []roomItem) map[string]string {
 	return m
 }
 
+// A room's game is the title of its map. The view lists the titles the server hosts, and the list of rooms says each
+// room's. The host picks the title, and the room goes to a map of it: the map it had of it last, else the server's
+// default map where that is of it, else the first of it that the server has. That is a change of the map, allowed and
+// refused as one is: the players who were ready are no longer, and the marks of the other title's maps go. A mark is
+// for a map of the room's title.
+func TestRoomTitles(t *testing.T) {
+	l := testLobby(t)
+	const theater, pentagon, town, tomb = "zombie_theater", "zombie_pentagon", "zm_standard_town", "zm_classic_tomb"
+	l.maps = func() []string { return []string{theater, pentagon, town, tomb} }
+	ann, bob, cy := l.hello("", "Ann").Token, l.hello("", "Bob").Token, l.hello("", "Cy").Token
+	if got := l.viewOf(ann).Titles; !slices.Equal(got, []titleView{{t5, "Black Ops"}, {t6, "Black Ops II"}}) {
+		t.Errorf("the titles: %+v", got)
+	}
+	do(l, ann, "create")
+	code := l.viewOf(ann).Room.Code
+	do(l, bob, "join", "room", code)
+	do(l, cy, "join", "room", code)
+	room := func(token string) (map[string]string, *roomView) {
+		v := l.viewOf(token)
+		marks := map[string]string{}
+		for _, m := range v.Room.Members {
+			marks[m.Name] = m.Mark
+		}
+		if len(v.Rooms) != 1 || v.Rooms[0].Map != v.Room.Map || v.Rooms[0].Of != v.Room.Of {
+			t.Errorf("the room in the list: %+v, the room %+v", v.Rooms, v.Room)
+		}
+		return marks, v.Room
+	}
+	if _, r := room(cy); r.Map != theater || r.Of != t5 {
+		t.Fatalf("a new room: %+v", r)
+	}
+	if err := do(l, cy, "mark", "map", town); err != "Town is not a Black Ops map." {
+		t.Errorf("a mark of a map of the other title: %q", err)
+	}
+	do(l, bob, "mark", "map", pentagon)
+	readyAll(l, bob)
+
+	// Black Ops II: its first map, the server's default map being Black Ops'; Bob is no longer ready, and his mark of
+	// Five is gone
+	if err := do(l, ann, "room", "title", t6); err != "" {
+		t.Fatal(err)
+	}
+	marks, r := room(bob)
+	if r.Map != town || r.Of != t6 || marks["Bob"] != "" || l.viewOf(bob).You.Ready {
+		t.Fatalf("the room on Black Ops II: %+v, marks %v", r, marks)
+	}
+	if err := do(l, bob, "mark", "map", theater); err != "Kino der Toten is not a Black Ops II map." {
+		t.Errorf("a mark of a Black Ops map in a Black Ops II room: %q", err)
+	}
+	do(l, cy, "mark", "map", tomb)
+	do(l, bob, "mark", "map", town)
+
+	// Origins, then Black Ops again: back to Kino der Toten, and the marks of Black Ops II's maps go
+	do(l, ann, "room", "map", tomb)
+	if err := do(l, ann, "room", "title", t5); err != "" {
+		t.Fatal(err)
+	}
+	if marks, r := room(cy); r.Map != theater || marks["Bob"] != "" || marks["Cy"] != "" {
+		t.Errorf("the room on Black Ops again: %+v, marks %v", r, marks)
+	}
+	// Five, and Black Ops II and back: each time the map the room had last of the title
+	do(l, ann, "room", "map", pentagon)
+	do(l, ann, "room", "title", t6)
+	if _, r := room(ann); r.Map != tomb {
+		t.Errorf("Black Ops II again: %s, want the room's last map of it", r.Map)
+	}
+	do(l, ann, "room", "title", t6, "map", town) // a title, and a map of it
+	do(l, ann, "room", "title", t5)
+	if _, r := room(ann); r.Map != pentagon {
+		t.Errorf("Black Ops again: %s, want the room's last map of it", r.Map)
+	}
+
+	// the title the room has already changes nothing: who is ready stays so
+	readyAll(l, bob)
+	if err := do(l, ann, "room", "title", t5); err != "" || !l.viewOf(bob).You.Ready {
+		t.Errorf("the title the room has: %q, Bob ready %v", err, l.viewOf(bob).You.Ready)
+	}
+	for _, c := range []struct{ token, title, mapName, want string }{
+		{bob, t6, "", "Only the host picks the map."},
+		{ann, "t7", "", "There is no game t7."},
+		{ann, t6, theater, "Kino der Toten is not a Black Ops II map."},
+		{ann, t6, "zm_classic_prison", "The server doesn't have Mob of the Dead."},
+	} {
+		args := []string{"title", c.title}
+		if c.mapName != "" {
+			args = append(args, "map", c.mapName)
+		}
+		if err := do(l, c.token, "room", args...); err != c.want {
+			t.Errorf("room %v: %q, want %q", args, err, c.want)
+		}
+	}
+	if _, r := room(ann); r.Map != pentagon {
+		t.Errorf("the room's map after the refusals: %s", r.Map)
+	}
+
+	// a new room goes to the server's default map when that is of the title it picks
+	l.mu.Lock()
+	l.defaultMap = tomb
+	l.mu.Unlock()
+	do(l, cy, "create", "map", theater)
+	if err := do(l, cy, "room", "title", t6); err != "" {
+		t.Fatal(err)
+	}
+	if r := l.viewOf(cy).Room; r.Map != tomb {
+		t.Errorf("a room on Black Ops II, the server's default map being Origins: %s", r.Map)
+	}
+	do(l, cy, "leave")
+
+	// in game, the title can't change, as the map can't
+	startGame(t, l, ann, bob)
+	if err := do(l, ann, "room", "title", t6); err != "The map can't change while in game." {
+		t.Errorf("the title in game: %q", err)
+	}
+
+	// a server without Black Ops II's maps hosts Black Ops alone
+	l.mu.Lock()
+	l.maps = func() []string { return []string{theater, pentagon} }
+	l.mu.Unlock()
+	if got := l.viewOf(cy).Titles; !slices.Equal(got, []titleView{{t5, "Black Ops"}}) {
+		t.Errorf("the titles of a server of Black Ops: %+v", got)
+	}
+	do(l, cy, "create")
+	if err := do(l, cy, "room", "title", t6); err != "The server doesn't have Black Ops II." {
+		t.Errorf("Black Ops II on a server without it: %q", err)
+	}
+}
+
 // A room takes four players until its host says how many: as many as a game needs at least and as the server's rooms
 // hold at most, and no fewer than it has. The room and the list of rooms say how many; who is ready stays so, and the
 // size may change while the room's game runs.

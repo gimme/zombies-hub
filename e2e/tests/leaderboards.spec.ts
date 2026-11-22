@@ -1,12 +1,35 @@
-// The leaderboards: a game's players on the board of all the maps and on the map's own, numbered alike where level, a
-// row's report, and the button that opens and closes them; a game that no one finished; and a player who leaves the
-// end scoreboard while the game runs on for the others.
+// The leaderboards: each game's own, with its kinds of board and its maps; a game's players on the board of all the
+// maps and on the map's own, numbered alike where level, a row's report, and the button that opens and closes them; a
+// game that no one finished; and a player who leaves the end scoreboard while the game runs on for the others.
 import { expect, joinRoom, makeRoom, playRoomGame, said, test } from '../fixtures';
 
 declare global {
   // eslint-disable-next-line no-var
   var standin: { leave(): void; over(round?: number): void };
 }
+
+test('the leaderboards are by game: first the game, then its kinds of board, then its maps', async ({ player }) => {
+  const kim = await player('Kim');
+  await kim.locator('#boardsopen').click();
+  const picked = (box: string) => kim.locator(`#${box} button[aria-checked=true]`);
+  await expect(kim.locator('#boardtitles button')).toHaveText(['Black Ops', 'Black Ops II']);
+  await expect(picked('boardtitles')).toHaveText('Black Ops');
+  await expect(kim.locator('#boardtabs button')).toHaveText(['Rounds', 'Easter eggs']);
+  await expect(kim.locator('#boardpicks button')).toHaveCount(11); // All maps, and each of the 10
+  await kim.locator('#boardtabs').getByRole('radio', { name: 'Easter eggs' }).click();
+  await expect(kim.locator('#boardpicks button')).toHaveText(['All eggs', 'Ascension', 'Call of the Dead',
+    'Shangri-La', 'Moon']);
+
+  // Black Ops II: its rounds alone, of its maps
+  await kim.locator('#boardtitles').getByRole('radio', { name: 'Black Ops II' }).click();
+  await expect(kim.locator('#boardtabs button')).toHaveText(['Rounds']);
+  await expect(picked('boardpicks')).toHaveText('All maps');
+  await expect(kim.locator('#boardpicks button')).toHaveCount(10);
+  await expect(kim.locator('#boardtables .tile .name').first()).toHaveText('TranZit');
+  // back to Black Ops, at the kind picked of it
+  await kim.locator('#boardtitles').getByRole('radio', { name: 'Black Ops', exact: true }).click();
+  await expect(picked('boardtabs')).toHaveText('Easter eggs');
+});
 
 test("the leaderboards list a game's players, and open its report", async ({ server, player }) => {
   const lea = await player('Lea');

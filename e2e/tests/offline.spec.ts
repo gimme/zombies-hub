@@ -1,6 +1,22 @@
 // A map played alone, from the lobby's Play offline: no room and no game on the server; at game over the page is back
-// in the lobby, which says so for a moment and offers to play again.
+// in the lobby, which says so for a moment and offers to play again. Play offline is Black Ops, and has its options
+// menu under Play.
 import { expect, said, test } from '../fixtures';
+
+test("Play offline has Black Ops' options menu, which closes back to its button", async ({ player }) => {
+  const eve = await player('Eve');
+  await expect(eve.locator('#settings')).toBeHidden();
+  await eve.locator('#soloopen').click();
+  const button = eve.locator('#solo #settings');
+  await expect(button).toHaveText('Black Ops settings');
+  await button.click();
+  await expect(eve.locator('#options')).toBeVisible();
+  await expect(button).toHaveAttribute('aria-expanded', 'true');
+  await eve.keyboard.press('Escape');
+  await expect(eve.locator('#options')).toBeHidden();
+  await expect(button).toHaveAttribute('aria-expanded', 'false');
+  await expect(button).toBeFocused();
+});
 
 declare global {
   // eslint-disable-next-line no-var

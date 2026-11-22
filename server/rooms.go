@@ -43,17 +43,18 @@ const defaultRoomSize = 4
 // A room can be private. A private room is listed without its code, and can be joined only with its code or with a
 // link that has the code (/?room=<code>). A new room is listed at once, but as private until it is privateFor old, so
 // that its maker can make it private before anyone sees its code. The code works from the start. The player who made
-// a room is its host, and the host picks the map. When the host leaves, the member who joined next becomes the host.
-// A room takes room.size players, four unless its host sets another size. The size is at least the number of players
-// a game needs (-min-players) and at most the number the server's rooms may hold (-max-players).
+// a room is its host, and the host picks the game (its title: title.go) and the map, a map of that game. The others
+// may suggest a map of the room's game to the host (setMark). When the host leaves, the member who joined next becomes
+// the host. A room takes room.size players, four unless its host sets another size. The size is at least the number
+// of players a game needs (-min-players) and at most the number the server's rooms may hold (-max-players).
 //
 // Each player in a room reports in their page that they are ready (POST /lobby/ready). Once all of them are ready,
 // the room's game starts after a countdown (checkReady). The countdown is called off when one of them is no longer
-// ready. When a player joins or leaves, or the host picks another map, everyone in the room becomes unready and has
-// to report again (unready). A player in a browser can be ready only once their page has the room's map, which means
-// all of the map's game files in the browser's store (missing). The room shows its other members who lacks the map
-// and how far their download is. While all of the server's games are running, no one may be ready for another game
-// (full). A player plays in their page, or on Windows while their Windows client is open (onWindows). Closing the
+// ready. When a player joins or leaves, or the host picks another game or map, everyone in the room becomes unready
+// and has to report again (unready). A player in a browser can be ready only once their page has the room's map, which
+// means all of the map's game files in the browser's store (missing). The room shows its other members who lacks the
+// map and how far their download is. While all of the server's games are running, no one may be ready for another
+// game (full). A player plays in their page, or on Windows while their Windows client is open (onWindows). Closing the
 // Windows client makes the player unready.
 //
 // A room's game belongs to the room's members. Each of them has a seat in it, and the room takes no one else while
@@ -90,18 +91,20 @@ const defaultRoomSize = 4
 //	                    A player who is not signed in gets {"signIn": "/auth/discord"}, and the page sends them
 //	                    there to sign in.
 //	GET  /lobby/events  streams the state of the server as the player sees it (view), with an event each time it
-//	                    changes: the Zombies maps (and which of them the server has), the pictures a player may
-//	                    pick, the rooms, and the player's own room, with how its last game went when that game
-//	                    ended at game over (gameResult)
+//	                    changes: the games the server hosts, the Zombies maps (and which of them the server has), the
+//	                    pictures a player may pick, the rooms, and the player's own room, with how its last game
+//	                    went when that game ended at game over (gameResult)
 //	GET  /lobby/leaderboards  the leaderboards of the players the server knows (leaderboards.go)
 //	POST /lobby/create {"map", "private"}: makes a room for the player, who leaves any other room first. The room
 //	                    is on the server's default map unless "map" names another.
 //	POST /lobby/join    {"room"}: joins a room by its code
 //	POST /lobby/leave   {}
-//	POST /lobby/room    {"map", "private", "mods", "size"}: the host picks the room's map (one the server has), makes
-//	                    the room private or public, sets the mods of its games (mods.go), or sets how many players
-//	                    it takes
-//	POST /lobby/mark    {"map"}: a player who isn't the host suggests a map for the room's next game, or none with ""
+//	POST /lobby/room    {"title", "map", "private", "mods", "size"}: the host picks the room's game by its title ("t6"),
+//	                    and the room goes to a map of it (titleMap); or picks the room's map (one the server has);
+//	                    makes the room private or public, sets the mods of its games (mods.go), or sets how many
+//	                    players it takes
+//	POST /lobby/mark    {"map"}: a player who isn't the host suggests a map of the room's game for its next game, or
+//	                    none with ""
 //	POST /lobby/files   {"map", "done", "running", "got", "need"}: reports which game files of a map the player's
 //	                    page has. A browser plays from the files in its store (web/public/store.js, files.go). "done"
 //	                    means the page has all of the map's files. "running" means it is downloading the rest,
@@ -290,7 +293,7 @@ func (l *lobby) away(p *player) time.Duration {
 type room struct {
 	code    string
 	members []*player // in the order they joined; the first is the host
-	mapName string
+	mapName string    // its map, whose title is the room's (lobby.title)
 	private bool
 	size    int       // players it takes: newRoomSize until its host sets it (setRoom), never fewer than it has
 	mods    []string  // the IDs of the mods its games have; a mod with options is "id=value" (mods.go: modsNamed)
@@ -305,6 +308,9 @@ type room struct {
 	// planned.
 	startsAt time.Time
 	game     *roomGame
+	// had is the map it last had of each title, by the title's id. It goes back to that map when its host picks the
+	// title again (titleMap). It never says the room's title: the room's map does.
+	had map[string]string
 }
 
 // roomGame is a room's game, from its start until it ends.
@@ -536,9 +542,12 @@ func mapTitle(name string) string {
 // ---- what the page sees ----
 
 type view struct {
-	You  youView   `json:"you"`
-	Maps []mapView `json:"maps"` // all the Zombies maps, whether the server has them or not
-	Mods []mod     `json:"mods"` // the mods a room's games can have
+	You youView `json:"you"`
+	// Titles are the games the server hosts (hosted), by which the page shows the games apart. A room plays one of
+	// them, and the page offers a choice where there are two.
+	Titles []titleView `json:"titles"`
+	Maps   []mapView   `json:"maps"` // all the Zombies maps, whether the server has them or not
+	Mods   []mod       `json:"mods"` // the mods a room's games can have
 	// Pictures are the pictures a player may pick: the pictures of the set that the server has, in the set's order.
 	// An event stream sends them in its first event and again when the server has other pictures, not in every event
 	// (events), because they make up most of a view.
@@ -551,6 +560,13 @@ type view struct {
 	Size       int        `json:"size"`       // the most players a room may take, and the largest size its host may set
 	MinPlayers int        `json:"minPlayers"` // the players a room's game needs, and the smallest size its host may set
 	Full       bool       `json:"full"`       // all of the server's games are running, so no one may be ready (full)
+}
+
+// titleView is a title the server hosts: its id, by which the page names it ("t6"), and its name on the page ("Black
+// Ops II").
+type titleView struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
 }
 
 type mapView struct {
@@ -600,6 +616,7 @@ type roomItem struct {
 	Code    string   `json:"code,omitempty"`
 	Private bool     `json:"private,omitempty"`
 	Map     string   `json:"map"`
+	Of      string   `json:"of"`             // the title of its map, as roomView has it
 	Mods    []string `json:"mods,omitempty"` // the mods its games have (room.mods)
 	Host    string   `json:"host"`
 	Players int      `json:"players"`
@@ -727,6 +744,10 @@ func (l *lobby) view(p *player) view {
 	if v.Pictures == nil {
 		v.Pictures = []pictureView{} // none yet
 	}
+	v.Titles = []titleView{}
+	for _, t := range l.hosted() {
+		v.Titles = append(v.Titles, titleView{ID: t.id(), Name: t.label()})
+	}
 	have := l.maps()
 	for _, m := range mapTitles {
 		mv := mapView{Name: m.name, Title: m.title, Of: m.of, Have: slices.Contains(have, m.name),
@@ -738,8 +759,8 @@ func (l *lobby) view(p *player) view {
 	}
 	byCode := func(a, b *room) int { return strings.Compare(a.code, b.code) }
 	for _, r := range slices.SortedFunc(maps.Values(l.rooms), byCode) {
-		item := roomItem{Code: r.code, Map: r.mapName, Mods: r.mods, Host: r.members[0].asked, Players: len(r.members),
-			Size: r.size, State: r.state()}
+		item := roomItem{Code: r.code, Map: r.mapName, Of: l.title(r.mapName).id(), Mods: r.mods,
+			Host: r.members[0].asked, Players: len(r.members), Size: r.size, State: r.state()}
 		if r != p.room && (r.private || time.Since(r.made) < l.privateFor) {
 			item.Code, item.Private = "", true
 		}
@@ -804,6 +825,7 @@ func (l *lobby) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	}
 	var in struct {
 		Name    string    `json:"name"`
+		Title   string    `json:"title"`
 		Map     string    `json:"map"`
 		Private *bool     `json:"private"`
 		Mods    *[]string `json:"mods"`
@@ -854,7 +876,7 @@ func (l *lobby) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	case action == "leave":
 		l.leave(p)
 	case action == "room":
-		err = l.setRoom(p, in.Map, in.Private, in.Mods, in.Size)
+		err = l.setRoom(p, in.Title, in.Map, in.Private, in.Mods, in.Size)
 	case action == "mark":
 		err = l.setMark(p, in.Map)
 	case action == "files":
@@ -1138,11 +1160,13 @@ func (l *lobby) leave(p *player) {
 	l.change()
 }
 
-// setRoom changes the settings of p's room, for p as its host: its map, whether it is private, its mods, and how many
-// players it takes (size, where 0 leaves it as it is). It changes only the settings that the call names. The size
-// belongs to the room and not to its game, so it may change while a game runs, as private may. The players who are
-// ready stay ready after such a change.
-func (l *lobby) setRoom(p *player, mapName string, private *bool, mods *[]string, size int) error {
+// setRoom changes the settings of p's room, for p as its host: its title (of), its map, whether it is private, its
+// mods, and how many players it takes (size, where 0 leaves it as it is). It changes only the settings that the call
+// names. The room's title is its map's, so a title is a change of the map: to the map that titleMap picks, or to the
+// map that the call names, which is of that title. A change of the title is allowed when a change of the map is, and
+// does what that does, and more: the marks of the other title's maps go. The size belongs to the room and not to its
+// game, so it may change while a game runs, as private may. The players who are ready stay ready after such a change.
+func (l *lobby) setRoom(p *player, of, mapName string, private *bool, mods *[]string, size int) error {
 	r := p.room
 	switch {
 	case r == nil:
@@ -1151,6 +1175,19 @@ func (l *lobby) setRoom(p *player, mapName string, private *bool, mods *[]string
 		return errors.New("Only the host picks the map.")
 	}
 	// Everything is checked before anything is changed, so that a call that is refused changes nothing.
+	if of != "" {
+		to := l.titleMap(r, of)
+		switch t := l.titleByID(of); {
+		case t == nil:
+			return fmt.Errorf("There is no game %s.", of)
+		case to == "":
+			return fmt.Errorf("The server doesn't have %s.", t.label())
+		case mapName == "":
+			mapName = to
+		case titleOf(mapName) != of:
+			return fmt.Errorf("%s is not a %s map.", mapTitle(mapName), t.label())
+		}
+	}
 	var on []string
 	if mapName != "" {
 		if r.game != nil {
@@ -1181,10 +1218,24 @@ func (l *lobby) setRoom(p *player, mapName string, private *bool, mods *[]string
 		}
 	}
 	if mapName != "" && mapName != r.mapName {
+		was, now := l.title(r.mapName), l.title(mapName)
+		if r.had == nil {
+			r.had = map[string]string{}
+		}
+		r.had[was.id()] = r.mapName
 		r.mapName = mapName
-		if of := l.title(mapName); !of.mods() && mods == nil && len(r.mods) > 0 {
+		if now.id() != was.id() {
+			// A mark is for a map of the room's title (setMark). The marks of the other title's maps go.
+			for _, m := range r.members {
+				if m.mark != "" && titleOf(m.mark) != now.id() {
+					m.mark = ""
+				}
+			}
+			log.Printf("server: room %s plays %s", r.code, now.label())
+		}
+		if !now.mods() && mods == nil && len(r.mods) > 0 {
 			r.mods = nil
-			log.Printf("server: room %s has no mods, on a %s map", r.code, of.label())
+			log.Printf("server: room %s has no mods, on a %s map", r.code, now.label())
 		}
 		l.unready(r) // this also calls off a countdown to a game on the old map
 	}
@@ -1215,8 +1266,9 @@ func (l *lobby) checkMap(mapName string) error {
 	return nil
 }
 
-// setMark stores the map that p suggests to their room's host for its next game, or no map when mapName is "". It
-// changes nothing else: the players who are ready stay ready.
+// setMark stores the map that p suggests to their room's host for its next game, or no map when mapName is "". The
+// map is of the room's title: the host picks the title. A mark changes nothing else: the players who are ready stay
+// ready.
 func (l *lobby) setMark(p *player, mapName string) error {
 	r := p.room
 	switch {
@@ -1230,6 +1282,9 @@ func (l *lobby) setMark(p *player, mapName string) error {
 	if mapName != "" {
 		if err := l.checkMap(mapName); err != nil {
 			return err
+		}
+		if of := l.title(r.mapName); titleOf(mapName) != of.id() {
+			return fmt.Errorf("%s is not a %s map.", mapTitle(mapName), of.label())
 		}
 	}
 	p.mark = mapName

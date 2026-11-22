@@ -13,11 +13,11 @@ export const isT6 = (name: string): boolean => mapInfo(name).of === 't6';
 /** The maps a page plays in the engine: Black Ops' own. A Black Ops II map is played in Plutonium. */
 export const t5Maps = (maps: MapInfo[]): MapInfo[] => maps.filter((m) => m.of !== 't6');
 
-/** Whether the server has any map of a title. */
+/**
+ * Whether the server has any map of a title. The page to play offline asks it of the maps, which a page that is
+ * offline still has (session.ts: goOffline).
+ */
 export const hasTitle = (maps: MapInfo[], of: string | undefined): boolean => maps.some((m) => m.of === of && m.have);
-
-/** The maps a room picks from: those of each title the server has. */
-export const roomMaps = (maps: MapInfo[]): MapInfo[] => maps.filter((m) => hasTitle(maps, m.of));
 
 /**
  * The map that the player picked to play offline (solo.ts), which the browser's storage keeps. It is the server's

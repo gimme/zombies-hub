@@ -1,14 +1,15 @@
 // The gamepad in the lobby (web/src/padnav.ts): B goes back, the d-pad moves the focus along the lobby and its top, A
-// presses, and the right stick scrolls. A room shows the gamepad on its player, its button is the gamepad's to go to
-// even while it is off, B calls its countdown off, and B on its map asks to leave. A refusal of the lobby shows over
-// the page, and goes at a click and by itself.
+// presses, the right stick scrolls, and Start opens Black Ops' options menu from the page to play offline and from a
+// Black Ops room, and closes it, back on the button that opens it. A room shows the gamepad on its player, its button
+// is the gamepad's to go to even while it is off, B calls its countdown off, and B on its map asks to leave. A
+// refusal of the lobby shows over the page, and goes at a click and by itself.
 import type { Page } from '@playwright/test';
 import { expect, makeRoom, said, test } from '../fixtures';
 
 test.use({ serverArgs: ['-min-players', '1'] });
 
 // The gamepad's buttons and axes, in the standard mapping.
-const PAD = { A: 0, B: 1, UP: 12, DOWN: 13, LEFT: 14, RIGHT: 15, RY: 3 };
+const PAD = { A: 0, B: 1, START: 9, UP: 12, DOWN: 13, LEFT: 14, RIGHT: 15, RY: 3 };
 
 interface FakePad {
   button(b: number, value: number): void;
@@ -52,8 +53,9 @@ async function plugGamepad(page: Page): Promise<void> {
 }
 
 // What the lobby shows as the gamepad moves through it: what has the focus (its id, or its text) and whether it is the
-// map picked, the lobby's views shown, whether it asks, and whether a room's game is starting.
-interface PadView { focus: string; picked: boolean; views: string; ask: boolean; starting: boolean }
+// map picked, the lobby's views shown, whether it asks, whether a room's game is starting, and whether the options
+// menu is open.
+interface PadView { focus: string; picked: boolean; views: string; ask: boolean; starting: boolean; menu: boolean }
 const padView = (page: Page): Promise<PadView> => page.evaluate(() => {
   const a = document.activeElement;
   return {
@@ -63,6 +65,7 @@ const padView = (page: Page): Promise<PadView> => page.evaluate(() => {
       .filter((id) => !document.getElementById(id)!.classList.contains('hidden')).join(),
     ask: !document.getElementById('ask')!.classList.contains('hidden'),
     starting: /^Starting in/.test(document.getElementById('ready')!.textContent || ''),
+    menu: !!document.querySelector('#options:not(.hidden)'),
   };
 });
 
@@ -90,11 +93,16 @@ test('the gamepad goes through the lobby, and into a room and out', async ({ pla
   await expect(max.locator('#solo')).toBeVisible();
   // the first press shows the gamepad to the page, which reads it from then on
   await expect.poll(async () => (await press(max, PAD.B, () => true)).picked).toBe(true);
+  // Start opens Black Ops' options menu from the button under Play, and closes it, the focus on that button
+  await press(max, PAD.START, (v) => v.menu);
+  await press(max, PAD.START, (v) => !v.menu && v.focus === 'settings');
+  await press(max, PAD.B, (v) => v.picked);
   await press(max, PAD.B, (v) => v.views === 'outside' && v.focus === 'make');
   for (let i = 0; i < 4 && (await padView(max)).focus !== 'home'; i++) await press(max, PAD.UP, () => true);
   expect((await padView(max)).focus).toBe('home');
+  // along the top, which has no options menu's button: it is the game's, in its views
   await press(max, PAD.RIGHT, (v) => v.focus === 'boardsopen');
-  await press(max, PAD.RIGHT, (v) => v.focus === 'settings');
+  await press(max, PAD.RIGHT, (v) => ['music', 'namechip'].includes(v.focus));
   await press(max, PAD.LEFT, (v) => v.focus === 'boardsopen');
   await press(max, PAD.LEFT, (v) => v.focus === 'home');
   await press(max, PAD.DOWN, (v) => v.focus === 'make');
@@ -102,6 +110,10 @@ test('the gamepad goes through the lobby, and into a room and out', async ({ pla
   // A makes a room, which opens on its map, and shows a gamepad on its player
   await press(max, PAD.A, (v) => v.views === 'inside' && v.picked);
   await expect(max.locator('#members li.mine .pad')).toBeVisible();
+  // a room on a Black Ops map: Start opens the options menu from its button under Ready, and closes it
+  await press(max, PAD.START, (v) => v.menu);
+  await press(max, PAD.START, (v) => !v.menu && v.focus === 'roomsettings');
+  await press(max, PAD.B, (v) => v.picked);
   // the right stick scrolls the lobby, and back
   await max.evaluate((a) => globalThis.pad.axis(a, 1), PAD.RY);
   await expect.poll(() => max.locator('#overlay').evaluate((o) => o.scrollTop)).toBeGreaterThan(50);

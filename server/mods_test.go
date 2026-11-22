@@ -55,7 +55,7 @@ func TestRoomMods(t *testing.T) {
 	// a call that is refused changes nothing else it asked for
 	private := true
 	l.mu.Lock()
-	err := l.setRoom(l.playerOf(ann.Token), "", &private, &[]string{"nosuchmod"}, 0)
+	err := l.setRoom(l.playerOf(ann.Token), "", "", &private, &[]string{"nosuchmod"}, 0)
 	l.mu.Unlock()
 	if v := l.viewOf(ann.Token); err == nil || v.Room.Private {
 		t.Errorf("visibility and a mod that isn't: %v, private %v", err, v.Room.Private)

@@ -20,8 +20,11 @@ import (
 // There are also two boards of all the maps (allBoard). They take a player's best on each map with a party of any of
 // those sizes. One board has the sum of the player's highest rounds, and the other the sum of their times through the
 // easter eggs. Each row has the records that it is the sum of. The player who asks also gets their own row, which the
-// page shows as a card of the maps. On a server that has T6's maps, they have the same boards of rounds, apart from
-// the other maps: a board for each T6 map, and one of all the T6 maps.
+// page shows as a card of the maps.
+//
+// The boards are by title (title.go): each title that the server hosts has its own, of its own maps, because a sum of
+// a player's bests is over the maps of one title. A title has boards of easter eggs where the server has a map of it
+// with one. T6's games report no easter eggs (t6.go), so T6 has boards of rounds alone.
 //
 // The level stores a player's best round on a map as one number for all sizes of party (<map>_highestwave), which
 // can't hold both a duo's best and a squad's. So the server keeps its own records (record). It records a round when
@@ -184,16 +187,22 @@ type allBoard struct {
 	Mine allRow   `json:"mine"` // the row of the player who asks, whether or not Rows has it
 }
 
+// kindBoards are the boards of one kind, the rounds or the easter eggs, of one title.
+type kindBoards struct {
+	Maps []mapBoards `json:"maps"` // a map's own, for each map of the kind that the server has, in the page's order
+	All  allBoard    `json:"all"`  // the board of all of those maps
+}
+
+// titleBoards are the boards of one title: its id and its name, as the view has them (titleView), and its boards.
+type titleBoards struct {
+	ID     string      `json:"id"`
+	Name   string      `json:"name"`
+	Rounds kindBoards  `json:"rounds"`
+	Eggs   *kindBoards `json:"eggs,omitempty"` // the maps of it that have an easter egg, where the server has any
+}
+
 type leaderboards struct {
-	Rounds []mapBoards `json:"rounds"` // the maps the server has, in the page's order
-	Eggs   []mapBoards `json:"eggs"`   // the maps among them that have an easter egg
-	// AllRounds and AllEggs are the boards of all of those maps.
-	AllRounds allBoard `json:"allRounds"`
-	AllEggs   allBoard `json:"allEggs"`
-	// T6Rounds and AllT6Rounds are the boards of T6's maps, on a server that has them. They are boards of their own,
-	// because a sum of a player's bests is over the maps of one title (t6.go).
-	T6Rounds    []mapBoards `json:"t6Rounds"`
-	AllT6Rounds allBoard    `json:"allT6Rounds"`
+	Titles []titleBoards `json:"titles"` // the titles the server hosts (hosted), in that order
 	// Games has the reports of the games that the boards name, by ID.
 	Games map[string]*gameResult `json:"games"`
 }
@@ -259,55 +268,53 @@ func (l *lobby) leaderboards(asker *player) leaderboards {
 			players = append(players, p)
 		}
 	}
-	b := leaderboards{Rounds: []mapBoards{}, Eggs: []mapBoards{}, T6Rounds: []mapBoards{},
-		Games: map[string]*gameResult{}}
-	boards := func(mapName string, records func(*player) []record) mapBoards {
-		return mapBoards{Map: mapName, Duo: l.board(players, records, 2, 2), Squad: l.board(players, records, 3, 4),
-			BigSquad: l.board(players, records, 5, l.roomSize)}
-	}
-	// each title's maps
-	var mapNames, t6Names []string
-	for _, name := range l.maps() {
-		if titleOf(name) == t6 {
-			t6Names = append(t6Names, name)
-		} else {
-			mapNames = append(mapNames, name)
-		}
-	}
-	for _, name := range t6Names {
-		b.T6Rounds = append(b.T6Rounds, boards(name, func(p *player) []record { return on(p.rounds, name) }))
-	}
-	var eggMaps []string
-	for _, name := range mapNames {
-		b.Rounds = append(b.Rounds, boards(name, func(p *player) []record { return on(p.rounds, name) }))
-		if slices.ContainsFunc(eggs, func(e struct{ mapName, stat string }) bool { return e.mapName == name }) {
-			b.Eggs = append(b.Eggs, boards(name, func(p *player) []record { return on(p.eggs, name) }))
-			eggMaps = append(eggMaps, name)
-		}
-	}
-	// Rounds rank by the higher sum. Easter eggs rank by the higher number of easter eggs, then by the lower sum of
-	// their times.
-	b.AllRounds = l.allBoard(players, asker, mapNames, func(p *player) []record { return p.rounds },
-		func(x, y allRow) int { return y.Round - x.Round })
-	b.AllEggs = l.allBoard(players, asker, eggMaps, func(p *player) []record { return p.eggs },
-		func(x, y allRow) int { return cmp.Or(len(y.Bests)-len(x.Bests), cmp.Compare(x.Seconds, y.Seconds)) })
-	b.AllT6Rounds = l.allBoard(players, asker, t6Names, func(p *player) []record { return p.rounds },
-		func(x, y allRow) int { return y.Round - x.Round })
+	b := leaderboards{Titles: []titleBoards{}, Games: map[string]*gameResult{}}
 	game := func(id string) {
 		if res := l.reports[id]; res != nil && b.Games[id] == nil {
 			b.Games[id] = l.withPlayers(res)
 		}
 	}
-	for _, m := range slices.Concat(b.Rounds, b.Eggs, b.T6Rounds) {
-		for _, row := range slices.Concat(m.Duo, m.Squad, m.BigSquad) {
-			game(row.Game)
+	// kind returns the boards of one kind over mapNames, ranked by rank, and adds the reports of the games they name.
+	// The reports are those of the rows of the maps' boards, and of the asker's own row of all the maps, from whose
+	// bests the page opens a report too.
+	kind := func(mapNames []string, records func(*player) []record, rank func(a, b allRow) int) kindBoards {
+		k := kindBoards{Maps: []mapBoards{}, All: l.allBoard(players, asker, mapNames, records, rank)}
+		for _, name := range mapNames {
+			of := func(p *player) []record { return on(records(p), name) }
+			m := mapBoards{Map: name, Duo: l.board(players, of, 2, 2), Squad: l.board(players, of, 3, 4),
+				BigSquad: l.board(players, of, 5, l.roomSize)}
+			k.Maps = append(k.Maps, m)
+			for _, row := range slices.Concat(m.Duo, m.Squad, m.BigSquad) {
+				game(row.Game)
+			}
 		}
-	}
-	// Also the reports of the games in the asker's own rows. The page opens a report from a best in those rows.
-	for _, all := range []allBoard{b.AllRounds, b.AllEggs, b.AllT6Rounds} {
-		for _, r := range all.Mine.Bests {
+		for _, r := range k.All.Mine.Bests {
 			game(r.Game)
 		}
+		return k
+	}
+	for _, t := range l.hosted() {
+		var mapNames, eggMaps []string
+		for _, name := range l.maps() {
+			if titleOf(name) != t.id() {
+				continue
+			}
+			mapNames = append(mapNames, name)
+			if slices.ContainsFunc(eggs, func(e struct{ mapName, stat string }) bool { return e.mapName == name }) {
+				eggMaps = append(eggMaps, name)
+			}
+		}
+		// Rounds rank by the higher sum. Easter eggs rank by the higher number of easter eggs, then by the lower sum
+		// of their times.
+		tb := titleBoards{ID: t.id(), Name: t.label(),
+			Rounds: kind(mapNames, func(p *player) []record { return p.rounds },
+				func(x, y allRow) int { return y.Round - x.Round })}
+		if len(eggMaps) > 0 {
+			k := kind(eggMaps, func(p *player) []record { return p.eggs },
+				func(x, y allRow) int { return cmp.Or(len(y.Bests)-len(x.Bests), cmp.Compare(x.Seconds, y.Seconds)) })
+			tb.Eggs = &k
+		}
+		b.Titles = append(b.Titles, tb)
 	}
 	return b
 }

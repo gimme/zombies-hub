@@ -164,8 +164,10 @@ loadedServer.then(() => {
  * Shows the lobby as the page showed it before it reloaded at its game's end (game.ts: gameEnded), from the first
  * paint, until the lobby's first view says how it is now. Without this, the front page showed for a moment before
  * the room. The game is no longer the page's to join. The lobby's first view is still the page's first look at it.
+ * A view that a page of an earlier build kept may lack what the view has had since: the games the server hosts.
  */
 export function showKept(v: View): void {
+  v.titles ||= [];
   me.id = v.you.id;
   if (v.room) v.room.join = false;
   show(v);

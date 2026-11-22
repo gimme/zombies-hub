@@ -1,8 +1,13 @@
 // web/src/room.ts - the room that the player is in.
 //
-// The room shows its map, its options, its members, and one button. The options are whether it is private, how many
-// players it takes, and its mods. The host picks the map and sets the options while the room has no game, and the
-// others see them.
+// The room shows its game, its map, its options, its members, and one button. The game is one of those that the
+// server hosts (server/title.go), and the map is one of that game's. The options are whether it is private, how many
+// players it takes, and its mods. While the room has no game running, the host picks the game, on a server of two,
+// then a map of it, and sets the options, and the others see them. The others may suggest a map of the room's game.
+//
+// A room on a Black Ops map has the button that opens Black Ops' options menu, under the room's button (main.ts:
+// settingsInit). A room on a Black Ops II map has none: the menu sets the game that the browser plays, and a Black Ops
+// II game is the player's own Plutonium's.
 //
 // The button says what the player can do now, and does it (main.ts: roomDoes). While the room has no game, the button
 // gets the room's map until the browser's store has it (files.ts: mapButton), and is Ready from then on. The game
@@ -23,9 +28,11 @@ import { knowMap, type MapButton, mapButton, showNote } from './files';
 import { checkLock, endNote, forgetOtherTab, lastEnd, lockElsewhere, otherTab } from './game';
 import { act, me, view } from './lobby';
 import { showAbout, showMaps } from './mapgrid';
-import { mapInfo, mapPicture, roomMaps } from './maps';
+import { mapInfo, mapPicture } from './maps';
 import { modNames, modOn, modValue } from './mods';
 import { mayLeaveGame } from './question';
+import { bo1Settings } from './settings';
+import { mapsOf, titleName } from './titles';
 import { launcherHere, launcherOn, launcherSeen, onWindows, t6Console } from './windows';
 
 // A gamepad, on a player whose page reads one: its two grips, its d-pad and two of its buttons.
@@ -56,10 +63,13 @@ export function showRoom(v: View, room: Room): void {
 
   const map = mapInfo(room.map);
   mapPicture($<HTMLImageElement>('mapimg'), room.map);
+  // Over the map's name, its game, on a server of two. That is where the others see the room's game.
+  $('mapkicker').textContent = (v.titles.length > 1 && titleName(v.titles, room.of)) || 'Map';
   $('maptitle').textContent = map.title;
   $('mapdesc').textContent = map.desc || '';
   $('mapdesc').classList.toggle('hidden', !map.desc);
-  showAbout($('mapabout'), v.maps);
+  showAbout($('mapabout'), mapsOf(v.maps, room.of));
+  showRoomTitle(v, room, open);
   showRoomMaps(v, room);
   // Whether the room is private: a switch for the host, and a badge for the others.
   $('visibility').classList.toggle('hidden', !room.host);
@@ -97,6 +107,9 @@ export function showRoom(v: View, room: Room): void {
   showRoomButton(v, room);
   // The host can end a game that no one plays, whose characters wait for players who may not come back.
   $('endgame').classList.toggle('hidden', !room.canEnd);
+  // Black Ops' options menu, in a room on a Black Ops map. A browser without a private file system has no menu
+  // (settings.ts: available).
+  $('roomsettings').classList.toggle('hidden', room.of !== 't5' || !bo1Settings.available);
   $('roomstate').textContent = elsewhere && lockElsewhere ? 'Your game is open in another tab.' : '';
 }
 
@@ -381,14 +394,35 @@ function pickRoomMap(name: string): unknown {
   return act('mark', { map: mine && mine.mark === name ? '' : name });
 }
 
-/** Draws the room's grid of maps, with the pictures of the players who suggest each map on it. */
+// The room's game, over its maps, on a server that hosts two (View.titles). The host picks it while the room has no
+// game, and the room goes to a map of it (server/rooms.go: setRoom), which the grid then shows the maps of. The
+// others see the game over the map's name. The options are made again only when the games change, so that an option
+// keeps the focus as it is picked.
+function showRoomTitle(v: View, room: Room, open: boolean): void {
+  const box = $('titlepick');
+  box.classList.toggle('hidden', v.titles.length < 2 || !room.host || !open);
+  const key = JSON.stringify(v.titles);
+  if (box.dataset.key !== key) {
+    box.dataset.key = key;
+    box.textContent = '';
+    const options = { name: "The room's game", options: v.titles.map((t) => ({ value: t.id, label: t.name })) };
+    box.append(optionButtons(options, (title) => ({ title })));
+  }
+  optionShow(box.firstElementChild!, room.of);
+}
+
+/**
+ * Draws the room's grid of maps: those of the room's game. Each has the pictures of the players who suggest it on
+ * it.
+ */
 export function showRoomMaps(v: View, room: Room): void {
   const grid = $('mapgrid');
   const open = room.state === 'open';
   grid.classList.toggle('hidden', !open);
   if (!open) return;
-  showMaps(grid, roomMaps(v.maps), room.map, pickRoomMap, !onWindows());
-  roomMaps(v.maps).forEach((m, i) => {
+  const maps = mapsOf(v.maps, room.of);
+  showMaps(grid, maps, room.map, pickRoomMap, !onWindows());
+  maps.forEach((m, i) => {
     const b = grid.children[i];
     b.querySelector('.marks')?.remove();
     const who = room.members.filter((p) => p.mark === m.name);

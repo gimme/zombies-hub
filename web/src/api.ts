@@ -18,6 +18,8 @@ export interface ServerInfo {
 /** The lobby as the player sees it (server/rooms.go: view). */
 export interface View {
   you: You;
+  /** The games the server hosts, which the code calls titles. A room plays one of them. */
+  titles: Title[];
   /** All the Zombies maps, whether the server has them or not. */
   maps: MapInfo[];
   /** The mods a room's games can have. */
@@ -35,6 +37,14 @@ export interface View {
   minPlayers: number;
   /** All of the server's games are running, so no one may be ready. */
   full: boolean;
+}
+
+/** A game the server hosts (server/rooms.go: titleView). */
+export interface Title {
+  /** t5 (Black Ops) or t6 (Black Ops II). */
+  id: string;
+  /** Its name on the page: Black Ops. */
+  name: string;
 }
 
 /** A Zombies map (server/rooms.go: mapView). */
@@ -85,6 +95,8 @@ export interface RoomItem {
   code?: string;
   private?: boolean;
   map: string;
+  /** The title of its map, as Room has it. */
+  of: string;
   mods?: string[];
   host: string;
   players: number;
@@ -225,14 +237,27 @@ export interface AllBoard {
   mine: AllRow;
 }
 
+/** The boards of one kind, the rounds or the easter eggs, of one title (server/leaderboards.go: kindBoards). */
+export interface KindBoards {
+  /** A map's own, for each map of the kind that the server has, in the page's order. */
+  maps: MapBoards[];
+  /** The board of all of those maps. */
+  all: AllBoard;
+}
+
+/** The boards of one title, with its id and name as View.titles has them (server/leaderboards.go: titleBoards). */
+export interface TitleBoards {
+  id: string;
+  name: string;
+  rounds: KindBoards;
+  /** Its maps that have an easter egg, where the server has any. Black Ops II has none. */
+  eggs?: KindBoards;
+}
+
 /** The server's answer to GET /lobby/leaderboards (server/leaderboards.go: leaderboards). */
 export interface Leaderboards {
-  rounds: MapBoards[];
-  eggs: MapBoards[];
-  allRounds: AllBoard;
-  allEggs: AllBoard;
-  t6Rounds: MapBoards[] | null;
-  allT6Rounds: AllBoard;
+  /** The titles the server hosts, in View.titles' order, each with its boards. */
+  titles: TitleBoards[];
   /** The reports of the games that the boards name, by ID. */
   games: Record<string, GameResult>;
 }

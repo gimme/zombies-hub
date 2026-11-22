@@ -1,5 +1,6 @@
 // e2e/global-setup.ts - what every test's server shares, made once for the run in a temporary folder: the game files,
-// the engine, and a stand-in for Plutonium's updater. fixtures.ts reads where they are from the environment.
+// the engine, and a stand-in for Plutonium's updater. fixtures.ts reads where they are from the environment. The game
+// files are in game, with both games, and in game-t5 with Black Ops alone, for a server of one game.
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
@@ -35,6 +36,7 @@ function write(file: string, text: string): void {
 export default async function globalSetup(): Promise<() => Promise<void>> {
   const dir = mkdtempSync(join(tmpdir(), 'zombies-e2e-'));
   for (const file of gameFiles) write(join(dir, 'game', file), '');
+  for (const file of gameFiles.filter((f) => f.startsWith('t5/'))) write(join(dir, 'game-t5', file), '');
 
   // The engine is an archive with its version and BO1Zombies.exe (internal/bo1zombies). The stand-in game runs in
   // place of BO1Zombies.exe, so the file is empty.

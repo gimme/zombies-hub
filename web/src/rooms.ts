@@ -2,12 +2,13 @@
 //
 // A room takes players while it has no game running and has a seat free. Its host sets how many seats it has. A room
 // that is private to the player comes without its code (server/rooms.go: roomItem), and is joined by its code alone:
-// a private room, or one that was just made.
+// a private room, or one that was just made. On a server that hosts two games, a room's line says its game first.
 import type { View } from './api';
 import { $, el } from './dom';
 import { act, offline } from './lobby';
 import { mapInfo, mapPicture } from './maps';
 import { modNames } from './mods';
+import { titleName } from './titles';
 
 /** Draws the list of rooms from a view of the lobby. */
 export function showRooms(v: View): void {
@@ -17,7 +18,8 @@ export function showRooms(v: View): void {
     const li = el('li', 'panel');
     const text = el('div', 'grow');
     text.append(el('div', 'title', mapInfo(r.map).title));
-    const sub = el('div', 'sub', r.host + '\'s room');
+    const game = v.titles.length > 1 ? titleName(v.titles, r.of) : '';
+    const sub = el('div', 'sub', (game ? game + ' · ' : '') + r.host + '\'s room');
     if (!r.private) sub.append(' · ', el('span', 'mono', r.code));
     // The room's games have mods. The tag says so before a player joins, and its tooltip names them.
     if (r.mods && r.mods.length) {

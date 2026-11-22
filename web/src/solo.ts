@@ -2,7 +2,8 @@
 //
 // It is one of the lobby's views, and shows what a room does: the map, and one button. The button gets the map until
 // the store has it (files.ts: mapButton), and is Play from then on (game.ts: playAlone). The player's pick of the map
-// is kept in the browser's storage (maps.ts: soloMapName).
+// is kept in the browser's storage (maps.ts: soloMapName). Playing offline is Black Ops alone, so the view has the
+// button that opens Black Ops' options menu too, under Play (main.ts: settingsInit).
 //
 // The view shows with ?offline=1 in the URL, which a reload keeps. "Pick a map" opens it, as a step that the browser's
 // Back goes back from, and "Back to the lobby" closes it.
@@ -17,6 +18,7 @@ import { showAbout, showMaps } from './mapgrid';
 import { hasTitle, mapInfo, mapPicture, soloMapName, t5Maps } from './maps';
 import { showNotice } from './notice';
 import { params } from './params';
+import { bo1Settings } from './settings';
 import { menuSound } from './sounds';
 import { store } from './storage';
 
@@ -48,6 +50,8 @@ export function showSolo(v: View): void {
   soloGets = m.gets || '';
   setButton($('playalone'), m, true);
   showNote($('solonote'), picked, m, canRun && !started);
+  // A browser without a private file system has no options menu (settings.ts: available).
+  $('settings').classList.toggle('hidden', !bo1Settings.available);
   // How the player's last game alone ended is said once, over the page (notice.ts). On the status line it would stay
   // until the lobby took an action of the player's.
   if (lastEnd && lastEnd.solo) {

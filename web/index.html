@@ -36,13 +36,6 @@
               <path d="M6 3h12v7a6 6 0 0 1-12 0Z"/><path d="M12 16v4"/><path d="M8 21h8"/></svg>
             <span>Leaderboards</span>
           </button>
-          <button type="button" id="settings" class="chip icon hidden" aria-haspopup="dialog" aria-expanded="false"
-            aria-controls="options" title="Settings">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-              stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/>
-              <circle cx="12" cy="12" r="3"/></svg>
-          </button>
           <button type="button" id="music" class="chip icon hidden" aria-pressed="false" title="Music">
             <svg class="on" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
               stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 5 6 9H2v6h4l5 4V5Z"/>
@@ -85,7 +78,7 @@
               <button type="button" class="link muted hidden" id="signout">Sign out</button>
             </section>
             <section>
-              <div class="label">Game folder</div>
+              <div class="label">Black Ops game folder</div>
               <span class="value" id="foldername"></span>
               <p id="folderhelp"></p>
               <div class="row">
@@ -94,14 +87,14 @@
               </div>
             </section>
             <section>
-              <div class="label">Game files in this browser</div>
+              <div class="label">Black Ops files in this browser</div>
               <div class="between">
                 <span class="value" id="filestext"></span>
                 <button type="button" class="link muted" id="filesremove">Remove</button>
               </div>
             </section>
             <section>
-              <div class="label">Windows client</div>
+              <div class="label">Black Ops Windows client</div>
               <p>Run this in the Windows client's folder, then join a room.</p>
               <div class="row">
                 <span id="playbat" class="grow"></span>
@@ -169,6 +162,15 @@
             <h2 class="display" id="solohead">Play offline</h2>
             <button type="button" class="primary big" id="playalone" aria-disabled="true">Play</button>
             <p id="solonote" class="files hidden"></p>
+            <!-- Black Ops' options menu (src/main.ts: settingsInit), as a room on a Black Ops map has it too -->
+            <button type="button" id="settings" class="gamesettings hidden" aria-haspopup="dialog" aria-expanded="false"
+              aria-controls="options" title="Graphics, sound and controls">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/>
+                <circle cx="12" cy="12" r="3"/></svg>
+              <span>Black Ops settings</span>
+            </button>
             <div class="foot">
               <button type="button" class="link muted" id="soloback">Back to the lobby</button>
             </div>
@@ -183,12 +185,14 @@
               <div class="mapinfo">
                 <img id="mapimg" alt="">
                 <div class="text">
-                  <div class="label">Map</div>
+                  <div class="label" id="mapkicker">Map</div>
                   <div class="about" id="mapabout">
                     <div><h1 class="display" id="maptitle"></h1><p id="mapdesc"></p></div>
                   </div>
                 </div>
               </div>
+              <!-- the room's game, which its host picks first, on a server of two (src/room.ts: showRoomTitle) -->
+              <div class="titlepick hidden" id="titlepick"></div>
               <div class="mapgrid hidden" id="mapgrid" role="radiogroup" aria-label="The room's map"></div>
             </section>
             <section class="panel options">
@@ -238,6 +242,15 @@
             </button>
             <button type="button" class="primary big" id="ready">Ready</button>
             <p id="roomnote" class="files hidden"></p>
+            <!-- Black Ops' options menu, in a room on a Black Ops map (src/room.ts: showRoom) -->
+            <button type="button" id="roomsettings" class="gamesettings hidden" aria-haspopup="dialog"
+              aria-expanded="false" aria-controls="options" title="Graphics, sound and controls">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/>
+                <circle cx="12" cy="12" r="3"/></svg>
+              <span>Black Ops settings</span>
+            </button>
             <button type="button" class="big hidden" id="endgame" title="No one is playing it">End the game</button>
             <section id="t6box" class="hidden">
               <p id="t6get" class="hidden">First time? <a href="/zombies-launcher-setup.exe" download>Install Zombies
@@ -285,7 +298,10 @@
       <div id="boards" class="hidden">
         <section class="panel boardshead">
           <h1 class="display">Leaderboards</h1>
-          <div class="seg" id="boardtabs" role="radiogroup" aria-label="Which leaderboards"></div>
+          <div class="picks">
+            <div class="seg hidden" id="boardtitles" role="radiogroup" aria-label="Which game"></div>
+            <div class="seg" id="boardtabs" role="radiogroup" aria-label="Which leaderboards"></div>
+          </div>
         </section>
         <div id="boardpicks" role="radiogroup" aria-label="Which board"></div>
         <div id="boardtables"></div>

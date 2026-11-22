@@ -174,8 +174,8 @@ body.padnav #overlay :focus, body.padnav #ask :focus, body.padnav #picker :focus
 #signin { align-self: center; width: 100%; max-width: 460px; box-sizing: border-box; margin-top: 6vh; }
 #signinwhy { color: var(--accent-hi); }
 #signinwhy:empty { display: none; }
-/* the settings and the music are the game files', which the server serves to players signed in alone */
-body.signin #settings, body.signin #music, body.signin #boardsopen { display: none; }
+/* the music and the leaderboards are the server's, which it serves to players signed in alone */
+body.signin #music, body.signin #boardsopen { display: none; }
 #signout { align-self: flex-start; }
 /* the name, and where it is Discord's, the button in it that has the server look it up again */
 #namefield { position: relative; display: flex; }
@@ -253,6 +253,10 @@ ul.rooms { gap: 12px; }
 .mapgrid button[aria-checked=true]:hover:not(:disabled) { border-color: var(--accent-over); }
 .mapgrid button:disabled { background: rgba(255, 255, 255, 0.02); color: #7f796f; }
 .mapgrid button:disabled img { filter: grayscale(1) brightness(0.45); }
+/* a room's game, which its host picks first (showRoomTitle): over the maps of it, under the line that was theirs,
+   and as the leaderboards' kinds of board are */
+.titlepick { display: flex; padding-top: 22px; border-top: 1px solid rgba(255, 255, 255, 0.08); }
+.titlepick:not(.hidden) + .mapgrid { margin-top: -8px; padding-top: 0; border-top: none; }
 .options .tabs { display: flex; gap: 4px; padding: 6px 6px 0; border-bottom: 1px solid rgba(255, 255, 255, 0.08); }
 .tab { height: 44px; padding: 0 18px; border: none; border-radius: 0; border-bottom: 2px solid transparent;
   background: none; display: flex; align-items: center; gap: 8px; }
@@ -310,6 +314,10 @@ ul.rooms { gap: 12px; }
    play offline wraps downwards, its Play under its maps, which are picked first. */
 #inside .cols { flex-wrap: wrap-reverse; align-items: flex-end; }
 #solohead { font-size: 30px; }
+/* the button of Black Ops' options menu (settingsInit), under the main button of a view of Black Ops: a gear and the
+   game's name, so that it is not taken for the room's own settings */
+.gamesettings { display: flex; align-items: center; justify-content: center; gap: 10px; }
+.gamesettings svg { flex: none; opacity: 0.85; }
 #roomcode { font: 700 28px ui-monospace, Consolas, monospace; letter-spacing: 0.16em; }
 /* (its letters are spaced, the last one too: as much more room before the first has the word in the middle) */
 #roomgame { padding: 3px 9px 3px calc(9px + 0.08em); border-radius: 999px; background: rgba(255, 255, 255, 0.08);
@@ -433,7 +441,9 @@ tr.mine td:first-child { box-shadow: inset 3px 0 0 var(--accent-hi); }
 .boardshead { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px 24px;
   padding: 20px 24px; }
 .boardshead h1 { font-size: 40px; }
-#boardtabs button { width: auto; min-width: 96px; padding: 0 16px; }
+/* the game, where the server hosts two, then the kind of board that it has: side by side where they fit */
+.boardshead .picks { display: flex; flex-wrap: wrap; gap: 10px; }
+#boardtabs button, #boardtitles button, .titlepick button { width: auto; min-width: 96px; padding: 0 16px; }
 #boardpicks { display: flex; flex-wrap: wrap; gap: 8px; }
 #boardpicks:empty { display: none; }
 #boardpicks button { height: 36px; padding: 0 14px; border-radius: 999px; font-size: 14px; }
@@ -524,7 +534,7 @@ tr.mine td:first-child { box-shadow: inset 3px 0 0 var(--accent-hi); }
   .totals div { padding-right: 0; margin-right: 0; border-right: none; }
   .totals b { font-size: 24px; }
   th, td { padding-left: 14px; padding-right: 14px; }
-  /* the header's room is its logo's and the player's: an icon alone, as Settings is */
+  /* the header's room is its logo's and the player's: an icon alone, as the music's is */
   .chip.words { width: 44px; padding: 0; justify-content: center; }
   .chip.words span { display: none; }
   #boards .avatar { display: none; }
@@ -606,8 +616,8 @@ tr.mine td:first-child { box-shadow: inset 3px 0 0 var(--accent-hi); }
    the row's own). Where the browser doesn't, the line is in the middle, as before. The last of the sheet, for what
    it says of a box's padding to be the last word. */
 @supports (text-box: trim-both cap alphabetic) {
-  button, .t, .tab > span, .chip > span, button.copy > span > span, #modsline > span, .switch .word, #picturetip,
-  #boardtip, #toast, #roomgame { text-box: trim-both cap alphabetic; }
+  button, .t, .tab > span, .chip > span, button.copy > span > span, #modsline > span, .gamesettings > span,
+  .switch .word, #picturetip, #boardtip, #toast, #roomgame { text-box: trim-both cap alphabetic; }
   /* but not a link's, whose text is all the pointer has to aim at (nor the options menu's, laid out as the game's:
      web/src/settings.css) */
   button.link { text-box: normal; }

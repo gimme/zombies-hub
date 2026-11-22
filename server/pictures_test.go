@@ -572,8 +572,9 @@ func TestPicturesGiven(t *testing.T) {
 	if res.Players[0].Avatar != "/pictures/"+bobs+".png" || res.Players[1].Avatar != "" {
 		t.Errorf("Bob's picture in a game's report: %+v", res.Players)
 	}
-	if _, b := getBoards(t, l, ann.Token); len(b.Rounds[0].Duo) != 1 || b.Rounds[0].Duo[0].Avatar != "/pictures/"+bobs+".png" {
-		t.Errorf("Bob's picture on the leaderboards: %+v", b.Rounds[0].Duo)
+	_, b := getBoards(t, l, ann.Token)
+	if duo := b.of(t5).Rounds.Maps[0].Duo; len(duo) != 1 || duo[0].Avatar != "/pictures/"+bobs+".png" {
+		t.Errorf("Bob's picture on the leaderboards: %+v", duo)
 	}
 
 	// everyone has Early's now: the next two have the two no one has; each is someone's then, and those after them

@@ -5,6 +5,10 @@
 // closes them again (boardsButton). The boards are read from the server each time they open. A game that the page
 // starts closes them, so that the page comes back to the room (closeBoardsForGame).
 //
+// Each game that the server hosts has boards of its own. The player picks first the game, on a server of two, then
+// the kind of board that the game has (Rounds, Easter eggs), then a map, or all of them (titles.ts: pickBoard). Until
+// they pick a game, the boards show the game of their room.
+//
 // show draws the views (show.ts). It shows the leaderboards while boardsOpen is set, or the report
 // of one game in their place while boardReport is set, and it calls loadBoards.
 import type { AllBoard, AllRow, BoardRecord, GameResult, Leaderboards } from './api';
@@ -18,6 +22,7 @@ import { params } from './params';
 import { ranks } from './rank';
 import { menuSound } from './sounds';
 import { store } from './storage';
+import { ALL_MAPS, type Kind, kindsOf, pickBoard } from './titles';
 
 /** Whether the leaderboards show. */
 export let boardsOpen = params.get('boards') === '1';
@@ -29,16 +34,13 @@ let boards: Leaderboards | null = null;
 export let boardReport: GameResult | null = null;
 let boardsAsked = false; // the page is reading them
 
-// The kinds of boards. Black Ops II's maps, on a server that has them, have boards of their rounds apart.
-type Kind = 'rounds' | 'eggs' | 't6Rounds';
-const BOARD_KINDS: [Kind, string][] = [['rounds', 'Rounds'], ['eggs', 'Easter eggs'], ['t6Rounds', 'Black Ops II']];
-// each kind's board of all its maps
-const BOARD_ALL = { rounds: 'allRounds', eggs: 'allEggs', t6Rounds: 'allT6Rounds' } as const;
-const ALL_MAPS = 'all'; // in place of a map: the kind's board of all its maps (showAllBoard)
+// the kinds of boards, by their names on the page
+const KIND_NAMES: Record<Kind, string> = { rounds: 'Rounds', eggs: 'Easter eggs' };
 // the rounds from which a map's tile has a frame, and the frame
 const MILESTONES: [number, string][] = [[20, 'silver'], [30, 'gold']];
-let boardKind: Kind = 'rounds'; // the kind that shows
-const boardMaps: Partial<Record<Kind, string>> = {}; // the map that shows of each kind, or ALL_MAPS
+// What the player picked: the game, and of each game the kind, and of each game's kind the map (pickBoard). It is kept
+// while the page is open.
+const boardPicked: Record<string, string> = {};
 
 /** Opens or closes the leaderboards, as the player asks, with the sound of a large menu. */
 export function openBoards(open: boolean): void {
@@ -196,30 +198,33 @@ function showBoards(): void {
       if (hadFocus && key === picked) b.focus();
     }
   };
-  // A kind that the server has no maps of has no tab: Black Ops II's rounds, on a server without that game's maps.
-  const kinds = BOARD_KINDS.filter(([kind]) => kind !== 't6Rounds' || (boards?.[kind] || []).length);
-  if (!kinds.some(([kind]) => kind === boardKind)) boardKind = 'rounds';
-  picker($('boardtabs'), kinds, boardKind, (kind) => {
-    boardKind = kind as Kind;
-  });
   const tables = $('boardtables');
   tables.textContent = '';
-  const kind = boardKind;
-  const list = boards[kind] || [];
-  const rounds = kind !== 'eggs';
+  const shown = pickBoard(boards, boardPicked, view && view.room ? view.room.of : '');
+  // The game, where the server hosts two. Under it, the kinds of board that the game has, then its maps.
+  $('boardtitles').classList.toggle('hidden', boards.titles.length < 2);
+  picker($('boardtitles'), boards.titles.map((t): [string, string] => [t.id, t.name]), shown?.title.id, (id) => {
+    boardPicked[''] = id;
+  });
+  if (!shown) return;
+  const { title, kind } = shown;
+  picker($('boardtabs'), kindsOf(title).map((k): [string, string] => [k, KIND_NAMES[k]]), kind, (k) => {
+    boardPicked[title.id] = k;
+  });
+  const list = shown.boards.maps;
+  const rounds = kind === 'rounds';
   // parties of five and more, on a server whose rooms hold them (-max-players)
   const big = !!view && view.size > 4;
   // the board of all the maps shows until the player picks a map
-  if (!list.some((m) => m.map === boardMaps[kind])) boardMaps[kind] = ALL_MAPS;
-  const all = boardMaps[kind] === ALL_MAPS;
+  const all = shown.map === ALL_MAPS;
   picker($('boardpicks'), list.length ? [[ALL_MAPS, rounds ? 'All maps' : 'All eggs'],
-    ...list.map((m): [string, string] => [m.map, mapInfo(m.map).title])] : [], boardMaps[kind],
+    ...list.map((m): [string, string] => [m.map, mapInfo(m.map).title])] : [], shown.map,
   (map) => {
-    boardMaps[kind] = map;
+    boardPicked[title.id + ':' + kind] = map;
   });
   tables.classList.toggle('all', all);
-  if (all && list.length) return showAllBoard(tables, list.map((m) => m.map), rounds, boards[BOARD_ALL[kind]], boards);
-  const board = list.find((m) => m.map === boardMaps[kind]);
+  if (all && list.length) return showAllBoard(tables, list.map((m) => m.map), rounds, shown.boards.all, boards);
+  const board = list.find((m) => m.map === shown.map);
   if (!board) return;
   const head = rounds ? 'Round' : 'Time';
   type MapRow = (typeof board.duo)[number];

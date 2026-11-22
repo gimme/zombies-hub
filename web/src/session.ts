@@ -129,10 +129,10 @@ function goOffline(): void {
   console.log('lobby: offline, with the maps kept: ' + had.maps.map((m) => m.name).join(' '));
   if (!me.name) me.name = 'Player';
   // The player's picture is the one that the service worker kept, if it is one of the game's (cache.ts). There are
-  // no pictures to pick from.
-  show({ you: { id: me.id || '', name: me.name, avatar: store.get('zombies-avatar') || '' }, maps: had.maps, mods: [],
-    defaultMap: had.defaultMap || '', pictures: [], rooms: [], size: had.size || 4, minPlayers: 1, full: false,
-    room: null });
+  // no pictures to pick from, and no games to tell apart: the maps kept are Black Ops' alone.
+  show({ you: { id: me.id || '', name: me.name, avatar: store.get('zombies-avatar') || '' }, titles: [],
+    maps: had.maps, mods: [], defaultMap: had.defaultMap || '', pictures: [], rooms: [], size: had.size || 4,
+    minPlayers: 1, full: false, room: null });
 }
 
 // Reads the lobby's events (GET /lobby/events) and shows each view as it comes. It is a fetch, because an EventSource
