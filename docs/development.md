@@ -34,7 +34,7 @@ A room plays one title: its map's. The page keeps the titles apart. A room's hos
 - `game/` (not in the repo): the game files, `game/t5` and `game/t6`.
 - `build/` (not in the repo): what the dev server and the tests keep.
 
-Every setting starts with `ZOMBIES_`. Docker images, containers and volumes start with `zombies-`.
+Every setting starts with `ZOMBIES_`. The server image is `zombies-hub`, and the other Docker images, containers and volumes start with `zombies-hub-`.
 
 ## Running
 
@@ -44,7 +44,7 @@ Every setting starts with `ZOMBIES_`. Docker images, containers and volumes star
 
 After a change in `web/`, run `make web` and reload the page. The page is built in Docker, so it needs no Node on the host. With Node installed, `npm ci` and then `npm run watch` in `web/` build the page on every change instead. `npm run check` checks its TypeScript, and `npm test` runs its tests in under a second.
 
-On Windows, Wine can't run programs or load game files from a Windows folder. The scripts therefore copy the game files into the Docker volume `zombies-game` (9 GB per game, once), and the server unpacks the engine into the volume `<container>-engine`.
+On Windows, Wine can't run programs or load game files from a Windows folder. The scripts therefore copy the game files into the Docker volume `zombies-hub-game` (9 GB per game, once), and the server unpacks the engine into the volume `<container>-engine`.
 
 To try a change to the launcher, `make launcher` builds it into `build/zombies-launcher-setup.exe` (`docker/launcher.sh`). Run that file on a Windows PC to install it over the launcher the PC has. It is a dev build, of version 0: it never updates itself, and only a dev server takes it. On any other server the room says that the launcher is too old, and links to the latest release.
 
@@ -94,7 +94,7 @@ git push origin launcher-v<N>
 
 The workflow `.github/workflows/launcher.yml` then checks the tag, vets and tests the launcher, builds it with version N, signs it with the repository's secret `LAUNCHER_KEY`, publishes the release, and puts its files in the release tagged `launcher`. It stops before it builds anything when N is not larger than every release so far.
 
-`LAUNCHER_KEY` is the one line of the private half of the maker's key, `zombies-release-private:...`. `make launcher-key` made the key once (`docker/launcher-key.sh`), and the public half is `launcher/release.pub`. To set the secret, `gh secret set LAUNCHER_KEY < ~/.zombies/launcher.key`. Keep a copy of the private half somewhere safe and offline, and no copy on any other machine. Whoever has it can sign a program that every installed launcher takes. If it is lost, a new key needs a new `release.pub`, and players then install the next release by hand.
+`LAUNCHER_KEY` is the one line of the private half of the maker's key, `zombies-release-private:...`. `make launcher-key` made the key once (`docker/launcher-key.sh`), and the public half is `launcher/release.pub`. To set the secret, `gh secret set LAUNCHER_KEY < ~/.zombies-hub/launcher.key`. Keep a copy of the private half somewhere safe and offline, and no copy on any other machine. Whoever has it can sign a program that every installed launcher takes. If it is lost, a new key needs a new `release.pub`, and players then install the next release by hand.
 
 The server takes launchers from a lowest version on: `MinVersion` in `internal/launcherapi/launcherapi.go`. A dev server also takes dev builds, of version 0. Raise `MinVersion` when the server needs something that older launchers don't do, and only once a release that does it is out. A launcher updates itself before it calls the server, so a server with the new code hears only of the launchers that found no later release they could take. It turns those away, and the player's room then says that the launcher is too old, with the link to the latest one.
 

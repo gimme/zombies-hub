@@ -32,7 +32,7 @@
 # ZOMBIES_SERVER_HOME    The folder the server writes in (default build/server): game/ (the games' fs_homepath),
 #                        logs/, and engine/ (the engine build it unpacked).
 # ZOMBIES_NET            Docker network options (default: publish the server's UDP and TCP port 3075).
-# ZOMBIES_SERVER_NAME    The container's name (default zombies-server), for docker stop and docker exec.
+# ZOMBIES_SERVER_NAME    The container's name (default zombies-hub-server), for docker stop and docker exec.
 # ZOMBIES_HANG_TIMEOUT   Passed through when set. How long a game may run no frame before it ends (default 1m, 0 for
 #                        never).
 # ZOMBIES_CHEATS         Passed through when set. ZOMBIES_CHEATS=1 runs the rooms' games with cheats (devmap).
@@ -49,8 +49,8 @@ here=$(abs "$(dirname "$0")")
 root=$(abs "$here/..")
 game=${ZOMBIES_GAME_DIR:-$root/game}
 svhome=${ZOMBIES_SERVER_HOME:-$root/build/server}
-image=${ZOMBIES_SERVER_IMAGE:-zombies-server}
-name=${ZOMBIES_SERVER_NAME:-zombies-server}
+image=${ZOMBIES_SERVER_IMAGE:-zombies-hub-server}
+name=${ZOMBIES_SERVER_NAME:-zombies-hub-server}
 net=${ZOMBIES_NET:--p 3075:3075/udp -p 3075:3075/tcp}
 map=zombie_theater
 if [ $# -gt 0 ] && [ "${1#+}" = "$1" ]; then map=$1; shift; fi
@@ -70,7 +70,7 @@ docker build --progress=$progress -f "$here/Dockerfile" --target server -t "$ima
 # The server serves the built page, web/dist. A change to the page shows after docker/web.sh has run again.
 "$here/web.sh"
 mkdir -p "$svhome"
-gamedir=$(for_wine "$game" zombies-game "$image")
+gamedir=$(for_wine "$game" zombies-hub-game "$image")
 mapfile -t engine < <(engine_args "$name")
 # In Git Bash the server's copy of Plutonium and the games' home folders go in Docker volumes too. /config is a
 # Windows folder there, and Wine can't run a program from one (host.sh). With Plutonium in /config, a Black Ops II

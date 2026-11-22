@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
 # docker/push.sh - push the server image (built by docker/image.sh) to a registry.
 #
-#   docker/push.sh <host>[:port][/path] [name:tag]      port 5000 unless given; image zombies:latest by default
+#   docker/push.sh <host>[:port][/path] [name:tag]      port 5000 unless given; image zombies-hub:latest by default
 #
 # The registry can be Docker's registry image running on the Unraid server (docs/hosting.md). The script tags the image
-# with the registry's name and pushes it: docker/push.sh 192.168.0.123 pushes zombies:latest as
-# 192.168.0.123:5000/zombies:latest. Docker pushes to a registry without HTTPS, such as that one, only when the
+# with the registry's name and pushes it: docker/push.sh 192.168.0.123 pushes zombies-hub:latest as
+# 192.168.0.123:5000/zombies-hub:latest. Docker pushes to a registry without HTTPS, such as that one, only when the
 # registry is listed in Docker's insecure-registries. A registry on localhost needs no listing.
 set -euo pipefail
 registry=${1:?usage: docker/push.sh <host>[:port][/path] [name:tag]}
-image=${2:-zombies:latest}
+image=${2:-zombies-hub:latest}
 registry=${registry%/}
 host=${registry%%/*}
 case $host in *:*) ;; *) registry=$host:5000${registry#"$host"} ;; esac

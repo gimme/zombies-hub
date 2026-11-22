@@ -1,9 +1,10 @@
 // e2e/game/fixtures.ts - what the game tests run on.
 //
-// server      a server of the test's own (server.ts), in the container zombies-test-<n>, n the worker's slot: started
-//             with the test, with serverOptions (test.use({ serverOptions: { env: { ZOMBIES_MAX_PLAYERS: '6' } } })),
-//             and stopped as it ends, which fails the test unless the server stopped cleanly (Server.stop).
-// servers     starts another server, zombies-test-<n>-<suffix>, which stops as the test ends.
+// server      a server of the test's own (server.ts), in the container zombies-hub-test-<n>, n the worker's slot:
+//             started with the test, with serverOptions
+//             (test.use({ serverOptions: { env: { ZOMBIES_MAX_PLAYERS: '6' } } })), and stopped as it ends, which
+//             fails the test unless the server stopped cleanly (Server.stop).
+// servers     starts another server, zombies-hub-test-<n>-<suffix>, which stops as the test ends.
 // players     opens a player's page (player.ts) on the test's server: players.open('Ann'), players.open('Bob',
 //             { query: 'room=KXQM' }), or on another's (players.openOn). Each player's Chrome closes as the test ends,
 //             in the order they opened, one still opening once it has opened, and none opens after. Their logs are in
@@ -36,7 +37,7 @@ export interface Players {
 }
 
 export interface Servers {
-  /** Starts another server, as container zombies-test-<n>-<suffix>. */
+  /** Starts another server, as container zombies-hub-test-<n>-<suffix>. */
   start(suffix: string, options?: ServerOptions): Promise<Server>;
 }
 
@@ -61,7 +62,7 @@ export const test = base.extend<{ serverOptions: ServerOptions; server: Server; 
   }, { scope: 'worker', auto: true }],
 
   server: async ({ serverOptions }, use, testInfo) => {
-    const server = await Server.start(`zombies-test-${testInfo.parallelIndex}`, testInfo.outputPath('server'),
+    const server = await Server.start(`zombies-hub-test-${testInfo.parallelIndex}`, testInfo.outputPath('server'),
       serverOptions);
     await use(server);
     try {
@@ -75,7 +76,7 @@ export const test = base.extend<{ serverOptions: ServerOptions; server: Server; 
     const started: Server[] = [];
     await use({
       start: async (suffix, options) => {
-        const server = await Server.start(`zombies-test-${testInfo.parallelIndex}-${suffix}`,
+        const server = await Server.start(`zombies-hub-test-${testInfo.parallelIndex}-${suffix}`,
           testInfo.outputPath(`server-${suffix}`), options);
         started.push(server);
         return server;

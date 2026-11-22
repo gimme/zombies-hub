@@ -5,7 +5,7 @@
 Build the image and start it with Docker Compose:
 
 ```sh
-make image              # builds zombies:latest
+make image              # builds zombies-hub:latest
 docker compose up -d    # uses compose.yaml
 ```
 
@@ -20,7 +20,7 @@ The server runs as `PUID`:`PGID` (default 1000:1000) and owns what it writes in 
 
 The players, the leaderboards and the report of every game are in `/config/zombies.db`, a SQLite database. To back it up, copy the file while the server is stopped.
 
-On Unraid, copy `docker/unraid/my-zombies.xml` to `/boot/config/plugins/dockerMan/templates-user/` and add the container from that template. `make push REGISTRY=<host>` pushes the image to a registry that Unraid can pull from.
+On Unraid, copy `docker/unraid/my-zombies-hub.xml` to `/boot/config/plugins/dockerMan/templates-user/` and add the container from that template. `make push REGISTRY=<host>` pushes the image to a registry that Unraid can pull from.
 
 ## Game files
 
@@ -63,7 +63,7 @@ Without `ZOMBIES_DISCORD_SERVER`, anyone with a Discord account can play. Withou
 
 ## Settings
 
-Settings are environment variables. `docker run --rm zombies -h` lists all of them.
+Settings are environment variables. `docker run --rm zombies-hub -h` lists all of them.
 
 | Variable | Default | Meaning |
 | --- | --- | --- |

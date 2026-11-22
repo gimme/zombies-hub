@@ -25,14 +25,14 @@
 # ZOMBIES_ENGINE_FILE set to an archive of that build. The script needs the game files.
 #
 # ZOMBIES_GAME_DIR, ZOMBIES_ENGINE_URL, ZOMBIES_ENGINE_FILE  as for docker/server.sh
-# ZOMBIES_PIPELINES_NAME  The containers' name (default zombies-pipelines). Two runs with different names can make
+# ZOMBIES_PIPELINES_NAME  The containers' name (default zombies-hub-pipelines). Two runs with different names can make
 #                         different maps' lists at the same time.
 set -euo pipefail
 . "$(dirname "$0")/host.sh"
 here=$(abs "$(dirname "$0")")
 root=$(abs "$here/..")
-name=${ZOMBIES_PIPELINES_NAME:-zombies-pipelines}
-player_image=${ZOMBIES_PLAYER_IMAGE:-zombies-player}
+name=${ZOMBIES_PIPELINES_NAME:-zombies-hub-pipelines}
+player_image=${ZOMBIES_PLAYER_IMAGE:-zombies-hub-player}
 lists=${1:?usage: docker/pipelines.sh <dir> [map...]}
 shift
 if [ $# -eq 0 ]; then

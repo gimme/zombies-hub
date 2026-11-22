@@ -11,8 +11,8 @@ set -euo pipefail
 . "$(dirname "$0")/host.sh"
 here=$(abs "$(dirname "$0")")
 root=$(abs "$here/..")
-docker build --quiet -f "$here/Dockerfile" --target e2e -t zombies-e2e --build-context repo="$root" \
+docker build --quiet -f "$here/Dockerfile" --target e2e -t zombies-hub-e2e --build-context repo="$root" \
     --build-context webpage="$root/web" "$here" >/dev/null
 mkdir -p "$root/build/e2e"
 MSYS_NO_PATHCONV=1 docker run --rm --init --ipc=host -u "$uid:$gid" -e HOME=/tmp -v "$root/build/e2e:/out" \
-    zombies-e2e --output /out/results "$@"
+    zombies-hub-e2e --output /out/results "$@"

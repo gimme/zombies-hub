@@ -1,6 +1,6 @@
-// e2e/game/server.ts - a server of the image (zombies:test, which docker/test-games.sh builds), in a container of its
-// own, run as Unraid runs it: PUID 99, PGID 100, the game files at /game, and its data at /config, which is the folder
-// config in the test's results.
+// e2e/game/server.ts - a server of the image (zombies-hub:test, which docker/test-games.sh builds), in a container of
+// its own, run as Unraid runs it: PUID 99, PGID 100, the game files at /game, and its data at /config, which is the
+// folder config in the test's results.
 //
 // Its port, TCP and UDP, is published at a free port of this PC's loopback, where the players' Chrome reaches it, and
 // the page tells them that port (ZOMBIES_PUBLIC_PORT). Its settings are the tests': cheats (a test turns the zombies
@@ -20,7 +20,7 @@ import { isAbsolute, join, resolve } from 'node:path';
 import { createInterface } from 'node:readline';
 import { stopAsked } from './stop';
 
-export const image = 'zombies:test';
+export const image = 'zombies-hub:test';
 
 // The servers of this process that have yet to stop (stopAll), and whether stopAll has begun, after which none starts.
 const running = new Set<Server>();

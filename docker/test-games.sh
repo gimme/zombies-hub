@@ -11,7 +11,7 @@
 # of its own: on 8 cores, four keep them busy, and six at a time overload them. A run of long, or of bigsquad, runs
 # one test at a time: bigsquad's six browsers need the machine to themselves (ZOMBIES_TEST_PLAYERS: 5 to 8 of them).
 #
-# It builds the server image as zombies:test and the Windows player's image (docker/Dockerfile: windows-player), and
+# It builds the server image as zombies-hub:test and the Windows player's image (docker/Dockerfile: windows-player), and
 # runs the tests with Playwright on this machine, which needs Node, npm ci in e2e, and Chrome (ZOMBIES_CHROME: its
 # executable, where it is not where Chrome installs). Each test's results are in build/test/results: the server's log
 # and data, each player's log, and screenshots of a test that failed. The run's output is in build/test/run.log, which
@@ -127,12 +127,12 @@ echo "$self" >"$pidfile"
 trap 'rm -f "$pidfile"' EXIT
 
 # the images, brought up to date (seconds when nothing changed), and the game files where Wine can run them
-progress=quiet; docker image inspect zombies:test >/dev/null 2>&1 || progress=auto
-BUILDKIT_PROGRESS=$progress "$here/image.sh" zombies:test >/dev/null
-progress=quiet; docker image inspect zombies-windows-player >/dev/null 2>&1 || progress=auto
-docker build --progress=$progress -f "$here/Dockerfile" --target windows-player -t zombies-windows-player \
+progress=quiet; docker image inspect zombies-hub:test >/dev/null 2>&1 || progress=auto
+BUILDKIT_PROGRESS=$progress "$here/image.sh" zombies-hub:test >/dev/null
+progress=quiet; docker image inspect zombies-hub-windows-player >/dev/null 2>&1 || progress=auto
+docker build --progress=$progress -f "$here/Dockerfile" --target windows-player -t zombies-hub-windows-player \
     --build-arg UID="$uid" --build-arg GID="$gid" "$here" >/dev/null
-ZOMBIES_TEST_GAME=$(for_wine "$game" zombies-game zombies:test)
+ZOMBIES_TEST_GAME=$(for_wine "$game" zombies-hub-game zombies-hub:test)
 export ZOMBIES_TEST_GAME ZOMBIES_TEST_INSTALL=$game/t5 ZOMBIES_TEST_MAP=$map
 if [ -n "${ZOMBIES_ENGINE_FILE:-}" ]; then
     ZOMBIES_ENGINE_FILE=$(abs "$(dirname "$ZOMBIES_ENGINE_FILE")")/$(basename "$ZOMBIES_ENGINE_FILE")
@@ -190,7 +190,7 @@ fi
 rm -f "$pidfile"
 
 # the containers the tests left, which a test removes as it ends (a Windows client's, of a test given up on)
-left=$(docker ps -a --format '{{.Names}}' --filter name='^zombies-test-' 2>/dev/null | tr '\n' ' ') || left=
+left=$(docker ps -a --format '{{.Names}}' --filter name='^zombies-hub-test-' 2>/dev/null | tr '\n' ' ') || left=
 if [ -n "${left// }" ]; then
     echo "test-games: removing the containers the tests left: $left" >&2
     docker rm -f $left >/dev/null || true

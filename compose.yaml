@@ -1,6 +1,6 @@
 # compose.yaml - run the server image (docker/image.sh) on a host with Docker Compose: docker compose up -d.
 #
-# Unraid's template (docker/unraid/my-zombies.xml) runs the same image the same way.
+# Unraid's template (docker/unraid/my-zombies-hub.xml) runs the same image the same way.
 #
 # The game files go in game/ next to this file, or in the folder that ZOMBIES_GAME_DIR names. They have a folder for
 # each title the server hosts: game/t5 is a copy of a Black Ops install folder, and game/t6 is a copy of a Black Ops II
@@ -9,7 +9,7 @@
 # games' user, 3075. docker compose exec server console opens the server's console.
 services:
   server:
-    image: ${ZOMBIES_IMAGE:-zombies:latest}
+    image: ${ZOMBIES_IMAGE:-zombies-hub:latest}
     restart: unless-stopped
     # For the server's firewall, which lets a room's game reach only its players (docker/entrypoint.sh).
     cap_add:

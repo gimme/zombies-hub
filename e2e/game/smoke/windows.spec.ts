@@ -1,5 +1,5 @@
 // A Windows player plays their room's game through the server's UDP port, as Play.bat does, with their key: the
-// Windows client under Wine (docker/windows-player.sh, in the image zombies-windows-player). Their client starts
+// Windows client under Wine (docker/windows-player.sh, in the image zombies-hub-windows-player). Their client starts
 // before they are in a room, and waits: for them to join one, then for the game to start, which they say they are
 // ready for, as everyone does; round 1 waits for them. They close their game, which keeps their character but tells
 // the lobby they quit, and the game runs on until they end it. They play again, and as game over ends the game their
@@ -15,7 +15,7 @@ const sleep = (ms: number) => new Promise((done) => setTimeout(done, ms));
 
 // Mesa's compiled shaders, kept from one run to the next: without them the client takes minutes longer to join. A
 // folder of build/, or on Windows a volume, as Wine can't run the game from a Windows folder.
-const shaders = process.platform === 'win32' ? 'zombies-shader-cache'
+const shaders = process.platform === 'win32' ? 'zombies-hub-shader-cache'
   : join(import.meta.dirname, '..', '..', '..', 'build', 'shader-cache');
 
 /**
@@ -36,7 +36,7 @@ class WindowsClient {
     this.proc = spawn('docker', ['run', '--rm', '--name', this.name, '--network', 'bridge',
       ...mount(process.env.ZOMBIES_TEST_GAME!, '/game', true), ...mount(engine, '/engine', true),
       ...mount(results, '/out'), ...mount(shaders, '/shader-cache'), '-e', 'MESA_SHADER_CACHE_DIR=/shader-cache',
-      'zombies-windows-player', `/out/windows-${n}`, `${address}:3075`, key], { windowsHide: true });
+      'zombies-hub-windows-player', `/out/windows-${n}`, `${address}:3075`, key], { windowsHide: true });
     const log = createWriteStream(`${this.home}.log`);
     this.proc.stdout!.pipe(log);
     this.proc.stderr!.pipe(log);
@@ -76,7 +76,7 @@ test("a Windows player plays a room's game", async ({ server, api }, testInfo) =
   if (process.platform === 'win32') {
     // the volume, as Docker makes it, is root's: the client's user writes in it
     await docker(['run', '--rm', '-u', '0', '--entrypoint', 'chown', ...mount(shaders, '/cache'),
-      'zombies-windows-player', '1000:1000', '/cache']);
+      'zombies-hub-windows-player', '1000:1000', '/cache']);
   }
   const win = await api.player('Win');
   const join1 = new WindowsClient(1, testInfo.outputDir, server, address, win.key);

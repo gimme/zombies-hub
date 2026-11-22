@@ -29,7 +29,7 @@ dev: ## run a dev server on http://localhost:3075/ (docker/server.sh)
 web: ## build the page into web/dist, which make dev serves (docker/web.sh)
 	docker/web.sh
 
-image: ## build the server image zombies:latest (docker/image.sh)
+image: ## build the server image zombies-hub:latest (docker/image.sh)
 	docker/image.sh $(ARGS)
 
 push: image ## make image, then push it to a registry: make push REGISTRY=<host>[:port] (docker/push.sh)

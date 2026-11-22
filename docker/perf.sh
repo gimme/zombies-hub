@@ -20,8 +20,8 @@ set -euo pipefail
 . "$(dirname "$0")/host.sh"
 here=$(abs "$(dirname "$0")")
 root=$(abs "$here/..")
-name=zombies-perf
-player_image=${ZOMBIES_PLAYER_IMAGE:-zombies-player}
+name=zombies-hub-perf
+player_image=${ZOMBIES_PLAYER_IMAGE:-zombies-hub-player}
 
 progress=quiet; docker image inspect "$player_image" >/dev/null 2>&1 || progress=auto
 docker build --progress=$progress -f "$here/Dockerfile" --target player -t "$player_image" "$here" >/dev/null

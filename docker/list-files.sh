@@ -17,8 +17,8 @@ set -euo pipefail
 here=$(abs "$(dirname "$0")")
 root=$(abs "$here/..")
 game=${ZOMBIES_GAME_DIR:-$root/game}
-image=${ZOMBIES_SERVER_IMAGE:-zombies-server}
-name=zombies-list-files
+image=${ZOMBIES_SERVER_IMAGE:-zombies-hub-server}
+name=zombies-hub-list-files
 
 [ -d "$game/t5/zone" ] ||
     { echo "no game files in $game/t5 (no zone folder): copy a Black Ops install there" >&2; exit 1; }
@@ -27,7 +27,7 @@ docker build --progress=$progress -f "$here/Dockerfile" --target server -t "$ima
     --build-context repo="$root" \
     --build-arg UID="$uid" --build-arg GID="$gid" "$here" >/dev/null
 mapfile -t engine < <(engine_args "$name")
-gamedir=$(for_wine "$game" zombies-game "$image")
+gamedir=$(for_wine "$game" zombies-hub-game "$image")
 home=$(abs "$(mktemp -d)")
 trap 'rm -rf "$home"' EXIT
 

@@ -20,8 +20,8 @@ root=$(abs "$here/..")
 image=$(sed -n 's/^FROM \(golang:[^ ]*\) AS server-build$/\1/p' "$here/Dockerfile")
 [ -n "$image" ] || { echo "launcher: docker/Dockerfile has no server-build stage FROM a golang image" >&2; exit 1; }
 mkdir -p "$root/build"
-docker run --rm -v "$root:/repo:ro" -v "$root/build:/out" -v zombies-go-mod:/go/pkg/mod \
-    -v zombies-go-build:/root/.cache/go-build "$image" sh -ec '
+docker run --rm -v "$root:/repo:ro" -v "$root/build:/out" -v zombies-hub-go-mod:/go/pkg/mod \
+    -v zombies-hub-go-build:/root/.cache/go-build "$image" sh -ec '
         mkdir /src && cd /repo && cp -R go.mod go.sum launcher internal /src && cd /src
         go install github.com/tc-hib/go-winres@v0.3.3
         (cd launcher && go-winres simply --arch amd64 --manifest gui --icon icon.png --product-name "Zombies Launcher" \
