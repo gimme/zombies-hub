@@ -28,8 +28,9 @@ import (
 // are in from their "connectReq", answered with the address it sees them at, until their "leave"; "connectReq Ann" is
 // one that plays under that name, where the others are Player and their slot. A client's "round 3"
 // is a round beginning, as the server's script in the game says it (t6Script), after each client's line of the
-// scoreboard (stats), and its "over" game over, on round 7, with its end played out a moment later; its "rotate" is
-// the server rotating its map with no word of the script's. Any other packet comes back as it is.
+// scoreboard (stats), its "egg" the map's main quest done, with every client in the game, and its "over" game over, on
+// round 7, with its end played out a moment later; its "rotate" is the server rotating its map with no word of the
+// script's. Any other packet comes back as it is.
 func fakeT6(port string) {
 	say := func(text string) {
 		fmt.Printf("\x1b[38;2;255;255;255m\x1b[2K\x1b[38;2;243;111;26mPlutonium r1 > \x1b[38;2;255;255;255m%s\n", text)
@@ -125,6 +126,14 @@ func fakeT6(port string) {
 			if i := slices.Index(clients, from.String()); i >= 0 {
 				clients[i] = ""
 			}
+		case oob && text == "egg":
+			line := "zombies_lobby: egg"
+			for slot, address := range clients {
+				if address != "" {
+					line += " " + strconv.Itoa(slot)
+				}
+			}
+			say(line)
 		case oob && text == "over":
 			stats(7)
 			say("zombies_lobby: over 7")
@@ -403,9 +412,12 @@ func TestT6Room(t *testing.T) {
 	duo := func() []boardRow { return boards().of(t6).Rounds.Maps[0].Duo }
 	waitFor(t, "both players on the duo board", func() bool { return len(duo()) == 2 })
 	b3 := boards()
-	if len(b3.Titles) != 2 || b3.Titles[0].ID != t5 || b3.Titles[1].ID != t6 || b3.of(t6).Name != "Black Ops II" ||
-		b3.of(t6).Eggs != nil {
+	if len(b3.Titles) != 2 || b3.Titles[0].ID != t5 || b3.Titles[1].ID != t6 || b3.of(t6).Name != "Black Ops II" {
 		t.Fatalf("the boards' titles: %+v", b3.Titles)
+	}
+	// T6's easter eggs: Origins', and none of Town, which has no main quest
+	if eggs := b3.of(t6).Eggs; eggs == nil || len(eggs.Maps) != 1 || eggs.Maps[0].Map != "zm_classic_tomb" {
+		t.Errorf("T6's boards of easter eggs: %+v", eggs)
 	}
 	t5Boards, t6Boards := b3.of(t5).Rounds, b3.of(t6).Rounds
 	if len(t5Boards.Maps) != 1 || len(t6Boards.Maps) != 2 || t6Boards.Maps[0].Map != "zm_standard_town" {
@@ -636,6 +648,53 @@ func TestT6RoomBeginsAsItsServerSays(t *testing.T) {
 	l.mu.Unlock()
 	if len(rows) != 1 || rows[0].Name != "Ann" || rows[0].Round != 1 || rows[0].Party != 2 {
 		t.Errorf("the duo board after round 1: %+v", rows)
+	}
+}
+
+// The end of the map's main quest, as the server's script in the game says it, is the easter egg's record of the
+// players in the game then, with the party the game started with, on T6's boards. It names the game, whose report is
+// that of the last round.
+func TestT6RoomKeepsTheEasterEgg(t *testing.T) {
+	l, target := t6Lobby(t)
+	a, b := l.hello("", "Ann").Token, l.hello("", "Bob").Token
+	do(l, a, "create", "map", "zm_classic_tomb")
+	do(l, b, "join", "room", l.viewOf(a).Room.Code)
+	pagesOpen(l, a, b)
+	do(l, a, "ready", "ready", "true")
+	do(l, b, "ready", "ready", "true")
+	waitView(t, l, a, "the server up", func(v view) bool { return v.Room.T6 != nil && v.Room.T6.Up })
+	pagesAt(l, "127.0.0.1", a, b)
+	annsGame, bobsGame := windowsPlayer(t, target), windowsPlayer(t, target)
+	for _, game := range []*net.UDPConn{annsGame, bobsGame} {
+		game.Write([]byte("\xff\xff\xff\xffconnectReq"))
+		game.Read(make([]byte, 2048))
+	}
+	waitView(t, l, a, "both in the game", func(v view) bool { return v.Room.State == "playing" })
+	annsGame.Write([]byte("\xff\xff\xff\xffround 3"))
+	waitFor(t, "both players' round 3", func() bool { rounds, _ := recordsOf(l, b); return len(rounds) == 1 })
+	bobsGame.Write([]byte("\xff\xff\xff\xffleave"))
+	waitView(t, l, a, "Bob out of the game", func(v view) bool { return !v.Room.Members[1].InGame })
+	annsGame.Write([]byte("\xff\xff\xff\xffegg"))
+	waitFor(t, "Ann's easter egg", func() bool { _, eggs := recordsOf(l, a); return len(eggs) == 1 })
+	rounds, eggs := recordsOf(l, a)
+	if e := eggs[0]; e.Map != "zm_classic_tomb" || e.Party != 2 || e.Seconds < 1 || e.Game != rounds[0].Game {
+		t.Errorf("Ann's easter egg: %+v", e)
+	}
+	if _, eggs := recordsOf(l, b); len(eggs) != 0 {
+		t.Errorf("the easter egg of Bob, who had left: %+v", eggs)
+	}
+	l.mu.Lock()
+	boards := l.leaderboards(l.playerOf(a))
+	l.mu.Unlock()
+	duo := boards.of(t6).Eggs.Maps[0].Duo
+	if len(duo) != 1 || duo[0].Name != "Ann" || duo[0].Seconds != eggs[0].Seconds {
+		t.Errorf("Origins' easter egg: %+v", duo)
+	}
+	if res := boards.Games[duo[0].Game]; res == nil || res.Round != 3 || len(res.Players) != 2 {
+		t.Errorf("the easter egg's report: %+v", res)
+	}
+	if all := boards.of(t6).Eggs.All; len(all.Rows) != 1 || all.Mine.Seconds != eggs[0].Seconds {
+		t.Errorf("T6's board of all its easter eggs: %+v", all)
 	}
 }
 

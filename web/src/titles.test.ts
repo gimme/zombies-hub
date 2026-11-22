@@ -37,7 +37,7 @@ test("the leaderboards show the first title's rounds of all its maps, or the roo
 test('the leaderboards keep what the player picked of each title, where the boards have it', () => {
   const picked = { '': 't5', t5: 'eggs', 't5:eggs': 'zombie_moon', 't5:rounds': 'zombie_theater', t6: 'eggs' };
   expect(pickBoard(boards, picked)).toEqual({ title: t5, kind: 'eggs', boards: t5.eggs, map: 'zombie_moon' });
-  // Black Ops II has no easter eggs: its rounds show, of all its maps
+  // Black Ops II's maps here have no easter egg: its rounds show, of all its maps
   expect(pickBoard(boards, { ...picked, '': 't6' })).toEqual(
     { title: t6, kind: 'rounds', boards: t6.rounds, map: ALL_MAPS });
   // a map that the kind's boards lack, and a title that the server no longer hosts

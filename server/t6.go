@@ -36,10 +36,10 @@ import (
 // launcher or page calls the server from (lobby.t6Seat). The player's game joins the room's game with the room's
 // password (room.password).
 //
-// The server puts a script in the game that reports how the game goes (t6Script). It reports each round, which sets
-// the players' records on the leaderboards. At game over it reports each player's line of the scoreboard, which
-// becomes the room's report of the game. Compared with a T5 room's game, a T6 room's game has no stats or
-// collectibles kept by the server, no easter egg leaderboards, no mods, and no browser to play it in. The server runs
+// The server puts a script in the game that reports how the game goes (t6Script). It reports each round, and the end
+// of the map's main quest, which set the players' records on the leaderboards. At game over it reports each player's
+// line of the scoreboard, which becomes the room's report of the game. Compared with a T5 room's game, a T6 room's
+// game has no stats or collectibles kept by the server, no mods, and no browser to play it in. The server runs
 // one T6 game at a time. Each Plutonium server also opens a UDP port, counting up from 3074, and a second Plutonium
 // server would take a port that the server or one of its games uses.
 
@@ -299,6 +299,8 @@ var t6Own = []string{"main", "players", "demos", "gamesettings", "scripts", "lob
 //	                                               headshots, downs, revives and doors bought. It is printed before
 //	                                               "round" and "over".
 //	zombies_lobby: round 5                         a round begins
+//	zombies_lobby: egg 0 2                         the map's main quest is done, with the slots of the players in the
+//	                                               game then. It is printed once a game.
 //	zombies_lobby: over 12                         game over, and the round it ended on
 //	zombies_lobby: exit                            the game's end has played out (the words on the screen, then the
 //	                                               view over the map: 20 seconds). The game loads the map again a
@@ -307,7 +309,24 @@ var t6Own = []string{"main", "players", "demos", "gamesettings", "scripts", "lob
 // The server stops the game on "exit". The players' games then go back to their menus from the end of the game, and
 // not from the loading screen of the next game. The level's scripts (maps/mp/zombies/_zm.gsc and its neighbours) keep
 // each of these numbers on the player. They count the doors in the stats they keep of the player.
-const t6Script = `// zombies-server's (server/t6.go): the rounds, the scoreboard at each, game over, its end played out
+//
+// A map's main quest is done when the level gives its achievement, to everyone in the game. The map's quest notifies
+// the level then, and the map's script of achievements waits for that notify (maps/mp/zm_<map>_achievement.gsc in the
+// game's scripts, as https://github.com/plutoniummod/t6-scripts has them):
+//
+//	TranZit           transit_sidequest_achieved     ZM_TRANSIT_SIDEQUEST, either side (zm_transit_sq.gsc)
+//	Die Rise          highrise_sidequest_achieved    ZM_DLC1_HIGHRISE_SIDEQUEST, either side (zm_highrise_sq.gsc)
+//	Mob of the Dead   pop_goes_the_weasel_achieved   ZM_DLC2_POP_GOES_THE_WEASEL, as the showdown on the bridge
+//	                                                 begins, whoever wins it (zm_prison_sq_final.gsc)
+//	Buried            sq_richtofen_complete,         ZM_DLC3_BURIED_SIDEQUEST, one for each side (zm_buried_sq.gsc)
+//	                  sq_maxis_complete
+//	Origins           tomb_sidequest_complete        ZM_DLC4_TOMB_SIDEQUEST, as the quest's last step begins
+//	                                                 (zm_tomb_ee_main_step_8.gsc)
+//
+// The script waits for each of them on any map, and reports the first. A quest runs in its map's classic mode alone,
+// and not on Easy, so another map or mode never notifies one.
+const t6Script = `// zombies-server's (server/t6.go): the rounds, the scoreboard at each, the main quest done, game over, its end
+// played out
 main()
 {
 }
@@ -315,6 +334,7 @@ main()
 init()
 {
 	level thread lobby_rounds();
+	level thread lobby_egg();
 	level thread lobby_game_over();
 }
 
@@ -356,6 +376,32 @@ lobby_rounds()
 		lobby_stats();
 		printf( "zombies_lobby: round " + level.round_number );
 	}
+}
+
+lobby_egg()
+{
+	level endon( "end_game" );
+	level thread lobby_egg_on( "transit_sidequest_achieved" );
+	level thread lobby_egg_on( "highrise_sidequest_achieved" );
+	level thread lobby_egg_on( "pop_goes_the_weasel_achieved" );
+	level thread lobby_egg_on( "sq_richtofen_complete" );
+	level thread lobby_egg_on( "sq_maxis_complete" );
+	level thread lobby_egg_on( "tomb_sidequest_complete" );
+	level waittill( "lobby_egg" );
+	line = "zombies_lobby: egg";
+	players = getplayers();
+
+	for ( i = 0; i < players.size; i++ )
+		line = line + " " + players[i] getentitynumber();
+
+	printf( line );
+}
+
+lobby_egg_on( done )
+{
+	level endon( "end_game" );
+	level waittill( done );
+	level notify( "lobby_egg" );
 }
 
 lobby_game_over()
@@ -688,7 +734,8 @@ func (l *lobby) t6Status(r *room, rg *roomGame, clients []t6Client) {
 // when round 1 begins: with everyone in, or without the rest once Plutonium's own script has waited long enough for
 // them (scripts/zm/ranked.gsc). A game that has begun is not called off. Each round sets its players' records, as in
 // a T5 game (keepRounds). The records come from the players' lines of the scoreboard. The script prints those by
-// client slot, so they count only for the clients that the status has listed by then.
+// client slot, so they count only for the clients that the status has listed by then. The end of the map's main quest
+// sets the easter egg's record of the players in the game then, whom the script names by slot too (t6Egg).
 //
 // The game ends when the level ends: at game over, or 20 seconds after its last player left. At game over the room
 // gets the game's result, which the players' pages show while the players watch the game's end. Once the script
@@ -740,6 +787,11 @@ func (l *lobby) t6Said(r *room, rg *roomGame, line string) {
 			l.keepRounds(r, rg, l.result(r, rg, max(round, 0)))
 		}
 		return // the leaderboards are read when a page opens them
+	case ours && verb == "egg":
+		if rg.ending == "" && hasEgg(r.mapName) {
+			l.t6Egg(r, rg, strings.Fields(arg))
+		}
+		return
 	case ours && verb == "over" && rg.ending == "" && over == "Game over.":
 		// The players watch the game's end. The script reports when the end has played out ("exit"). If it doesn't, the
 		// server stops the game anyway after t6EndTakes.
@@ -763,6 +815,27 @@ func (l *lobby) t6Said(r *room, rg *roomGame, line string) {
 		rg.cancel()
 	}
 	l.change()
+}
+
+// t6Egg keeps the easter egg of rg's map for the players whose client is in one of the slots: the script's report
+// that the map's main quest is done ("egg 0 2"), with the players in the game then. The whole party has the one time,
+// from round 1, as in a T5 game (t5.go: gameLine). The caller holds l.mu.
+func (l *lobby) t6Egg(r *room, rg *roomGame, slots []string) {
+	if rg.eggSeconds == 0 {
+		rg.eggSeconds = max(int64(time.Since(rg.round1).Seconds()), 1)
+	}
+	for _, field := range slots {
+		slot, err := strconv.Atoi(field)
+		for _, s := range rg.seats {
+			if err == nil && slot >= 0 && s.slot == slot {
+				s.player.keepEgg(r.mapName, len(rg.seats), rg.eggSeconds, gameID(r, rg))
+			}
+		}
+	}
+	if rg.report != nil {
+		l.keepGame(rg.report) // so that the game has a report however it ends
+	}
+	l.save()
 }
 
 // t6EndTakes is how long the server gives a T6 game's end to play out before it stops the game anyway. The end takes

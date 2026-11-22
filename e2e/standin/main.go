@@ -20,8 +20,8 @@
 //	exit <code>             ends with that exit code, as a game that fails does
 //
 // Black Ops II: the console is the remote console, with the password in storage/t6/lobby.cfg. A client joins with an
-// out-of-band "connect <name>". Remote console lines: status, round <n>, over <n> (the end plays out for a moment,
-// then "exit"), clientkick <slot>, quit.
+// out-of-band "connect <name>". Remote console lines: status, round <n>, egg (the map's main quest done, with every
+// client in the game), over <n> (the end plays out for a moment, then "exit"), clientkick <slot>, quit.
 package main
 
 import (
@@ -283,6 +283,14 @@ func runT6(conn net.PacketConn) {
 		case "round":
 			lines(number)
 			say("zombies_lobby: round " + value)
+		case "egg": // the map's main quest is done, with every client in the game
+			line := "zombies_lobby: egg"
+			for slot, c := range clients {
+				if c.address != "" {
+					line += " " + strconv.Itoa(slot)
+				}
+			}
+			say(line)
 		case "over":
 			lines(number)
 			say("zombies_lobby: over " + value)

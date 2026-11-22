@@ -1,5 +1,6 @@
 // A Black Ops II room: its host picks the game, then a map of it; its players join by hand and get ready, their own
-// Plutonium joins its game through the relay, and they see its report and the game's own leaderboards. The room's
+// Plutonium joins its game through the relay, and they see its report and the game's own leaderboards, with the map's
+// easter egg that they finished. The room's
 // button opens the launcher, and the room links to the launcher's latest release. A launcher too old for the server is
 // turned away, and the room says so. A player whose copy of the game lacks the room's map is not ready, and where the
 // server sends game files, the room's button offers them.
@@ -26,15 +27,16 @@ async function plutonium(port: number, name: string): Promise<Socket> {
   return socket;
 }
 
-test('a room plays its game to game over, and its round is on the leaderboards', async ({ server, player }) => {
+test('a room plays its game to game over, and its round and easter egg are on the leaderboards', async (
+  { server, player }) => {
   const ann = await player('Ann');
   const bob = await player('Bob');
 
   await ann.locator('#make').click();
   await ann.locator('#titlepick').getByRole('radio', { name: 'Black Ops II', exact: true }).click();
   await expect(ann.locator('#maptitle')).toHaveText('TranZit'); // its first map: the server's default is Black Ops'
-  await ann.locator('#mapgrid').getByRole('radio', { name: 'Town', exact: true }).click();
-  await expect(ann.locator('#maptitle')).toHaveText('Town');
+  await ann.locator('#mapgrid').getByRole('radio', { name: 'Die Rise', exact: true }).click();
+  await expect(ann.locator('#maptitle')).toHaveText('Die Rise');
   await expect(ann.locator('#roomcode')).toHaveText(/^[A-Z]{4}$/);
   const code = (await ann.locator('#roomcode').textContent()) || '';
   await bob.locator('#code').fill(code);
@@ -53,6 +55,8 @@ test('a room plays its game to game over, and its round is on the leaderboards',
   for (const page of [ann, bob]) await expect(page.locator('#ready')).toHaveText('In game');
 
   server.command(`${code} round 3`);
+  server.command(`${code} egg`); // the main quest done, with both players in the game
+  await server.waitFor(/^server: Bob finished the easter egg of zm_classic_rooftop with a party of 2 in \d+ s$/);
   server.command(`${code} over 5`);
   for (const page of [ann, bob]) {
     await expect(page.locator('#results')).toBeVisible();
@@ -62,13 +66,16 @@ test('a room plays its game to game over, and its round is on the leaderboards',
   }
   for (const game of games) game.close();
 
-  // the leaderboards open on the room's game, whose card has Ann's round on Town
+  // the leaderboards open on the room's game, whose card has Ann's round on Die Rise, and then her easter egg there
   await ann.locator('#resultsback').click();
   await ann.locator('#boardsopen').click();
   await expect(ann.locator('#boardtitles button[aria-checked=true]')).toHaveText('Black Ops II');
   await expect(ann.locator('#boardtables .tile.lit')).toHaveCount(1);
-  await expect(ann.locator('#boardtables .tile.lit .name')).toHaveText('Town');
+  await expect(ann.locator('#boardtables .tile.lit .name')).toHaveText('Die Rise');
   await expect(ann.locator('#boardtables')).toContainText('Ann');
+  await ann.locator('#boardtabs').getByRole('radio', { name: 'Easter eggs' }).click();
+  await expect(ann.locator('#boardtables .tile.lit.gold .name')).toHaveText('Die Rise');
+  await expect(ann.locator('#boardtables.all tr.mine')).toContainText('Ann');
 });
 
 test("a launcher too old for the server is turned away, and the room links to the launcher's latest release",

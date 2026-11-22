@@ -253,7 +253,7 @@ export interface TitleBoards {
   id: string;
   name: string;
   rounds: KindBoards;
-  /** Its maps that have an easter egg, where the server has any. Black Ops II has none. */
+  /** Its maps that have an easter egg, where the server has any. A Black Ops II map has one in its classic mode. */
   eggs?: KindBoards;
 }
 

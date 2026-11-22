@@ -24,7 +24,7 @@ import (
 //
 // The boards are by title (title.go): each title that the server hosts has its own, of its own maps, because a sum of
 // a player's bests is over the maps of one title. A title has boards of easter eggs where the server has a map of it
-// with one. T6's games report no easter eggs (t6.go), so T6 has boards of rounds alone.
+// with one. A T6 map has one in its classic mode alone: its main quest (t6.go: t6Script).
 //
 // The level stores a player's best round on a map as one number for all sizes of party (<map>_highestwave), which
 // can't hold both a duo's best and a squad's. So the server keeps its own records (record). It records a round when
@@ -35,14 +35,25 @@ import (
 // boardRows is how many players a board lists at most.
 const boardRows = 50
 
-// eggs are the maps with an easter egg, in no particular order, and the stat that each map adds to when a party of two
-// or more finishes its easter egg. Ascension's stat is not the level's own: the engine's script fixes add it
-// (bo1-zombies/src/clientscript/cscr_parser.cpp: s_scrSourceFixes).
+// eggs are the maps with an easter egg, in no particular order. A T5 map has the stat that it adds to when a party of
+// two or more finishes its easter egg (t5.go: gameLine). Ascension's stat is not the level's own: the engine's script
+// fixes add it (bo1-zombies/src/clientscript/cscr_parser.cpp: s_scrSourceFixes). A T6 map has no stat: the server's
+// script in the game reports when its main quest is done (t6.go: t6Script).
 var eggs = []struct{ mapName, stat string }{
 	{"zombie_coast", "ZOMBIE_COAST_EGG_COOP"},
 	{"zombie_temple", "ZOMBIE_TEMPLE_SIDEQUEST"},
 	{"zombie_moon", "ZOMBIE_MOON_SIDEQUEST_TOTAL"},
 	{"zombie_cosmodrome", "ZOMBIE_COSMO_EGG"},
+	{"zm_classic_transit", ""},
+	{"zm_classic_rooftop", ""},
+	{"zm_classic_prison", ""},
+	{"zm_classic_processing", ""},
+	{"zm_classic_tomb", ""},
+}
+
+// hasEgg reports whether the map has an easter egg (eggs).
+func hasEgg(mapName string) bool {
+	return slices.ContainsFunc(eggs, func(e struct{ mapName, stat string }) bool { return e.mapName == mapName })
 }
 
 // record is a player's record on a map with a party of one size: their best round, or their fastest time through the
@@ -300,7 +311,7 @@ func (l *lobby) leaderboards(asker *player) leaderboards {
 				continue
 			}
 			mapNames = append(mapNames, name)
-			if slices.ContainsFunc(eggs, func(e struct{ mapName, stat string }) bool { return e.mapName == name }) {
+			if hasEgg(name) {
 				eggMaps = append(eggMaps, name)
 			}
 		}
