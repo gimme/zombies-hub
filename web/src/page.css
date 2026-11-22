@@ -1,0 +1,623 @@
+/* the page's fonts, from the server (server/web.go), each under the SIL Open Font License: Oswald for its display
+   (oswald-OFL.txt), and Inter for its text (inter-OFL.txt), so that the page is the same on every system: the
+   system's own font is another on each, wider or narrower, its letters higher or lower in its line */
+@font-face { font-family: 'Oswald'; src: url(/oswald.woff2) format('woff2'); font-weight: 200 700; font-display: swap; }
+@font-face { font-family: 'Inter'; src: url(/inter.woff2) format('woff2'); font-weight: 400 700; font-display: swap; }
+:root {
+  --bg: #080707;
+  --fg: #ece7df;
+  --muted: #aaa39a;
+  --faint: #8f897f;
+  --accent: #c8102e;
+  --accent-hi: #e0233f;
+  --accent-over: #ff6b76;
+  --link: #ff6b76;
+  --panel: rgba(18, 15, 15, 0.5);
+  --panel-strong: rgba(18, 15, 15, 0.58);
+  --line: rgba(255, 255, 255, 0.09);
+  --row: rgba(255, 255, 255, 0.04);
+  --display: 'Oswald', 'Bahnschrift', 'Arial Narrow', sans-serif;
+  --text: 'Inter', system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); overflow: hidden;
+  font: 15px/1.45 var(--text); }
+/* the picture keeps its shape, the back buffer's (startEngine), with black bars at its sides or above and below where
+   the window's is another */
+#canvas { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block; outline: none; background: #000;
+  object-fit: contain; }
+/* the map's loading movie, under the canvas, which lets it through where the engine's loading screen draws nothing
+   (bo1-zombies/web/src/library_bo1.js: bo1_movie_show); the canvas shows nothing over it until that screen shows */
+#movie { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block; background: #000; object-fit: contain;
+  pointer-events: none; }
+#canvas.overmovie { background: transparent; }
+#canvas.unseen { opacity: 0; }
+.hidden { display: none !important; }
+/* said to a screen reader alone: "(you)", which the red of the player's own row shows everyone else */
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+/* the scrollbar's room at its side is kept while it has none (scrollbar-gutter): a page taller than the window (a
+   room, the leaderboards) is as wide as one that fits, and the shell, centred, stays where it was */
+#overlay { position: fixed; inset: 0; overflow-y: auto; scrollbar-gutter: stable; background: var(--bg);
+  isolation: isolate; }
+#overlay.clickable { cursor: pointer; }
+#overlay.hidden { display: none; }
+
+/* behind it all: the map's loading screen (server/mapart.go), drifting slowly, with the map's atmosphere over it
+   (atmosphereStart), which fades in with its first frame; over that, a shade for the lights faltering, and film
+   grain, which the atmosphere sets. It is as tall as the window at its tallest (100lvh; 100vh where a browser has
+   no lvh, which a phone's takes for the same), from the window's top, whatever of it shows: a phone's browser hides
+   its address bar as the page scrolls, and a backdrop as tall as what shows (inset: 0) was laid out again, taller,
+   as the bar went: the art moved to its new middle and the atmosphere, drawn by its height, jumped. */
+#backdrop { position: fixed; top: 0; left: 0; right: 0; height: 100vh; height: 100lvh; z-index: -1; overflow: hidden;
+  pointer-events: none; }
+#backdropimg { position: absolute; top: -8px; left: -8px; width: calc(100% + 16px); height: calc(100% + 16px);
+  object-fit: cover; filter: blur(2px) brightness(0.42) saturate(1.15); opacity: 0; transition: opacity 0.8s;
+  will-change: transform; }
+#backdropimg.shown { opacity: 1; }
+#atmosphere { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; transition: opacity 2s; }
+#atmosphere.shown { opacity: 1; }
+#backdropdim { position: absolute; inset: 0; background: #000; opacity: 0; }
+#backdropgrain { position: absolute; inset: -256px; opacity: 0; mix-blend-mode: overlay; will-change: transform; }
+.vignette { position: absolute; inset: 0;
+  background: radial-gradient(ellipse at 50% 40%, rgba(8, 7, 7, 0.3), rgba(8, 7, 7, 0.82)); }
+
+.shell { max-width: 1160px; margin: 0 auto; padding: 28px 40px 48px; display: flex; flex-direction: column;
+  gap: 32px; box-sizing: border-box; }
+.top { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.logo { font: 700 26px var(--display); letter-spacing: 0.06em; text-transform: uppercase; color: inherit;
+  text-decoration: none; }
+.logo span, .accent { color: var(--accent-hi); }
+.display { margin: 0; font-family: var(--display); font-weight: 600; text-transform: uppercase; line-height: 1; }
+.label { font-size: 12px; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; color: var(--faint); }
+.panel { border-radius: 14px; background: var(--panel); border: 1px solid var(--line);
+  -webkit-backdrop-filter: blur(14px) saturate(1.1); backdrop-filter: blur(14px) saturate(1.1); }
+.cols { display: flex; flex-wrap: wrap; gap: 28px; align-items: flex-start; }
+.grow { flex: 1; min-width: 0; }
+.row { display: flex; gap: 10px; align-items: center; }
+.between { display: flex; justify-content: space-between; gap: 12px; align-items: center; }
+
+input[type=text] { box-sizing: border-box; height: 48px; padding: 0 16px; border-radius: 10px; min-width: 0;
+  border: 1px solid rgba(255, 255, 255, 0.14); background: rgba(0, 0, 0, 0.35); color: var(--fg); font: inherit; }
+input[type=text]:focus, input[type=text]:focus-visible { outline: 1px solid var(--accent-hi); outline-offset: 0; }
+button { height: 44px; padding: 0 18px; border-radius: 10px; border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.06); color: var(--fg); font: inherit; font-weight: 600; cursor: pointer; }
+/* A button shows the pointer on it, as it sounds under it (soundsInit): its border lightens, and so does a red one
+   (--accent-over), by its own rule. One with no border, or lit all over, shows it its own way, by its own rule too:
+   no button that can be pressed is the same under the pointer as away from it. */
+button:hover:not(:disabled, [aria-disabled=true]) { border-color: rgba(255, 255, 255, 0.3); }
+/* A button that is off: disabled, or aria-disabled, as a view's main button is while it only says something (a
+   download's count, Server full: setButton). That one looks the same and does nothing, but the focus can come to
+   it and stay, the gamepad's and the keyboard's, where the browser takes it from a button that is disabled. */
+button:disabled, button[aria-disabled=true] { cursor: default; color: var(--faint); background: transparent;
+  border-color: rgba(255, 255, 255, 0.12); }
+button.primary:not(:disabled, [aria-disabled=true]) { background: var(--accent); border-color: var(--accent);
+  color: #fff; }
+button.primary:hover:not(:disabled, [aria-disabled=true]) { background: #d81a38; }
+button.big { height: 58px; border-radius: 12px; font: 600 20px var(--display); letter-spacing: 0.1em;
+  text-transform: uppercase; }
+/* a map's button while its download comes: filled as far as it has */
+button.fill, button.fill:disabled, button.fill[aria-disabled=true] { color: var(--fg);
+  border-color: rgba(255, 255, 255, 0.16);
+  background: linear-gradient(to right, rgba(200, 16, 46, 0.55) var(--got), rgba(255, 255, 255, 0.06) var(--got)); }
+/* The room's button counting down to its game (countDown): the count, and Cancel beside it, a smaller word, which
+   on the count's baseline sat 3px under the middle of its capitals. Each is in a box of its own, trimmed to its
+   capitals (.t: text-box, below), and the button, a flex row while it counts, has the two middle to middle, in
+   whatever fonts they come. */
+button.counting { display: flex; align-items: center; justify-content: center; }
+button.big .sub { margin-left: 14px; font: 500 14px var(--text); letter-spacing: 0; text-transform: none;
+  color: var(--muted); }
+button.link { height: auto; padding: 0; border: none; background: none; color: var(--link); font-weight: 400;
+  font-size: 14px; }
+button.link:hover { color: #ff8f97; text-decoration: underline; }
+button.link.muted { color: var(--muted); }
+:focus-visible { outline: 2px solid var(--accent-hi); outline-offset: 2px; }
+/* the gamepad's focus (padNav), which a script moves, where the browser may not mark it as the keyboard's */
+body.padnav #overlay :focus, body.padnav #ask :focus, body.padnav #picker :focus {
+  outline: 2px solid var(--accent-hi); outline-offset: 2px; }
+
+/* the player: their name, and the menu under it of what is theirs (the profile) */
+#me { position: relative; }
+.top .right { display: flex; align-items: center; gap: 10px; margin-left: auto; }
+.chip { display: flex; align-items: center; gap: 10px; padding: 0 14px 0 6px; border-radius: 999px; font-weight: 500; }
+.chip svg { opacity: 0.7; transition: transform 0.15s; }
+/* open, its border is as light as a button's under the pointer: lighter still there */
+.chip[aria-expanded=true] { border-color: rgba(255, 255, 255, 0.3); }
+.chip[aria-expanded=true]:hover { border-color: rgba(255, 255, 255, 0.45); }
+.chip[aria-expanded=true] svg { transform: rotate(180deg); }
+.menu { position: absolute; right: 0; top: calc(100% + 8px); z-index: 10; width: min(360px, calc(100vw - 32px));
+  box-sizing: border-box; padding: 4px 20px; background: rgba(18, 15, 15, 0.94); }
+.menu section { display: flex; flex-direction: column; gap: 8px; padding: 16px 0; }
+.menu section + section { border-top: 1px solid rgba(255, 255, 255, 0.08); }
+.menu p { margin: 0; font-size: 13px; color: var(--muted); }
+.menu p:empty { display: none; }
+.menu .value { font-weight: 600; overflow-wrap: anywhere; }
+.menu .value:empty { display: none; }
+.menu button:not(.link) { height: 38px; }
+#name { width: 100%; height: 44px; }
+/* the player's picture in their menu, beside their name: a button, which opens the pictures to pick from
+   (openPicker), and says so under the pointer or the focus, with a pencil over the picture, dimmed */
+#picturechange { position: relative; flex: none; width: 44px; height: 44px; padding: 0; border: none;
+  border-radius: 50%; background: none; }
+#mypicture { width: 44px; height: 44px; }
+#picturechange .edit { position: absolute; inset: 0; display: grid; place-items: center; border-radius: 50%;
+  background: rgba(0, 0, 0, 0.6); opacity: 0; transition: opacity 0.12s; }
+#picturechange:hover .edit, #picturechange:focus-visible .edit, body.padnav #picturechange:focus .edit { opacity: 1; }
+/* the music: on, or off (the button says which, and the browser remembers) */
+.chip.icon { width: 44px; padding: 0; justify-content: center; }
+.chip.icon svg { opacity: 0.85; }
+#music .off, #music[aria-pressed="false"] .on { display: none; }
+#music[aria-pressed="false"] .off { display: block; opacity: 0.45; }
+.avatar { position: relative; overflow: hidden; width: 36px; height: 36px; flex: none; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center; font-weight: 700; background: #3a3331;
+  color: var(--fg); }
+/* a player's picture, over their initial (avatar): on a dark fill of its own, which shows through one with no
+   background and never round its edge, as the initial's red would */
+.avatar img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.avatar.mine { background: var(--accent); color: #fff; }
+.avatar.pic { background: #1b1716; color: transparent; }
+.chip .avatar { width: 32px; height: 32px; }
+/* in a room, a ring in the colour the player's points have in the game's HUD, by their place (setAvatar): the
+   game's own, cg_ScoresColor_Gamertag_0 to 3 (bo1-zombies/src/qcommon/common.cpp), which a fifth player and on take again */
+.avatar[data-place] { outline: 2px solid var(--place); outline-offset: 2px; }
+.avatar[data-place="0"] { --place: #fff; }
+.avatar[data-place="1"] { --place: #7ccfee; }
+.avatar[data-place="2"] { --place: #f6ca50; }
+.avatar[data-place="3"] { --place: #83ec88; }
+
+#status:empty { display: none; }
+#status { color: var(--fg); }
+#status.error { padding: 12px 16px; border-radius: 10px; background: rgba(200, 16, 46, 0.14);
+  border: 1px solid rgba(224, 35, 63, 0.45); white-space: pre-wrap; }
+.play { align-self: center; margin-top: 10vh; padding: 16px 40px; border-radius: 12px; background: var(--accent);
+  color: #fff; font: 600 22px var(--display); letter-spacing: 0.1em; text-transform: uppercase; cursor: pointer; }
+#mapline { align-self: center; margin: 0; color: var(--muted); }
+/* where the server has its players sign in: instead of the lobby, until they have */
+#signin { align-self: center; width: 100%; max-width: 460px; box-sizing: border-box; margin-top: 6vh; }
+#signinwhy { color: var(--accent-hi); }
+#signinwhy:empty { display: none; }
+/* the settings and the music are the game files', which the server serves to players signed in alone */
+body.signin #settings, body.signin #music, body.signin #boardsopen { display: none; }
+#signout { align-self: flex-start; }
+/* the name, and where it is Discord's, the button in it that has the server look it up again */
+#namefield { position: relative; display: flex; }
+#namefield input { flex: 1; }
+#namefield.synced input { padding-right: 48px; }
+#namerefresh { position: absolute; top: 6px; right: 6px; width: 36px; height: 36px; padding: 0; display: grid;
+  place-items: center; border: none; background: none; color: var(--muted); }
+#namerefresh:hover:not(:disabled) { color: var(--fg); }
+#namerefresh.busy svg { animation: spin 0.8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+#note { padding: 12px 16px; }
+
+/* the lobby: making a room, joining one, or playing offline */
+.stack { flex: 1 1 360px; min-width: 0; display: flex; flex-direction: column; gap: 28px; }
+.start { display: flex; flex-direction: column; gap: 22px; padding: 30px; }
+.start h1 { font-size: 44px; }
+.start p { margin: 0; color: var(--muted); line-height: 1.5; }
+.files { margin: 0; display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: center; font-size: 13px; color: var(--faint); }
+.or { display: flex; align-items: center; gap: 12px; color: var(--faint); font-size: 13px; }
+.or::before, .or::after { content: ''; flex: 1; height: 1px; background: rgba(255, 255, 255, 0.1); }
+#code { flex: 1; font: 600 20px ui-monospace, Consolas, monospace; letter-spacing: 0.3em; text-transform: uppercase; }
+.browse { flex: 999 1 560px; min-width: 0; display: flex; flex-direction: column; gap: 14px; }
+.browse h2 { margin: 0; font: 500 18px var(--display); letter-spacing: 0.12em; text-transform: uppercase; color: #cfc8bd; }
+ul.rooms, ul.members { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+ul.rooms { gap: 12px; }
+.rooms li { display: flex; align-items: center; gap: 18px; padding: 12px 16px 12px 12px; }
+.rooms li.none { padding: 18px 20px; color: var(--muted); }
+/* a map's picture (mapPicture) is 4:3, as the game draws it */
+.thumb { width: 96px; height: 72px; flex: none; border-radius: 9px; object-fit: cover; background: rgba(255, 255, 255, 0.06); }
+.rooms .title { font: 500 22px var(--display); text-transform: uppercase; letter-spacing: 0.02em;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rooms .sub { font-size: 14px; color: var(--muted); }
+/* the code, which shows as a room turns public: in a font of other proportions (Consolas, under Segoe UI's line), set
+   at its own line's height it would make the line taller, and the card's text, centred, would move */
+.rooms .sub .mono { line-height: 1; }
+/* a room whose games have mods */
+.tag { display: inline-flex; align-items: center; gap: 6px; margin-left: 4px; padding: 1px 8px 1px 7px;
+  border-radius: 999px; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.2); font-size: 12px; font-weight: 600;
+  color: var(--fg); vertical-align: 1px; }
+.tag::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: var(--accent-hi); }
+.mono { font-family: ui-monospace, Consolas, monospace; letter-spacing: 0.08em; }
+.pips { display: flex; align-items: center; gap: 10px; font-size: 14px; color: #cfc8bd; }
+.pips span { width: 8px; height: 22px; border-radius: 2px; box-sizing: border-box; border: 1px solid rgba(255, 255, 255, 0.3); }
+.pips span.taken { background: var(--fg); border-color: var(--fg); }
+.pips b { font-weight: 400; width: 28px; }
+.rooms button, .rooms .private { width: 112px; flex: none; }
+/* where a room private to the player (it has no code) has no Join */
+.rooms .private { text-align: center; font-size: 14px; color: var(--muted); }
+
+/* a room, and playing offline, which has its map card and side panel */
+.main { flex: 999 1 600px; min-width: 0; display: flex; flex-direction: column; gap: 20px; }
+.mapcard { display: flex; flex-direction: column; gap: 22px; padding: 24px; }
+.mapinfo { display: flex; flex-wrap: wrap; gap: 24px; }
+#mapimg, #soloimg { width: 224px; height: 168px; flex: none; border-radius: 12px; object-fit: cover; background: rgba(255, 255, 255, 0.06); }
+.mapinfo .text { flex: 1 1 280px; min-width: 0; display: flex; flex-direction: column; gap: 10px; }
+/* the map's title and text, over each other map's, unseen (showAbout): the card is as tall as the tallest, and what
+   is under it stays put as the map changes */
+.about { display: grid; }
+.about > div { grid-area: 1 / 1; display: flex; flex-direction: column; gap: 10px; }
+.about > .ghost { visibility: hidden; }
+.about h1 { font-size: 44px; }
+.about p { margin: 0; color: #b7b0a5; line-height: 1.5; }
+.mapgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 10px;
+  padding-top: 22px; border-top: 1px solid rgba(255, 255, 255, 0.08); }
+.mapgrid button { position: relative; height: auto; display: flex; flex-direction: column; gap: 6px; padding: 4px 4px 8px;
+  border: 2px solid transparent; background: var(--row); color: #cfc8bd; font: 600 12px/1.25 var(--text); }
+/* who suggests the map, over its picture from its top right corner, in rows where they are many */
+.mapgrid .marks { position: absolute; top: 10px; right: 10px; max-width: calc(100% - 20px); display: flex;
+  flex-wrap: wrap; justify-content: flex-end; gap: 10px; }
+.mapgrid .marks .avatar { width: 24px; height: 24px; font: 700 12px var(--text);
+  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.6); }
+.mapgrid button img { display: block; width: 100%; aspect-ratio: 4 / 3; border-radius: 7px; object-fit: cover;
+  background: rgba(255, 255, 255, 0.06); }
+.mapgrid button[aria-checked=true] { border-color: var(--accent-hi); background: rgba(200, 16, 46, 0.14); color: var(--fg); }
+.mapgrid button[aria-checked=true]:hover:not(:disabled) { border-color: var(--accent-over); }
+.mapgrid button:disabled { background: rgba(255, 255, 255, 0.02); color: #7f796f; }
+.mapgrid button:disabled img { filter: grayscale(1) brightness(0.45); }
+.options .tabs { display: flex; gap: 4px; padding: 6px 6px 0; border-bottom: 1px solid rgba(255, 255, 255, 0.08); }
+.tab { height: 44px; padding: 0 18px; border: none; border-radius: 0; border-bottom: 2px solid transparent;
+  background: none; display: flex; align-items: center; gap: 8px; }
+/* the tab shown is underlined in red, a lighter red under the pointer (where another's border lightens) */
+.tab[aria-selected=true] { border-bottom-color: var(--accent-hi); }
+.tab[aria-selected=true]:hover:not(:disabled) { border-bottom-color: var(--accent-over); }
+.tab:disabled { background: none; color: #7f796f; }
+/* how many of the room's mods are on: red, for all to see; a grey 0 while none is */
+.count { min-width: 8px; padding: 2px 7px; border-radius: 999px; background: var(--accent-hi); color: var(--fg);
+  font-size: 11px; font-weight: 700; text-align: center; }
+.count.none { background: none; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.22); color: var(--faint); }
+.setting { display: flex; align-items: center; gap: 16px; min-height: 64px; padding: 0 22px; }
+.setting > span:first-child { flex: 1; font-weight: 600; }
+.seg { display: flex; padding: 3px; border-radius: 10px; background: rgba(0, 0, 0, 0.4); border: 1px solid rgba(255, 255, 255, 0.1); }
+.seg button { width: 96px; height: 38px; border: none; border-radius: 8px; background: none; color: #b7b0a5; }
+/* it has no border to lighten under the pointer: its text does, on a fill of its own, and the one picked whitens */
+.seg button:hover:not(:disabled) { background: rgba(255, 255, 255, 0.08); color: var(--fg); }
+.seg button[aria-checked=true] { background: var(--fg); color: #120f0f; }
+.seg button[aria-checked=true]:hover:not(:disabled) { background: #fff; color: #120f0f; }
+.setting.mod { margin: 10px; padding: 12px 12px 12px 16px; border-radius: 10px; background: var(--row); }
+/* a setting's options, a mod's or the room's size: narrower than the boards' tabs, and one that can't be picked
+   (a mod's yet to come, a size the room has too many players for) greyed out */
+.setting .seg { flex: none; }
+.setting .seg button { width: 50px; height: 34px; }
+.setting .seg button:disabled { color: #b7b0a5; opacity: 0.35; }
+/* the room's size has up to 8 of them: under its words where the two don't fit side by side, and narrower still
+   where a line is too short for them */
+#sizesetting { flex-wrap: wrap; row-gap: 10px; padding-top: 12px; padding-bottom: 12px; }
+#sizesetting > span:first-child { flex-basis: 200px; }
+#sizesetting .seg { max-width: 100%; box-sizing: border-box; }
+#sizesetting .seg button { width: 44px; min-width: 0; flex: 0 1 44px; padding: 0; }
+.setting .desc { display: block; margin-top: 2px; color: var(--muted); font-size: 13px; font-weight: 400; }
+/* a switch (switchSet): off to the left and dark, on to the right and lit, and the word beside it */
+.switch { flex: none; display: flex; align-items: center; gap: 12px; padding: 0 2px 0 8px; border: none;
+  border-radius: 999px; background: none; color: var(--faint); font-size: 14px; }
+.switch .word { min-width: 24px; text-align: right; }
+.switch .track { position: relative; width: 50px; height: 28px; box-sizing: border-box; border-radius: 999px;
+  background: rgba(0, 0, 0, 0.4); border: 1px solid rgba(255, 255, 255, 0.24);
+  transition: background 0.15s, border-color 0.15s; }
+.switch .thumb { position: absolute; top: 3px; left: 3px; width: 20px; height: 20px; border-radius: 50%;
+  background: var(--faint); transition: transform 0.15s, background 0.15s; }
+.switch:hover:not(:disabled) .track { border-color: rgba(255, 255, 255, 0.45); }
+.switch[aria-checked=true] { color: var(--fg); }
+.switch[aria-checked=true] .track { background: var(--fg); border-color: var(--fg); }
+/* on, its track is lit to its edge: it whitens under the pointer */
+.switch[aria-checked=true]:hover:not(:disabled) .track { background: #fff; border-color: #fff; }
+.switch[aria-checked=true] .thumb { transform: translateX(22px); background: #120f0f; }
+@media (prefers-reduced-motion: reduce) { .switch .track, .switch .thumb { transition: none; } }
+.side { flex: 1 1 360px; min-width: 0; display: flex; flex-direction: column; gap: 16px; padding: 22px;
+  background: var(--panel-strong); }
+/* One above the other, where the window is too narrow for the two side by side (a phone, a tablet upright), a
+   room's panel is first: its players and Ready, what a player in the room comes to do. Its row wraps upwards
+   (wrap-reverse), so that its second line, the panel's, is over its first, at whatever width it wraps; side by side
+   the two are as they were, their tops level (flex-end: the row's lines go up, so its end is its top). The page to
+   play offline wraps downwards, its Play under its maps, which are picked first. */
+#inside .cols { flex-wrap: wrap-reverse; align-items: flex-end; }
+#solohead { font-size: 30px; }
+#roomcode { font: 700 28px ui-monospace, Consolas, monospace; letter-spacing: 0.16em; }
+/* (its letters are spaced, the last one too: as much more room before the first has the word in the middle) */
+#roomgame { padding: 3px 9px 3px calc(9px + 0.08em); border-radius: 999px; background: rgba(255, 255, 255, 0.08);
+  color: var(--muted); font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+  white-space: nowrap; }
+#copylink { padding: 0 14px; }
+/* a copy button says "Copied" for a moment, in its place: both labels share one cell, for the button to keep its size */
+button.copy { display: inline-grid; }
+button.copy > span { grid-area: 1 / 1; display: flex; align-items: center; justify-content: center; gap: 8px; }
+button.copy > .done, button.copy.copied > .idle { visibility: hidden; }
+button.copy.copied > .done { visibility: visible; }
+ul.members { gap: 8px; }
+.members li { position: relative; overflow: hidden; display: flex; align-items: center; gap: 12px; height: 58px;
+  padding: 0 12px; border-radius: 10px; background: var(--row); box-sizing: border-box; }
+/* how far a player's download of the room's map is */
+.members .got { position: absolute; left: 0; bottom: 0; height: 3px; background: var(--accent-hi); }
+.members li.empty { background: none; border: 1px dashed rgba(255, 255, 255, 0.16); }
+.members li.empty .avatar { background: none; border: 1px dashed rgba(255, 255, 255, 0.22); box-sizing: border-box;
+  color: rgba(255, 255, 255, 0.28); }
+.members .who { display: flex; flex-direction: column; }
+.members .name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* a player's name, and after it a gamepad when their page reads one (PAD_ICON) */
+.members .line { display: flex; align-items: center; gap: 7px; }
+.members .pad { flex: none; display: flex; color: var(--muted); }
+/* the player's own, in the red of their row in a game's report and on the leaderboards (tr.mine) */
+.members li.mine { background: rgba(200, 16, 46, 0.1); box-shadow: inset 3px 0 0 var(--accent-hi); }
+.members .what { font-size: 12px; color: var(--faint); }
+.badge { width: 104px; height: 28px; flex: none; box-sizing: border-box; display: flex; align-items: center;
+  justify-content: center; gap: 6px; border-radius: 999px; font-size: 13px; font-weight: 700; }
+.badge.on { background: var(--fg); color: #120f0f; }
+.badge.off { border: 1px solid rgba(255, 255, 255, 0.2); color: var(--muted); font-weight: 600; }
+/* the room's mods, above Ready, where everyone looks before the game: a click opens their tab. A row, with no
+   border: lighter under the pointer */
+#modsline { display: flex; align-items: center; gap: 10px; height: 42px; padding: 0 12px; border: none;
+  background: var(--row); font-weight: 400; text-align: left; }
+#modsline:hover { background: rgba(255, 255, 255, 0.09); }
+#modsline .names { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  text-align: right; font-size: 14px; color: var(--faint); }
+#modsline.on .names { color: var(--fg); font-weight: 600; }
+#roomstate:empty { display: none; }
+#roomstate { text-align: center; font-size: 14px; color: var(--muted); }
+.foot { display: flex; justify-content: flex-end; gap: 12px; padding-top: 12px; border-top: 1px solid rgba(255, 255, 255, 0.08); }
+#playbat, #t6console { box-sizing: border-box; padding: 10px 12px; border-radius: 8px;
+  background: rgba(0, 0, 0, 0.4); border: 1px solid var(--line); font: 13px/1.4 ui-monospace, Consolas, monospace;
+  white-space: nowrap; overflow-x: auto; user-select: all; }
+/* a room on a Black Ops II map (showT6): what a player needs for its game, which their own Plutonium plays, and
+   the line that joins it */
+#t6box { display: flex; flex-direction: column; gap: 12px; }
+#t6box p, #t6box summary { font-size: 14px; line-height: 1.45; color: var(--muted); }
+#t6box p { margin: 0; }
+#t6box a { color: var(--fg); }
+#t6box summary { cursor: pointer; }
+#t6box details > div { display: flex; flex-direction: column; gap: 10px; padding-top: 10px; }
+#t6box .row > .grow { min-width: 0; }
+
+/* how the room's last game went (showResult): the map's card, with the round and the team's totals, then the
+   scoreboard */
+#results { max-width: 920px; width: 100%; margin: 0 auto; display: flex; flex-direction: column; gap: 20px; }
+.resulthead { display: flex; flex-wrap: wrap; align-items: center; gap: 22px 28px; padding: 24px; }
+#resultimg { width: 224px; height: 168px; flex: none; border-radius: 12px; object-fit: cover;
+  background: rgba(255, 255, 255, 0.06); }
+.resultmain { flex: 1 1 300px; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+#resultkicker { letter-spacing: 0.16em; color: #cfc8bd; }
+/* on one line, the round's number in the game's red */
+#resulttitle { font-size: clamp(48px, 7vw, 72px); font-weight: 700; white-space: nowrap; }
+#resulttitle span { color: var(--accent-hi); }
+/* the team's totals, a divider between them, on as many lines as their numbers take: each has its divider before
+   it, and the box reaches past the card's left by one's width, which it leaves out (clip-path), so that a line
+   starts with the number and no divider */
+.totals { display: flex; flex-wrap: wrap; gap: 14px 0; margin: 10px 0 0 -21px; padding-top: 16px;
+  border-top: 1px solid var(--line); clip-path: inset(0 0 0 21px); }
+.totals div { display: flex; flex-direction: column; gap: 6px; padding: 0 20px; border-left: 1px solid var(--line); }
+.totals div:last-child { padding-right: 0; }
+.totals b { font: 600 30px/1 var(--display); letter-spacing: 0.01em; }
+.totals .label { white-space: nowrap; }
+/* of two teams' cash, the more (showResult): the gold of a column's best */
+.totals b.won { color: #f4c25b; }
+.tablewrap { overflow-x: auto; background: var(--panel-strong); }
+table { width: 100%; min-width: 600px; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+th { padding: 14px 22px; font-size: 12px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase;
+  color: var(--faint); text-align: right; white-space: nowrap; border-bottom: 1px solid rgba(255, 255, 255, 0.08); }
+th:first-child, td:first-child { text-align: left; }
+td { padding: 13px 22px; text-align: right; font: 500 19px var(--display); letter-spacing: 0.02em; color: #ddd6cb;
+  white-space: nowrap; border-top: 1px solid rgba(255, 255, 255, 0.05); }
+td:first-child { font: 600 15px var(--text); letter-spacing: 0; color: var(--fg); }
+/* a board's record (showBoards), the round or the time its rows are ranked by: larger than its other numbers */
+td.record { font-size: 22px; font-weight: 600; color: var(--fg); }
+/* the report's numbers, as the leaderboards' are, closer than its edges: a high round's millions fit */
+#results th, #results td { padding-left: 14px; padding-right: 14px; }
+#results th:first-child, #results td:first-child { padding-left: 22px; }
+#results th:last-child, #results td:last-child { padding-right: 22px; }
+tr.mine td { background: rgba(200, 16, 46, 0.1); }
+tr.mine td:first-child { box-shadow: inset 3px 0 0 var(--accent-hi); }
+.player { display: flex; align-items: center; gap: 12px; }
+.player i { font-style: normal; font-size: 13px; font-weight: 400; color: var(--faint); }
+/* each column's best and worst (showResult), by their colour alone: gold, a weight heavier than the column's
+   others, and a red quieter than the gold, so that the bests are what the eye finds first. A pill around the gold
+   and a triangle by each, as they had, crowded a table of seven columns. */
+.stat.best { color: #f4c25b; font-weight: 600; }
+.stat.worst { color: #d0848b; }
+/* the MVP's stamp, by their name (showResult): gold ink, a little askew, and worn where the rubber missed (--worn,
+   a mask of noise). Its box is trimmed to the letters (Oswald has more room above its capitals than below them),
+   so its padding centres them. It comes down as the report first shows (.new). */
+.mvp { flex: none; margin-left: 2px; padding: 5px 7px 5px 8px; border: 2px solid currentColor; border-radius: 5px;
+  text-box: trim-both cap alphabetic; color: #f4c25b; font: 700 13px/1 var(--display); letter-spacing: 0.16em;
+  text-transform: uppercase; transform: rotate(-7deg); cursor: help;
+  --worn: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='64' height='64'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' seed='7'/%3E%3CfeColorMatrix values='0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 -9 7'/%3E%3C/filter%3E%3Crect width='64' height='64' filter='url(%23n)'/%3E%3C/svg%3E");
+  -webkit-mask-image: var(--worn); mask-image: var(--worn); -webkit-mask-size: 64px 64px; mask-size: 64px 64px; }
+.mvp.new { animation: stamp 0.28s 0.35s backwards cubic-bezier(0.2, 0.9, 0.3, 1.2); }
+@keyframes stamp { from { opacity: 0; transform: rotate(-16deg) scale(2.4); } }
+@media (prefers-reduced-motion: reduce) { .mvp.new { animation: none; } }
+#resultsback { align-self: flex-start; padding: 0 30px; }
+
+/* the leaderboards (showBoards): the kind of board, what of it to show, and its tables, side by side where they
+   fit */
+.chip.words { padding: 0 16px 0 12px; }
+/* their button at the top stays while they show, lit as the board picked is: it closes them again (boardsButton) */
+#boardsopen[aria-pressed=true] { border-color: var(--accent-hi); background: rgba(200, 16, 46, 0.14); }
+#boardsopen[aria-pressed=true]:hover { border-color: var(--accent-over); }
+#boards { max-width: 920px; width: 100%; margin: 0 auto; display: flex; flex-direction: column; gap: 20px; }
+.boardshead { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px 24px;
+  padding: 20px 24px; }
+.boardshead h1 { font-size: 40px; }
+#boardtabs button { width: auto; min-width: 96px; padding: 0 16px; }
+#boardpicks { display: flex; flex-wrap: wrap; gap: 8px; }
+#boardpicks:empty { display: none; }
+#boardpicks button { height: 36px; padding: 0 14px; border-radius: 999px; font-size: 14px; }
+#boardpicks button[aria-checked=true] { border-color: var(--accent-hi); background: rgba(200, 16, 46, 0.14); }
+#boardpicks button[aria-checked=true]:hover { border-color: var(--accent-over); }
+#boardtables { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 380px), 1fr)); gap: 20px;
+  align-items: start; }
+.boardhead { padding: 16px 22px 0; font: 600 20px var(--display); letter-spacing: 0.02em; text-transform: uppercase; }
+#boards table { min-width: 0; }
+#boards th, #boards td { padding-left: 14px; padding-right: 14px; }
+#boards th:first-child, #boards td:first-child { padding-left: 22px; width: 1%; }
+#boards th:last-child, #boards td:last-child { padding-right: 22px; }
+#boards th.who, #boards td.who { width: 100%; text-align: left; font: 600 15px var(--text);
+  color: var(--fg); }
+#boards th.who { font-size: 12px; letter-spacing: 0.12em; color: var(--faint); }
+#boards td:first-child { font: 500 17px var(--display); color: var(--faint); }
+#boards tr.first td:first-child { color: #f4c25b; }
+#boards .player { min-width: 0; }
+/* a row opens its game's report (boardTable): the player's name is the button, stretched over the row */
+#boards tr { position: relative; }
+#boards button.rowlink, #boards button.rowlink:hover:not(:disabled) { height: auto; padding: 0; border: none;
+  border-radius: 0; background: none; font: inherit; color: inherit; }
+#boards button.rowlink::after { content: ''; position: absolute; inset: 0; }
+#boards tr:has(.rowlink):hover td { background: var(--row); }
+.boardempty { margin: 0; padding: 16px 22px 20px; color: var(--muted); }
+#boardsback { align-self: flex-start; padding: 0 30px; }
+/* a board of all the maps (showAllBoard), its two parts each as wide as the page: the player's own card, a tile for
+   each map; then the players, ranked */
+#boardtables.all { grid-template-columns: minmax(0, 1fr); }
+.tiles { display: flex; flex-direction: column; gap: 20px; padding: 24px; background: var(--panel-strong); }
+.tileshead { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 16px 32px; }
+.tileshead h2 { font-size: 30px; }
+.tileshead .sum { display: flex; flex-direction: column; gap: 6px; text-align: right; }
+.tileshead .sum b { font: 600 30px/1 var(--display); letter-spacing: 0.01em; }
+/* --cols tiles to a row (showAllBoard), or as many as fit where those would be too narrow for a map's name */
+.tilegrid { --tile: calc((100% - (var(--cols, 5) - 1) * 12px) / var(--cols, 5) - 1px); display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(max(132px, var(--tile)), 1fr)); gap: 12px; }
+/* a map's tile: grey until the player has a best there, then framed by how good it is, in silver or in gold
+   (--frame: the colour's red, green and blue); a button where the best has a game's report to open */
+.tile { box-sizing: border-box; min-width: 0; height: auto; display: flex; flex-direction: column; gap: 9px;
+  padding: 4px 4px 10px; border: 2px solid transparent; border-radius: 10px; background: var(--row); color: #7f796f;
+  font: 600 13px/1.25 var(--text); text-align: left; }
+.tile.lit { color: var(--fg); }
+.tile.silver { --frame: 208, 214, 222; }
+.tile.gold { --frame: 244, 194, 91; }
+.tile.silver, .tile.gold { border-color: rgba(var(--frame), 0.62); background: rgba(var(--frame), 0.07); }
+.tile .photo { position: relative; display: block; }
+.tile img { display: block; width: 100%; aspect-ratio: 4 / 3; border-radius: 7px; object-fit: cover;
+  background: rgba(255, 255, 255, 0.06); filter: grayscale(1) brightness(0.45); }
+.tile.lit img { filter: none; }
+/* the player's best there, over the picture's foot */
+.tile .score { position: absolute; left: 0; right: 0; bottom: 0; display: flex; align-items: baseline; gap: 7px;
+  padding: 24px 9px 7px; border-radius: 0 0 7px 7px; background: linear-gradient(transparent, rgba(0, 0, 0, 0.8));
+  font: 600 26px/1 var(--display); letter-spacing: 0.02em; color: #fff; }
+.tile .score small { font: 600 10px var(--text); letter-spacing: 0.14em; text-transform: uppercase; color: #cfc8bd; }
+.tile .name { padding: 0 6px; }
+/* under the tiles, what their frames' silver and gold are of, and the marks': each with a mark of its own */
+.legend { display: flex; flex-wrap: wrap; gap: 8px 22px; }
+.legend .label { display: flex; align-items: center; gap: 8px; }
+/* what the player sees of a tile for the first time comes as they watch, a tile after the last (--wait): its
+   picture takes its colours, and its frame comes with a ring that widens out of it */
+.tile.newlit img { animation: tilelit 0.8s var(--wait, 0s) backwards ease-out; }
+.tile.newframe { animation: tileframe 0.9s calc(var(--wait, 0s) + 0.2s) backwards ease-out; }
+@keyframes tilelit { from { filter: grayscale(1) brightness(0.45); } }
+@keyframes tileframe {
+  0% { border-color: transparent; background: var(--row); box-shadow: 0 0 0 0 rgba(var(--frame), 0.8); }
+  30% { box-shadow: 0 0 0 3px rgba(var(--frame), 0.5); }
+  100% { box-shadow: 0 0 0 12px rgba(var(--frame), 0); }
+}
+@media (prefers-reduced-motion: reduce) { .tile.newlit img, .tile.newframe { animation: none; } }
+/* a line's maps, a mark each in the tiles' order: filled where the player has a best, in silver or gold where its
+   tile would be framed so. The map and the best of the one under the pointer are in a tip over it (boardTip), as
+   a picture's name is */
+.dots { display: inline-flex; gap: 3px; vertical-align: middle; }
+.dots span { width: 12px; height: 12px; box-sizing: border-box; border-radius: 3px;
+  border: 1px solid rgba(255, 255, 255, 0.22); }
+.dots span.lit { border-color: transparent; background: rgba(255, 255, 255, 0.24); }
+.dots span.silver { border-color: #d0d6de; background: #d0d6de; }
+.dots span.gold { border-color: #f4c25b; background: #f4c25b; }
+
+@media (max-width: 640px) {
+  .shell { padding: 20px 16px 32px; }
+  .start h1, .about h1 { font-size: 34px; }
+  .resulthead { padding: 18px; }
+  #resultimg { width: 160px; height: 120px; }
+  /* without the lines between them, which would end a row where the totals wrap */
+  .totals { gap: 12px 24px; }
+  .totals div { padding-right: 0; margin-right: 0; border-right: none; }
+  .totals b { font-size: 24px; }
+  th, td { padding-left: 14px; padding-right: 14px; }
+  /* the header's room is its logo's and the player's: an icon alone, as Settings is */
+  .chip.words { width: 44px; padding: 0; justify-content: center; }
+  .chip.words span { display: none; }
+  #boards .avatar { display: none; }
+  .tiles { padding: 18px; }
+  .tileshead .sum b { font-size: 24px; }
+  /* a board of all the maps keeps its marks and its sum in the window: a long name is cut short for them */
+  .dots { gap: 2px; }
+  .dots span { width: 7px; }
+  #boardtables.all td.who { max-width: 0; }
+  #boardtables.all .player { display: block; overflow: hidden; text-overflow: ellipsis; }
+  .rooms li { flex-wrap: wrap; }
+}
+#toast { position: fixed; left: 16px; bottom: 16px; padding: 8px 12px; background: rgba(10, 10, 10, 0.86); border-radius: 6px;
+  font-size: 13px; color: var(--faint); pointer-events: none; transition: opacity 0.4s; }
+#toast.hidden { opacity: 0; display: block !important; }
+/* What the page says once, over the page, not in it (showNotice): a refusal of what the player just did (a room's
+   code the lobby knows none of, say), in red, and how their last game alone ended. A line in the page moved all
+   under it down as it came and up as it went, the button just pressed with it. At the window's top, in its middle:
+   at its foot it would be on a phone's code field and Join, which are at the foot of its first screen, and under
+   its keyboard, up for the code. Above the lobby's question and the pictures to pick from, which may be what it
+   answers, and over the header's buttons while it shows, so not see-through; a click takes it away, and it goes
+   by itself. Once gone it takes no click and is no one's to read (visibility, after the fade). */
+#notice { position: fixed; top: 16px; left: 50%; transform: translateX(-50%); z-index: 45; box-sizing: border-box;
+  width: max-content; max-width: calc(100vw - 32px); padding: 10px 16px; border-radius: 10px;
+  background: #1d1918; border: 1px solid rgba(255, 255, 255, 0.22); color: var(--fg);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.5); cursor: pointer; transition: opacity 0.4s; }
+#notice.refusal { background: #2b1014; border-color: rgba(224, 35, 63, 0.55); }
+#notice.hidden { opacity: 0; visibility: hidden; display: block !important;
+  transition: opacity 0.4s, visibility 0s 0.4s; }
+/* the lobby's own question (askInPage), over the page */
+#ask { position: fixed; inset: 0; z-index: 40; display: grid; place-items: center; background: rgba(0, 0, 0, 0.55); }
+#ask .panel { display: flex; flex-direction: column; gap: 20px; box-sizing: border-box; padding: 24px 28px;
+  width: min(400px, calc(100vw - 32px)); background: rgba(18, 15, 15, 0.94); }
+#ask p { margin: 0; font-size: 17px; line-height: 1.4; }
+/* the pictures to pick one's own from (showPictures), over the page, under the lobby's question: a heading and a
+   grid for each kind, the one that shows ringed; the list scrolls, with room at its edges for the rings. The name
+   of the one the pointer stays on, or the focus, is over it (pictureTip) */
+#picker { position: fixed; inset: 0; z-index: 35; display: grid; place-items: center;
+  background: rgba(0, 0, 0, 0.55); }
+#picker .panel { display: flex; flex-direction: column; gap: 16px; box-sizing: border-box; padding: 22px 24px 24px;
+  width: min(676px, calc(100vw - 32px)); max-height: min(760px, calc(100vh - 32px));
+  background: rgba(18, 15, 15, 0.94); }
+#picker h2 { font-size: 26px; }
+#pictures { display: flex; flex-direction: column; gap: 10px; margin: 0 -8px -8px; padding: 0 8px 8px;
+  overflow-y: auto; }
+#pictures .label { margin-top: 8px; }
+#pictures .group { display: grid; grid-template-columns: repeat(auto-fill, 44px); gap: 12px; padding: 4px 0; }
+#pictures button { position: relative; overflow: hidden; width: 44px; height: 44px; padding: 0; border: none;
+  border-radius: 50%; background: #1b1716; }
+#pictures img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+/* The one picked is ringed, and so is the one under the pointer, in the grey a button's border has there, the
+   picked one's ring whiter: a picture that fills its round has no fill to lighten, as an icon's round has behind
+   it. The ring is a shadow, which leaves the outline to the focus, outside it. */
+#pictures button:hover { box-shadow: 0 0 0 2px #171312, 0 0 0 4px rgba(255, 255, 255, 0.3); }
+#pictures button[aria-checked=true] { box-shadow: 0 0 0 2px #171312, 0 0 0 4px var(--fg); }
+#pictures button[aria-checked=true]:hover { box-shadow: 0 0 0 2px #171312, 0 0 0 4px #fff; }
+#pictures button:focus-visible, body.padnav #pictures button:focus { outline-offset: 5px; }
+#picturetip, #boardtip { position: fixed; z-index: 1; padding: 5px 10px; border-radius: 7px; background: var(--fg);
+  color: #120f0f; font-size: 13px; font-weight: 600; white-space: nowrap; pointer-events: none;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.5); }
+/* a picture's name is smaller and dark, a shade over the panel's: the pictures are what the player looks at, and
+   the ring of theirs is the one light thing among them */
+#picturetip { padding: 4px 8px; border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 6px; background: #2a2321;
+  color: var(--fg); font-size: 12px; font-weight: 500; }
+#ask .row { justify-content: flex-end; }
+#perf { position: fixed; top: 8px; right: 8px; padding: 4px 8px; background: rgba(0, 0, 0, 0.6); border-radius: 4px;
+  font: 12px/1.4 ui-monospace, Consolas, monospace; color: var(--fg); white-space: pre; pointer-events: none; }
+/* &perf=tour's lines, over the page once it has them, under the button that copies them (perfTourRun) */
+#tour { position: fixed; inset: 8px; z-index: 50; overflow: auto; padding: 10px 12px; border-radius: 8px;
+  background: rgba(0, 0, 0, 0.9); color: var(--fg); font: 11px/1.45 ui-monospace, Consolas, monospace; }
+#tour button { margin: 0 12px 10px 0; padding: 10px 18px; font: 600 14px/1 system-ui, sans-serif; }
+#tour pre { margin: 0; font: inherit; white-space: pre-wrap; user-select: text; -webkit-user-select: text; }
+/* Text in the middle of a control, by its capitals. A line of text has room over its capitals and under them as its
+   font has it, seldom the same, and where the page's font has yet to load, or lacks a letter, it is the system's: in
+   a badge of 28px the capitals are 2px too high in one (DejaVu Sans) and 1px too low in another (Segoe UI). Where
+   the browser trims a line's box to its capitals (text-box: Chrome 133, Safari 18.2), the page has the text of its
+   buttons, tabs, badges, counts, tags and tips trimmed so, and the box is in the middle of the control as it was,
+   now with the capitals. Text straight in a flex row has no box of its own to trim: such text is in a span (.t, or
+   the row's own). Where the browser doesn't, the line is in the middle, as before. The last of the sheet, for what
+   it says of a box's padding to be the last word. */
+@supports (text-box: trim-both cap alphabetic) {
+  button, .t, .tab > span, .chip > span, button.copy > span > span, #modsline > span, .switch .word, #picturetip,
+  #boardtip, #toast, #roomgame { text-box: trim-both cap alphabetic; }
+  /* but not a link's, whose text is all the pointer has to aim at (nor the options menu's, laid out as the game's:
+     web/src/settings.css) */
+  button.link { text-box: normal; }
+  /* a box that is as high as its line and its padding stays as high, round its capitals */
+  .count { padding-block: 6px; }
+  .tag { padding-block: 5px; }
+  #roomgame { padding-block: 6px; }
+  #boardtip { padding-block: 9px; }
+  #picturetip { padding-block: 7px; }
+  #toast { padding-block: 13px; }
+  /* a box that cuts off what is outside it has room, in its place, for what hangs under the line (a p, a q) */
+  #modsline .names { padding-block: 0.4em; margin-block: -0.4em; }
+}

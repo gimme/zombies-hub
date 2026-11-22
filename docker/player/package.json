@@ -1,0 +1,9 @@
+{
+  "name": "zombies-player",
+  "private": true,
+  "description": "A browser that scripts drive in the web client, for docker/pipelines.sh and docker/perf.sh",
+  "type": "module",
+  "dependencies": {
+    "playwright": "1.62.1"
+  }
+}

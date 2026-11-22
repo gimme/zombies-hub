@@ -1,0 +1,114 @@
+/* web/src/settings.css - the sheet of the game's options menu, rebuilt in the page (web/src/settings.ts, which builds the menu
+   and says what a page with it provides): a page that opens the menu loads this sheet. It styles what the script makes,
+   #options and what is in it, each by a class of the menu's own (om-...), and nothing else of the page. It has the
+   menu's font with it: Oswald, from oswald.woff2 beside this file (under the SIL Open Font License, oswald-OFL.txt), as
+   the menu is laid out by that font's widths.
+
+   The menu's buttons are buttons, so a page's own rules for every button reach them. The menu sets all it needs of
+   one (its size, padding, border, background, font, colour, line and cursor), by a class, which a page's rule for
+   the element alone never overrides; a page's rule that is more specific than a class (button:hover:not(:disabled))
+   does. */
+@font-face { font-family: 'Oswald'; src: url(/oswald.woff2) format('woff2'); font-weight: 200 700; font-display: swap; }
+
+/* the game's 1280x720 screen, scaled to the window (web/src/settings.ts: fit), over the page dimmed as the game dims its
+   own behind it; --om-font: the menu's font, with what stands in for it until it has loaded */
+#options { position: fixed; inset: 0; z-index: 30; background: rgba(0, 0, 0, 0.66); overflow: hidden;
+  -webkit-backdrop-filter: blur(3px); backdrop-filter: blur(3px);
+  --om-font: 'Oswald', 'Bahnschrift', 'Arial Narrow', sans-serif; }
+/* closed (web/src/settings.ts: close) */
+#options.hidden { display: none; }
+.om-stage { position: absolute; left: 50%; top: 50%; width: 1280px; height: 720px; transform-origin: 50% 50%;
+  font: 400 20px/1 var(--om-font); letter-spacing: 0.02em; color: #fff; text-transform: uppercase; user-select: none;
+  -webkit-user-select: none;
+  /* what can't be changed: the game's dark grey (its menus' disableColor, as its screenshots have it) */
+  --om-off: #2e2e2e; }
+.om-stage > * { position: absolute; box-sizing: border-box; margin: 0; }
+/* (text-box: the menu is laid out as the game's, by its lines' boxes, on a page that trims its buttons' to their
+   capitals too) */
+.om-stage button { font: inherit; text-transform: inherit; color: inherit; border-radius: 0; text-box: normal; }
+.om-stage button:focus-visible { outline: 1px solid #f3a530; outline-offset: 0; }
+/* The mouse finds a tab, a row or an answer in its box alone. Its text would take the mouse a few pixels past it,
+   into the gap to the next (Oswald's ascent and descent are 1.48 of its size, more than the line's height), so the
+   text takes none, and a layer as big as the box does instead; a slider's bar takes it itself. */
+.om-side, .om-tab, .om-label, .om-value, .om-answer { pointer-events: none; }
+.om-side::before, .om-tab::before, .om-label::before, .om-value::before, .om-answer::before { content: '';
+  position: absolute; inset: 0; pointer-events: auto; }
+.om-tab, .om-answer { position: relative; }
+.om-value .om-bar { pointer-events: auto; }
+.om-frame { left: 212px; top: 76px; width: 856px; height: 568px; border-radius: 9px; overflow: hidden;
+  border: 1.5px solid rgba(205, 205, 205, 0.7); box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6), 0 12px 48px rgba(0, 0, 0, 0.7); }
+.om-header { position: absolute; left: 0; top: 0; right: 0; height: 69px;
+  background: linear-gradient(172deg, #c6c6c6 0%, #b0b0b0 55%, #989898 100%); }
+/* the game's light: an ellipse 0.65 as high as wide, a little above the body's middle, its grey by distance fitted to
+   the game's screenshot (within about 4 levels), and the body's sides and bottom shaded, as the game's are */
+.om-body { position: absolute; left: 0; right: 0; top: 69px; bottom: 0;
+  box-shadow: inset 0 1px 0 rgba(0, 0, 0, 0.25), inset 14px 0 14px -8px rgba(0, 0, 0, 0.4),
+    inset -14px 0 14px -8px rgba(0, 0, 0, 0.4), inset 0 -14px 14px -8px rgba(0, 0, 0, 0.4);
+  background: radial-gradient(ellipse 560px 364px at 418px 209px, #a1a1a1 0, #989898 100px, #8a8a8a 180px,
+    #727272 260px, #595959 340px, #454545 420px, #383838 500px, #2a2a2a 560px); }
+.om-title { font: 700 23px/1 var(--om-font); letter-spacing: 0.12em; transform: scaleX(1.3); transform-origin: left center;
+  white-space: nowrap; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3); }
+/* in the header, on its foot, where the body starts: the frame's border (1.5px) is above the header, not beside it */
+.om-tabs { position: absolute; left: 432.5px; bottom: 0; height: 23px; display: flex; gap: 2px; }
+.om-tab { height: 23px; padding: 0 7px; border: 0; border-radius: 3px 3px 0 0 !important; background: #7b7b7b;
+  color: #d2d2d2 !important; font-size: 16px !important; line-height: 23px; cursor: pointer; letter-spacing: 0.02em; }
+.om-tab.on { background: #5d5d5d; color: #f3a530 !important; cursor: default; }
+.om-side { height: 25.5px; padding: 0 0 0 26px; border: 0; background: #353535; text-align: left;
+  line-height: 25.5px; white-space: nowrap; cursor: pointer; }
+.om-side:hover:not(.off), .om-side.pad { background: #fff; color: #000; }
+/* the dark grey would vanish on a tab's own dark grey: a lighter one there */
+.om-side.off { color: #5e5e5e; cursor: default; }
+.om-pagetitle { text-align: right; padding-right: 15px; color: #f3b13a; line-height: 25.5px; white-space: nowrap; }
+.om-label { text-align: right; padding-right: 15px; background: rgba(0, 0, 0, 0.3); line-height: 25.5px; white-space: nowrap; }
+.om-label.live { cursor: pointer; }
+.om-label.lit { background: #fff; color: #000; }
+.om-label.off { color: var(--om-off); }
+.om-value { padding-left: 23px; line-height: 25.5px; white-space: nowrap; cursor: pointer; text-transform: none; }
+.om-value.off { color: var(--om-off); cursor: default; }
+.om-value.slider { padding-left: 0; }
+/* a choice's arrows, either side of it while its row is lit (the mouse over it, or the gamepad's cursor on it), as
+   the game draws them round the choice that has the focus (bo1-zombies/src/ui/ui_shared.cpp: Item_Text_Paint): as tall as the
+   capitals, half as wide, 8px off the text */
+.om-choice { position: relative; display: inline-block; }
+.om-label.lit + .om-value .om-choice::before, .om-label.lit + .om-value .om-choice::after { content: '';
+  position: absolute; top: calc(50% - 8px); border-top: 8px solid transparent; border-bottom: 8px solid transparent; }
+.om-label.lit + .om-value .om-choice::before { right: calc(100% + 8px); border-right: 8px solid currentColor; }
+.om-label.lit + .om-value .om-choice::after { left: calc(100% + 8px); border-left: 8px solid currentColor; }
+.om-bar { position: relative; top: 7px; width: 150px; height: 11px; display: flex; gap: 2px; }
+.om-bar span { flex: 1; background: linear-gradient(to right, #f6931c var(--fill), rgba(246, 147, 28, 0.27) var(--fill)); }
+.om-value.off .om-bar span { background: linear-gradient(to right, rgba(246, 147, 28, 0.4) var(--fill),
+  rgba(246, 147, 28, 0.14) var(--fill)); }
+.om-number { position: absolute; left: 160px; top: 0; }
+.om-marker { position: absolute; top: 12px; width: 0; height: 0; margin-left: -3px; border-left: 3px solid transparent;
+  border-right: 3px solid transparent; border-bottom: 5px solid #e8962a; }
+.om-below { font-size: 17px; text-transform: none; line-height: 21px; }
+.om-below.off { color: #5c5c5c; }
+/* the Gamepad page's picture (web/src/settings.ts: padPicture): the game's controller, its lines and labels; the mouse
+   goes through it */
+.om-pad { pointer-events: none; }
+.om-pad-lines { overflow: visible; }
+.om-pad-lines line { stroke: rgba(255, 255, 255, 0.8); stroke-width: 1; }
+.om-pad-label { font-size: 13px; line-height: 18px; text-transform: none; white-space: nowrap;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6); }
+.om-pad-label.right { text-align: right; }
+.om-pad-label.left { text-align: left; }
+.om-pad-label.centre { text-align: center; }
+/* what the menu says, at the foot of the tabs' column (web/src/settings.ts: say): a longer text grows up from it; the
+   mouse goes through it */
+.om-hint { display: flex; align-items: flex-end; padding-left: 26px; font-size: 16px; line-height: 21px;
+  text-transform: none; color: #e6e6e6; pointer-events: none; }
+.om-back { padding: 0; border: 1px solid #5c5c5c; background: rgba(0, 0, 0, 0.88); font-size: 20px !important;
+  line-height: 28px; text-transform: none !important; cursor: pointer; }
+.om-back:hover { background: #fff; color: #000 !important; border-color: #fff; }
+.om-shade { left: 0; top: 0; width: 1280px; height: 720px; background: rgba(0, 0, 0, 0.6); }
+.om-popup { padding: 20px 22px; border-radius: 14px; text-transform: none; border: 1px solid rgba(255, 255, 255, 0.06);
+  background: radial-gradient(ellipse 70% 60% at 50% 55%, #575757 0%, #383838 60%, #2b2b2b 100%);
+  display: flex; flex-direction: column; }
+.om-popup-title { font-size: 20px; line-height: 24px; margin-bottom: 6px; }
+.om-popup-text { font-size: 20px; line-height: 24px; flex: 1; }
+.om-popup-answers { display: flex; flex-direction: column; gap: 4px; }
+.om-answer { height: 25px; padding: 0 0 0 27px; border: 0; text-align: left; line-height: 25px; cursor: pointer;
+  background: rgba(0, 0, 0, 0.45); }
+/* No is lit until the mouse or the gamepad's cursor (web/src/settings.ts: pad) is on an answer */
+.om-popup-answers:not(:hover):not(.pad) .om-answer:last-child, .om-answer:hover, .om-answer.pad {
+  background: #fff; color: #000 !important; }

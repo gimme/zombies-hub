@@ -1,0 +1,40 @@
+# compose.yaml - run the server image (docker/image.sh) on a host with Docker Compose: docker compose up -d.
+#
+# Unraid's template (docker/unraid/my-zombies.xml) runs the same image the same way.
+#
+# The game files go in game/ next to this file, or in the folder that ZOMBIES_GAME_DIR names. They have a folder for
+# each title the server hosts: game/t5 is a copy of a Black Ops install folder, and game/t6 is a copy of a Black Ops II
+# install folder. The server needs at least one. The server writes in config/ (ZOMBIES_CONFIG_DIR). PUID:PGID owns
+# what it writes there, except what the rooms' games write in their home folders (config/game/), which belongs to the
+# games' user, 3075. docker compose exec server console opens the server's console.
+services:
+  server:
+    image: ${ZOMBIES_IMAGE:-zombies:latest}
+    restart: unless-stopped
+    # For the server's firewall, which lets a room's game reach only its players (docker/entrypoint.sh).
+    cap_add:
+      - NET_ADMIN
+    ports:
+      - "3075:3075/udp" # the rooms' games, which the server relays, for browsers (WebTransport) and Windows players
+      - "3075:3075/tcp" # the web client, its rooms and the game files it downloads, behind a reverse proxy with HTTPS
+    volumes:
+      - ${ZOMBIES_GAME_DIR:-./game}:/game:ro
+      - ${ZOMBIES_CONFIG_DIR:-./config}:/config
+    environment:
+      PUID: ${PUID:-1000}
+      PGID: ${PGID:-1000}
+      ZOMBIES_MAP: ${ZOMBIES_MAP:-zombie_theater} # the map a new room starts with
+      # When this is empty (the default), players import the maps from their own copy of the game. When it is set, the
+      # server sends the game files to browsers, at most this many bits a second in total (40M, 1G), or unlimited. It
+      # also sends the Black Ops II game files, when it has them, to the launcher of a player whose PC has no copy.
+      ZOMBIES_DOWNLOAD_RATE: ${ZOMBIES_DOWNLOAD_RATE:-}
+      # To have players sign in with Discord, set your Discord application's client ID and secret (docs/hosting.md).
+      # ZOMBIES_DISCORD_SERVER lets only the members of that Discord server play. ZOMBIES_DISCORD_ROLES lets only the
+      # members with one of the listed roles play.
+      ZOMBIES_DISCORD_CLIENT_ID: ${ZOMBIES_DISCORD_CLIENT_ID:-}
+      ZOMBIES_DISCORD_CLIENT_SECRET: ${ZOMBIES_DISCORD_CLIENT_SECRET:-}
+      ZOMBIES_DISCORD_SERVER: ${ZOMBIES_DISCORD_SERVER:-}
+      ZOMBIES_DISCORD_ROLES: ${ZOMBIES_DISCORD_ROLES:-}
+      # The server's other settings (zombies-server -h) are environment variables too, such as ZOMBIES_MIN_PLAYERS,
+      # ZOMBIES_MAX_PLAYERS, ZOMBIES_MAX_GAMES, ZOMBIES_LOAD_TIMEOUT, ZOMBIES_HANG_TIMEOUT, ZOMBIES_GAME_ARGS,
+      # ZOMBIES_PUBLIC_PORT and ZOMBIES_ENGINE_URL.

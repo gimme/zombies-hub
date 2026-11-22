@@ -1,0 +1,238 @@
+// web/src/api.ts - the types of what the server sends the page as JSON. Each one mirrors a Go type of the server, which
+// its comment names. A field that the server leaves out when it is empty is optional here.
+
+/** The server's answer to GET /server (server/web.go). */
+export interface ServerInfo {
+  /** The UDP port that players join the server's games at. */
+  port?: number;
+  /** The version of the web client that the server serves. */
+  web?: string;
+  /** The server is a dev server (docker/server.sh). */
+  dev?: boolean;
+  /** The server sends game files to browsers. */
+  downloads?: boolean;
+  /** The server hands out the launcher. */
+  launcher?: boolean;
+}
+
+/** The lobby as the player sees it (server/rooms.go: view). */
+export interface View {
+  you: You;
+  /** All the Zombies maps, whether the server has them or not. */
+  maps: MapInfo[];
+  /** The mods a room's games can have. */
+  mods: Mod[];
+  /** The pictures a player may pick. An event stream sends them in its first event, not in every event. */
+  pictures?: Picture[];
+  /** The map of a new room, unless its maker picks one. */
+  defaultMap: string;
+  rooms: RoomItem[];
+  /** The player's room, or null. */
+  room: Room | null;
+  /** The most players a room may take. */
+  size: number;
+  /** The players a room's game needs. */
+  minPlayers: number;
+  /** All of the server's games are running, so no one may be ready. */
+  full: boolean;
+}
+
+/** A Zombies map (server/rooms.go: mapView). */
+export interface MapInfo {
+  name: string;
+  title: string;
+  /** The title it belongs to: t5 (Black Ops) or t6 (Black Ops II). */
+  of?: string;
+  /** The game files have it, so a room may play it. */
+  have?: boolean;
+  /** The server has the list of files it reads, so a browser may play it. */
+  list?: boolean;
+  desc?: string;
+}
+
+/** A picture a player may pick (server/rooms.go: pictureView). The page loads GET /pictures/<id>.png. */
+export interface Picture {
+  id: string;
+  name: string;
+  group: string;
+}
+
+/** A mod a room's games can have (server/mods.go: mod). */
+export interface Mod {
+  id: string;
+  name: string;
+  desc: string;
+  options?: { value: number; soon?: boolean }[];
+}
+
+/** The player who receives the view (server/rooms.go: youView). */
+export interface You {
+  id: string;
+  name: string;
+  avatar?: string;
+  picture?: string;
+  discordAvatar?: string;
+  windows?: boolean;
+  ready?: boolean;
+  launcher?: boolean;
+  launcherReady?: boolean;
+  launcherFailed?: string;
+  launcherDoing?: string;
+}
+
+/** A room in the list of rooms (server/rooms.go: roomItem). A room listed as private has no code. */
+export interface RoomItem {
+  code?: string;
+  private?: boolean;
+  map: string;
+  mods?: string[];
+  host: string;
+  players: number;
+  size: number;
+  state: string;
+}
+
+/** The player's room (server/rooms.go: roomView). */
+export interface Room {
+  code: string;
+  map: string;
+  /** The title of its map. A page can't play a t6 room's game. */
+  of: string;
+  private: boolean;
+  size: number;
+  mods?: string[];
+  /** open (no game), loading (players load in), playing, or ending (the game quits). */
+  state: string;
+  members: Member[];
+  note?: string;
+  host: boolean;
+  seat?: boolean;
+  join?: boolean;
+  left?: boolean;
+  startsIn?: number;
+  canEnd?: boolean;
+  result?: GameResult;
+  t6?: { up: boolean; password?: string; name: string };
+  up?: boolean;
+  password?: string;
+  as?: string;
+}
+
+/** A player in a room (server/rooms.go: memberView). */
+export interface Member {
+  id: string;
+  name: string;
+  avatar?: string;
+  /** Their place in the room, from 0. */
+  place: number;
+  team?: number;
+  host?: boolean;
+  inGame?: boolean;
+  away?: boolean;
+  windows?: boolean;
+  ready?: boolean;
+  gamepad?: boolean;
+  missing?: boolean;
+  downloading?: boolean;
+  got?: number;
+  mark?: string;
+}
+
+/** How a game went (server/rooms.go: gameResult). */
+export interface GameResult {
+  id: string;
+  map: string;
+  mods?: string[];
+  round?: number;
+  seconds: number;
+  players: PlayerStats[];
+}
+
+/** A player's line of a game's scoreboard (server/rooms.go: playerStats). */
+export interface PlayerStats {
+  id: string;
+  name: string;
+  score: number;
+  cash: number;
+  team?: number;
+  kills: number;
+  headshots: number;
+  downs: number;
+  revives: number;
+  /** The doors they bought. It is missing when the game reported no number. */
+  doors?: number;
+  avatar?: string;
+}
+
+/** The server's answer to POST /lobby/hello (server/rooms.go: hello). */
+export interface Hello {
+  token?: string;
+  id?: string;
+  name?: string;
+  key?: string;
+  discord?: boolean;
+  /** The URL where the player has to sign in first. */
+  signIn?: string;
+  member?: boolean;
+}
+
+/** A player's record on a map with a party of one size (server/leaderboards.go: record). */
+export interface BoardRecord {
+  map: string;
+  party: number;
+  round?: number;
+  seconds?: number;
+  at: string;
+  /** The ID of the report of the game that set it, in Leaderboards.games. */
+  game: string;
+}
+
+/** A player's row on a map's board (server/leaderboards.go: boardRow). */
+export interface BoardRow {
+  id: string;
+  name: string;
+  avatar?: string;
+  round?: number;
+  seconds?: number;
+  party: number;
+  game: string;
+}
+
+/** A map's boards, one for each size of party (server/leaderboards.go: mapBoards). */
+export interface MapBoards {
+  map: string;
+  duo: BoardRow[];
+  squad: BoardRow[];
+  bigSquad: BoardRow[];
+}
+
+/**
+ * A player's row on a board of all the maps: the sum of their bests, and each best
+ * (server/leaderboards.go: allRow).
+ */
+export interface AllRow {
+  id: string;
+  name: string;
+  avatar?: string;
+  round?: number;
+  seconds?: number;
+  bests: BoardRecord[];
+}
+
+/** A board of all the maps (server/leaderboards.go: allBoard). mine is the row of the player who asks. */
+export interface AllBoard {
+  rows: AllRow[];
+  mine: AllRow;
+}
+
+/** The server's answer to GET /lobby/leaderboards (server/leaderboards.go: leaderboards). */
+export interface Leaderboards {
+  rounds: MapBoards[];
+  eggs: MapBoards[];
+  allRounds: AllBoard;
+  allEggs: AllBoard;
+  t6Rounds: MapBoards[] | null;
+  allT6Rounds: AllBoard;
+  /** The reports of the games that the boards name, by ID. */
+  games: Record<string, GameResult>;
+}

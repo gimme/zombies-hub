@@ -1,0 +1,44 @@
+<?xml version="1.0"?>
+<Container version="2">
+  <Name>zombies</Name>
+  <Repository>zombies:latest</Repository>
+  <Registry/>
+  <Network>bridge</Network>
+  <MyIP/>
+  <Shell>bash</Shell>
+  <Privileged>false</Privileged>
+  <Support>https://github.com/gimme/zombies-hub/issues</Support>
+  <Project>https://github.com/gimme/zombies-hub</Project>
+  <Overview>A private server for playing Call of Duty Zombies together. Players open its page in Chrome, join a room and start a game. Players on other machines need the page over HTTPS: put a reverse proxy with a certificate in front of TCP 3075 (in Nginx Proxy Manager: a proxy host with Cache Assets off and Websockets Support on). The games use UDP 3075, which your router must forward straight to this server, not through the proxy. Repository is the image's address: localhost:5000/zombies:latest from a registry on this server, or zombies:latest after docker load. Set WebUI (Advanced View) to the page's HTTPS address. To open the server's console, press Console and type: console</Overview>
+  <Category>GameServers:</Category>
+  <WebUI/>
+  <TemplateURL/>
+  <Icon>https://raw.githubusercontent.com/gimme/zombies-hub/main/web/public/icon.png</Icon>
+  <ExtraParams>--cap-add=NET_ADMIN</ExtraParams>
+  <PostArgs/>
+  <CPUset/>
+  <DateInstalled/>
+  <DonateText/>
+  <DonateLink/>
+  <Requires>A copy of the install folder of Black Ops or Black Ops II. For the page: a domain name and a reverse proxy with HTTPS. For the games: UDP 3075 forwarded from your router.</Requires>
+  <Config Name="Games (UDP)" Target="3075" Default="3075" Mode="udp" Description="The port the games use. Players connect to it from browsers (WebTransport) and from Windows. Forward it from your router, without a proxy." Type="Port" Display="always" Required="true" Mask="false">3075</Config>
+  <Config Name="Page (TCP)" Target="3075" Default="3075" Mode="tcp" Description="The page and its downloads, over plain HTTP. Point your reverse proxy at it. Your router does not need to forward it." Type="Port" Display="always" Required="true" Mask="false">3075</Config>
+  <Config Name="Game files" Target="/game" Default="" Mode="ro" Description="A folder with one folder per game: t5 is a copy of the Black Ops install folder (the one that contains zone), and t6 is a copy of the Black Ops II install folder. At least one is needed. The server only reads them." Type="Path" Display="always" Required="true" Mask="false"/>
+  <Config Name="Config" Target="/config" Default="/mnt/user/appdata/zombies" Mode="rw" Description="What the server keeps: players and leaderboards (zombies.db), a log of each game (logs/), and its downloads." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/zombies</Config>
+  <Config Name="Map" Target="ZOMBIES_MAP" Default="zombie_theater" Mode="" Description="The map a new room starts with. zombie_theater is Kino der Toten. The room's host can pick another." Type="Variable" Display="always" Required="true" Mask="false">zombie_theater</Config>
+  <Config Name="Download rate" Target="ZOMBIES_DOWNLOAD_RATE" Default="" Mode="" Description="Empty: the server sends no game files, and players use their own copy of the game. Set: the server sends the game files to browsers, and to the launcher of a player whose PC has no copy of Black Ops II, at most this many bits per second in total. 40M is 40 Mbit/s, about 5 MB per second. 1G and unlimited also work." Type="Variable" Display="always" Required="false" Mask="false"></Config>
+  <Config Name="Discord client ID" Target="ZOMBIES_DISCORD_CLIENT_ID" Default="" Mode="" Description="For Discord sign-in: your Discord application's client ID (discord.com/developers/applications). In the application's OAuth2 settings, add the page's address followed by /auth/discord/callback as a redirect. Empty: anyone who reaches the page can play." Type="Variable" Display="always" Required="false" Mask="false"></Config>
+  <Config Name="Discord client secret" Target="ZOMBIES_DISCORD_CLIENT_SECRET" Default="" Mode="" Description="Your Discord application's client secret." Type="Variable" Display="always" Required="false" Mask="true"></Config>
+  <Config Name="Discord server" Target="ZOMBIES_DISCORD_SERVER" Default="" Mode="" Description="Only members of this Discord server can play. Enter its ID: turn on Developer Mode in Discord's Advanced settings, right-click the server and choose Copy Server ID. Empty: any Discord account can play." Type="Variable" Display="always" Required="false" Mask="false"></Config>
+  <Config Name="Discord roles" Target="ZOMBIES_DISCORD_ROLES" Default="" Mode="" Description="Only members with one of these roles can play. Enter the role IDs, separated by commas. Empty: any member can play." Type="Variable" Display="advanced" Required="false" Mask="false"></Config>
+  <Config Name="Min players" Target="ZOMBIES_MIN_PLAYERS" Default="2" Mode="" Description="Players a room needs to start a game: 1 to Max players. With 2, a single player plays offline in their browser. With 1, a single player plays on the server, but a one-player game is not on the leaderboards." Type="Variable" Display="advanced" Required="false" Mask="false">2</Config>
+  <Config Name="Max players" Target="ZOMBIES_MAX_PLAYERS" Default="4" Mode="" Description="Most players a room and its game can take: 1 to 8. A new room takes 4, and its host can change that, from Min players to this number. The maps were made for 4 players. Above 4, players share the four characters: the fifth player gets the first player's." Type="Variable" Display="advanced" Required="false" Mask="false">4</Config>
+  <Config Name="Max games" Target="ZOMBIES_MAX_GAMES" Default="4" Mode="" Description="Most games running at once. Each uses about half a GB of memory, and more as it goes on." Type="Variable" Display="advanced" Required="false" Mask="false">4</Config>
+  <Config Name="Public port" Target="ZOMBIES_PUBLIC_PORT" Default="3075" Mode="" Description="The UDP port players reach the games on from outside, when your router's port forward uses another port than 3075." Type="Variable" Display="advanced" Required="false" Mask="false">3075</Config>
+  <Config Name="Load timeout" Target="ZOMBIES_LOAD_TIMEOUT" Default="5m" Mode="" Description="How long a game waits for its players to load before the server calls it off." Type="Variable" Display="advanced" Required="false" Mask="false">5m</Config>
+  <Config Name="Hang timeout" Target="ZOMBIES_HANG_TIMEOUT" Default="1m" Mode="" Description="How long a game may go without drawing a frame before the server ends it and returns its players to their room. 0 turns this off." Type="Variable" Display="advanced" Required="false" Mask="false">1m</Config>
+  <Config Name="Game arguments" Target="ZOMBIES_GAME_ARGS" Default="" Mode="" Description="Extra command line for every Black Ops game, such as +set g_deadChat 0." Type="Variable" Display="advanced" Required="false" Mask="false"/>
+  <Config Name="Engine URL" Target="ZOMBIES_ENGINE_URL" Default="" Mode="" Description="Another download address for the Black Ops engine. {version} is replaced with the release, such as v1. Empty: the releases of bo1-zombies on GitHub." Type="Variable" Display="advanced" Required="false" Mask="false"/>
+  <Config Name="PUID" Target="PUID" Default="99" Mode="" Description="The user that owns what the server writes in Config. The games' own folders (game/) belong to user 3075." Type="Variable" Display="advanced" Required="true" Mask="false">99</Config>
+  <Config Name="PGID" Target="PGID" Default="100" Mode="" Description="The group that owns what the server writes in Config, including the games' folders." Type="Variable" Display="advanced" Required="true" Mask="false">100</Config>
+</Container>

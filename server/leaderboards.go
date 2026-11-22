@@ -1,0 +1,331 @@
+package main
+
+import (
+	"cmp"
+	"encoding/json"
+	"log"
+	"maps"
+	"net/http"
+	"slices"
+	"strings"
+	"time"
+)
+
+// The leaderboards (GET /lobby/leaderboards), which the page shows. For each map there is a board of the highest
+// rounds, and a board of the players who have finished the map's easter egg, among the games of the server's rooms.
+// Each board has a category for each size of party: a duo, a squad of three or four, and a big squad of five up to the
+// rooms' size (-max-players, at most 8). A server whose rooms hold 4 has no big squads. A record keeps the party's
+// exact size, in case a squad of three and a squad of four, or the sizes of a big squad, are ever ranked apart.
+//
+// There are also two boards of all the maps (allBoard). They take a player's best on each map with a party of any of
+// those sizes. One board has the sum of the player's highest rounds, and the other the sum of their times through the
+// easter eggs. Each row has the records that it is the sum of. The player who asks also gets their own row, which the
+// page shows as a card of the maps. On a server that has T6's maps, they have the same boards of rounds, apart from
+// the other maps: a board for each T6 map, and one of all the T6 maps.
+//
+// The level stores a player's best round on a map as one number for all sizes of party (<map>_highestwave), which
+// can't hold both a duo's best and a squad's. So the server keeps its own records (record). It records a round when
+// the round begins, so the round counts however the game ends. Each record names the game that set it. The database
+// keeps every game's report (gameResult). The lobby has a report for as long as a record names it (keepGame), for the
+// page to show. A game with mods (mods.go) counts like any other, and its report names the mods.
+
+// boardRows is how many players a board lists at most.
+const boardRows = 50
+
+// eggs are the maps with an easter egg, in no particular order, and the stat that each map adds to when a party of two
+// or more finishes its easter egg. Ascension's stat is not the level's own: the engine's script fixes add it
+// (bo1-zombies/src/clientscript/cscr_parser.cpp: s_scrSourceFixes).
+var eggs = []struct{ mapName, stat string }{
+	{"zombie_coast", "ZOMBIE_COAST_EGG_COOP"},
+	{"zombie_temple", "ZOMBIE_TEMPLE_SIDEQUEST"},
+	{"zombie_moon", "ZOMBIE_MOON_SIDEQUEST_TOTAL"},
+	{"zombie_cosmodrome", "ZOMBIE_COSMO_EGG"},
+}
+
+// record is a player's record on a map with a party of one size: their best round, or their fastest time through the
+// map's easter egg.
+type record struct {
+	Map     string    `json:"map"`
+	Party   int       `json:"party"` // how many players started the game
+	Round   int       `json:"round,omitempty"`
+	Seconds int64     `json:"seconds,omitempty"` // for an easter egg: when it was done, in seconds from round 1
+	At      time.Time `json:"at"`
+	Game    string    `json:"game"` // the ID of the report of the game that set it
+}
+
+// better compares a and b for ranking. It returns a negative number when a ranks first: a has the higher round, or the
+// faster easter egg, or else was set first.
+func better(a, b record) int {
+	return cmp.Or(b.Round-a.Round, cmp.Compare(a.Seconds, b.Seconds), a.At.Compare(b.At))
+}
+
+// keep stores now in the list as the record for its map and size of party, if now is better than the record there. It
+// reports whether it stored now.
+func keep(list *[]record, now record) bool {
+	i := slices.IndexFunc(*list, func(r record) bool { return r.Map == now.Map && r.Party == now.Party })
+	switch {
+	case i < 0:
+		*list = append(*list, now)
+	case better(now, (*list)[i]) < 0:
+		(*list)[i] = now
+	default:
+		return false
+	}
+	return true
+}
+
+// keepRound sets p's best round on the map with a party of that size to round, if round is better than the record p
+// had.
+func (p *player) keepRound(mapName string, party, round int, game string) {
+	if keep(&p.rounds, record{Map: mapName, Party: party, Round: round, At: time.Now(), Game: game}) {
+		log.Printf("server: %s's best on %s with a party of %d: round %d", p.name, mapName, party, round)
+	}
+}
+
+// keepEgg sets p's time through the map's easter egg with a party of that size to seconds, if that is faster than the
+// time p had.
+func (p *player) keepEgg(mapName string, party int, seconds int64, game string) {
+	if keep(&p.eggs, record{Map: mapName, Party: party, Seconds: seconds, At: time.Now(), Game: game}) {
+		log.Printf("server: %s finished the easter egg of %s with a party of %d in %d s", p.name, mapName, party, seconds)
+	}
+}
+
+// keepRounds records the round of res for each of rg's players whose character is in the game: the players that rg has
+// a line of the scoreboard for. The size of the party is the number of players that started the game. keepRounds also
+// keeps the report. It then clears the lines of the scoreboard, so that the game's next lines are those of the players
+// who are in it then. The caller holds l.mu.
+func (l *lobby) keepRounds(r *room, rg *roomGame, res *gameResult) {
+	if res.Round > 0 && rg.started {
+		for _, s := range rg.seats {
+			if _, ok := rg.stats[s.local.String()]; ok {
+				s.player.keepRound(r.mapName, len(rg.seats), res.Round, res.ID)
+			}
+		}
+		rg.report = res
+		l.keepGame(res)
+	}
+	rg.stats = nil
+}
+
+// keepGame keeps the report of a game, as it stands or as it ended: in the database, in the place of the game's
+// earlier report, and in the lobby. The lobby drops the reports that no player's record names any more, including
+// this one when it set no record. The caller holds l.mu.
+func (l *lobby) keepGame(res *gameResult) {
+	named := map[string]bool{}
+	for _, p := range l.players {
+		for _, r := range slices.Concat(p.rounds, p.eggs) {
+			named[r.Game] = true
+		}
+	}
+	l.reports[res.ID] = res
+	maps.DeleteFunc(l.reports, func(id string, _ *gameResult) bool { return !named[id] })
+	l.unsavedGames[res.ID] = res
+	l.save()
+}
+
+// on returns the records in the list that are on the map.
+func on(list []record, mapName string) []record {
+	var out []record
+	for _, r := range list {
+		if r.Map == mapName {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+// bestOf returns the best of the records with a party of least to most players, or nil when there is none.
+func bestOf(list []record, least, most int) *record {
+	var best *record
+	for _, r := range list {
+		if r.Party >= least && r.Party <= most && (best == nil || better(r, *best) < 0) {
+			best = &r
+		}
+	}
+	return best
+}
+
+// boardRow is a player's row on a board.
+type boardRow struct {
+	ID      string `json:"id"`
+	Name    string `json:"name"`
+	Avatar  string `json:"avatar,omitempty"` // the player's picture (avatar)
+	Round   int    `json:"round,omitempty"`
+	Seconds int64  `json:"seconds,omitempty"`
+	Party   int    `json:"party"`
+	Game    string `json:"game"` // the ID of the game's report, in leaderboards.Games
+
+	best record
+}
+
+// mapBoards are a map's boards, one for each category.
+type mapBoards struct {
+	Map      string     `json:"map"`
+	Duo      []boardRow `json:"duo"`
+	Squad    []boardRow `json:"squad"`
+	BigSquad []boardRow `json:"bigSquad"`
+}
+
+// allRow is a player's row on a board of all the maps: the sum of their bests, and each of the bests.
+type allRow struct {
+	ID      string   `json:"id"`
+	Name    string   `json:"name"`
+	Avatar  string   `json:"avatar,omitempty"`
+	Round   int      `json:"round,omitempty"`   // the sum of their highest rounds
+	Seconds int64    `json:"seconds,omitempty"` // the sum of their fastest times
+	Bests   []record `json:"bests"`             // the records that are summed: their best on each map where they have one
+
+	at time.Time // when they reached the sum: the time of the latest of their bests
+}
+
+// allBoard is a board of all the maps.
+type allBoard struct {
+	Rows []allRow `json:"rows"`
+	Mine allRow   `json:"mine"` // the row of the player who asks, whether or not Rows has it
+}
+
+type leaderboards struct {
+	Rounds []mapBoards `json:"rounds"` // the maps the server has, in the page's order
+	Eggs   []mapBoards `json:"eggs"`   // the maps among them that have an easter egg
+	// AllRounds and AllEggs are the boards of all of those maps.
+	AllRounds allBoard `json:"allRounds"`
+	AllEggs   allBoard `json:"allEggs"`
+	// T6Rounds and AllT6Rounds are the boards of T6's maps, on a server that has them. They are boards of their own,
+	// because a sum of a player's bests is over the maps of one title (t6.go).
+	T6Rounds    []mapBoards `json:"t6Rounds"`
+	AllT6Rounds allBoard    `json:"allT6Rounds"`
+	// Games has the reports of the games that the boards name, by ID.
+	Games map[string]*gameResult `json:"games"`
+}
+
+// board returns a board: each player's best of their records in parties of least to most players, ranked, and cut to
+// the first boardRows. The caller holds l.mu.
+func (l *lobby) board(players []*player, records func(*player) []record, least, most int) []boardRow {
+	rows := []boardRow{}
+	for _, p := range players {
+		if best := bestOf(records(p), least, most); best != nil {
+			rows = append(rows, boardRow{ID: p.id, Name: p.asked, Avatar: l.avatar(p), Round: best.Round,
+				Seconds: best.Seconds, Party: best.Party, Game: best.Game, best: *best})
+		}
+	}
+	slices.SortFunc(rows, func(a, b boardRow) int {
+		return cmp.Or(better(a.best, b.best), cmp.Compare(strings.ToLower(a.Name), strings.ToLower(b.Name)),
+			cmp.Compare(a.ID, b.ID))
+	})
+	return rows[:min(len(rows), boardRows)]
+}
+
+// allRow returns p's row on a board of all the maps. The row has p's best of the records on each of mapNames, in that
+// order, with a party of any size that a map's boards have, and the sum of those bests. The caller holds l.mu.
+func (l *lobby) allRow(p *player, mapNames []string, records []record) allRow {
+	row := allRow{ID: p.id, Name: p.asked, Avatar: l.avatar(p), Bests: []record{}}
+	for _, name := range mapNames {
+		if best := bestOf(on(records, name), 2, max(4, l.roomSize)); best != nil {
+			row.Bests = append(row.Bests, *best)
+			row.Round += best.Round
+			row.Seconds += best.Seconds
+			if best.At.After(row.at) {
+				row.at = best.At
+			}
+		}
+	}
+	return row
+}
+
+// allBoard returns the board of all of mapNames. It has the row of each player with a record on one of them (allRow),
+// ranked by rank and then by who reached their sum first, and cut to the first boardRows. It also has asker's own row.
+// The caller holds l.mu.
+func (l *lobby) allBoard(players []*player, asker *player, mapNames []string, records func(*player) []record,
+	rank func(a, b allRow) int) allBoard {
+	rows := []allRow{}
+	for _, p := range players {
+		if row := l.allRow(p, mapNames, records(p)); len(row.Bests) > 0 {
+			rows = append(rows, row)
+		}
+	}
+	slices.SortFunc(rows, func(a, b allRow) int {
+		return cmp.Or(rank(a, b), a.at.Compare(b.at), cmp.Compare(strings.ToLower(a.Name), strings.ToLower(b.Name)),
+			cmp.Compare(a.ID, b.ID))
+	})
+	return allBoard{Rows: rows[:min(len(rows), boardRows)], Mine: l.allRow(asker, mapNames, records(asker))}
+}
+
+// leaderboards returns the boards as they are now, for asker, one of the server's players. On a server where players
+// sign in with Discord, the boards leave out the players who have not, as playerOf does. The caller holds l.mu.
+func (l *lobby) leaderboards(asker *player) leaderboards {
+	var players []*player
+	for _, p := range l.players {
+		if l.discord == nil || p.discord != nil {
+			players = append(players, p)
+		}
+	}
+	b := leaderboards{Rounds: []mapBoards{}, Eggs: []mapBoards{}, T6Rounds: []mapBoards{},
+		Games: map[string]*gameResult{}}
+	boards := func(mapName string, records func(*player) []record) mapBoards {
+		return mapBoards{Map: mapName, Duo: l.board(players, records, 2, 2), Squad: l.board(players, records, 3, 4),
+			BigSquad: l.board(players, records, 5, l.roomSize)}
+	}
+	// each title's maps
+	var mapNames, t6Names []string
+	for _, name := range l.maps() {
+		if titleOf(name) == t6 {
+			t6Names = append(t6Names, name)
+		} else {
+			mapNames = append(mapNames, name)
+		}
+	}
+	for _, name := range t6Names {
+		b.T6Rounds = append(b.T6Rounds, boards(name, func(p *player) []record { return on(p.rounds, name) }))
+	}
+	var eggMaps []string
+	for _, name := range mapNames {
+		b.Rounds = append(b.Rounds, boards(name, func(p *player) []record { return on(p.rounds, name) }))
+		if slices.ContainsFunc(eggs, func(e struct{ mapName, stat string }) bool { return e.mapName == name }) {
+			b.Eggs = append(b.Eggs, boards(name, func(p *player) []record { return on(p.eggs, name) }))
+			eggMaps = append(eggMaps, name)
+		}
+	}
+	// Rounds rank by the higher sum. Easter eggs rank by the higher number of easter eggs, then by the lower sum of
+	// their times.
+	b.AllRounds = l.allBoard(players, asker, mapNames, func(p *player) []record { return p.rounds },
+		func(x, y allRow) int { return y.Round - x.Round })
+	b.AllEggs = l.allBoard(players, asker, eggMaps, func(p *player) []record { return p.eggs },
+		func(x, y allRow) int { return cmp.Or(len(y.Bests)-len(x.Bests), cmp.Compare(x.Seconds, y.Seconds)) })
+	b.AllT6Rounds = l.allBoard(players, asker, t6Names, func(p *player) []record { return p.rounds },
+		func(x, y allRow) int { return y.Round - x.Round })
+	game := func(id string) {
+		if res := l.reports[id]; res != nil && b.Games[id] == nil {
+			b.Games[id] = l.withPlayers(res)
+		}
+	}
+	for _, m := range slices.Concat(b.Rounds, b.Eggs, b.T6Rounds) {
+		for _, row := range slices.Concat(m.Duo, m.Squad, m.BigSquad) {
+			game(row.Game)
+		}
+	}
+	// Also the reports of the games in the asker's own rows. The page opens a report from a best in those rows.
+	for _, all := range []allBoard{b.AllRounds, b.AllEggs, b.AllT6Rounds} {
+		for _, r := range all.Mine.Bests {
+			game(r.Game)
+		}
+	}
+	return b
+}
+
+// serveLeaderboards answers GET /lobby/leaderboards for one of the server's players.
+func (l *lobby) serveLeaderboards(w http.ResponseWriter, req *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	asker := l.playerOf(bearer(req))
+	if asker == nil {
+		w.Header().Set("WWW-Authenticate", "Bearer")
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(struct {
+			Error string `json:"error"`
+		}{l.unknown().Error()})
+		return
+	}
+	json.NewEncoder(w).Encode(l.leaderboards(asker))
+}

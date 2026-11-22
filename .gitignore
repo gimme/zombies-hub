@@ -1,0 +1,19 @@
+# what the dev server and the tests keep
+/build/
+# the game files, with a folder for each title. Never commit them.
+/game/
+# what the server in compose.yaml writes
+/config/
+# editors and tools
+/.vscode/
+node_modules/
+__pycache__/
+# Claude Code: agent worktrees and personal settings (.claude/settings.json is shared)
+/.claude/worktrees/
+/.claude/settings.local.json
+# the launcher's files that the image's build makes and puts in the server (server/dist/README.md)
+/server/dist/zombies-launcher.exe
+/server/dist/zombies-launcher.sig
+/launcher/*.syso
+# the built page (docker/web.sh, or npm run build in web/)
+/web/dist/

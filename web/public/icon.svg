@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- the page's icon (server/web.go: GET /icon.svg; icon.png is it at 512x512): the Z of Oswald Bold, the logo's font,
+       in the logo's red, on the page's dark -->
+  <rect width="512" height="512" rx="96" fill="#120f0f"/>
+  <path fill="#e0233f" d="M172.4 436L339.6 436L339.6 381.6L249.5 381.6L338.7 121.3L338.7 76L176.4 76L176.4 130.4L260.2 130.4
+    L172.4 388Z"/>
+</svg>

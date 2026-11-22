@@ -1,0 +1,4 @@
+# Text files keep the repo's LF line endings in a Windows checkout too, whatever core.autocrlf says (Git for Windows'
+# default is CRLF): the scripts the containers run fail on a CRLF. Batch files get CRLF, which cmd.exe reads best.
+* text=auto eol=lf
+*.bat text eol=crlf

@@ -1,0 +1,327 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Zombies</title>
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#120f0f">
+<!-- the engine's host, which the page's script loads as it starts (src/main.ts: startPage): fetched meanwhile -->
+<link rel="modulepreload" href="/player.js">
+<!-- the sheet of the options menu (src/settings.ts builds the menu), then the page's own, in this order -->
+<link rel="stylesheet" href="/src/settings.css">
+<link rel="stylesheet" href="/src/page.css">
+</head>
+<body>
+<canvas id="movie" class="hidden" aria-hidden="true"></canvas>
+<canvas id="canvas" tabindex="0"></canvas>
+<div id="overlay">
+  <div id="backdrop" aria-hidden="true">
+    <img id="backdropimg" alt="">
+    <canvas id="atmosphere"></canvas>
+    <div id="backdropdim"></div>
+    <div id="backdropgrain"></div>
+    <div class="vignette"></div>
+  </div>
+  <div class="shell">
+    <header class="top">
+      <a class="logo" id="home" href="/">Black Ops <span>Zombies</span></a>
+      <div class="right">
+          <button type="button" id="boardsopen" class="chip words hidden" aria-pressed="false"
+            title="Who has done the most">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+              stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M6 9H4a2 2 0 0 1-2-2V5h4"/><path d="M18 9h2a2 2 0 0 0 2-2V5h-4"/>
+              <path d="M6 3h12v7a6 6 0 0 1-12 0Z"/><path d="M12 16v4"/><path d="M8 21h8"/></svg>
+            <span>Leaderboards</span>
+          </button>
+          <button type="button" id="settings" class="chip icon hidden" aria-haspopup="dialog" aria-expanded="false"
+            aria-controls="options" title="Settings">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+              stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/>
+              <circle cx="12" cy="12" r="3"/></svg>
+          </button>
+          <button type="button" id="music" class="chip icon hidden" aria-pressed="false" title="Music">
+            <svg class="on" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+              stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 5 6 9H2v6h4l5 4V5Z"/>
+              <path d="M15.5 8.5a5 5 0 0 1 0 7"/><path d="M19 5a9 9 0 0 1 0 14"/></svg>
+            <svg class="off" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+              stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 5 6 9H2v6h4l5 4V5Z"/>
+              <path d="m22 9-6 6"/><path d="m16 9 6 6"/></svg>
+          </button>
+        <div id="me" class="hidden">
+          <button type="button" id="namechip" class="chip" aria-haspopup="dialog" aria-expanded="false"
+            aria-controls="profile" title="Your name, icon, game folder and game files">
+            <span class="avatar mine" id="nameinitial"></span><span id="namelabel"></span>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+              stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+          </button>
+          <div id="profile" class="panel menu hidden" role="dialog" aria-label="You">
+            <section>
+              <div class="label">Profile</div>
+              <div class="row">
+                <button type="button" id="picturechange" class="hidden" aria-haspopup="dialog" aria-controls="picker"
+                  title="Change icon" aria-label="Change icon">
+                  <span class="avatar" id="mypicture"></span>
+                  <span class="edit"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                    stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg></span>
+                </button>
+                <div id="namefield" class="grow">
+                  <input type="text" id="name" maxlength="15" autocomplete="nickname" spellcheck="false"
+                    aria-label="Name">
+                  <button type="button" id="namerefresh" class="hidden" title="Refresh from Discord"
+                    aria-label="Refresh your name from Discord">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                      stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                      <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/>
+                      <path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg>
+                  </button>
+                </div>
+              </div>
+              <p id="namenote"></p>
+              <button type="button" class="link muted hidden" id="signout">Sign out</button>
+            </section>
+            <section>
+              <div class="label">Game folder</div>
+              <span class="value" id="foldername"></span>
+              <p id="folderhelp"></p>
+              <div class="row">
+                <button type="button" id="folderpick">Choose folder</button>
+                <button type="button" class="link muted" id="folderforget">Forget</button>
+              </div>
+            </section>
+            <section>
+              <div class="label">Game files in this browser</div>
+              <div class="between">
+                <span class="value" id="filestext"></span>
+                <button type="button" class="link muted" id="filesremove">Remove</button>
+              </div>
+            </section>
+            <section>
+              <div class="label">Windows client</div>
+              <p>Run this in the Windows client's folder, then join a room.</p>
+              <div class="row">
+                <span id="playbat" class="grow"></span>
+                <button type="button" class="copy" id="copyplay" title="Copy the line">
+                  <span class="idle"><span>Copy</span></span>
+                  <span class="done"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                    stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M20 6 9 17l-5-5"/></svg><span>Copied</span></span>
+                </button>
+              </div>
+            </section>
+          </div>
+        </div>
+      </div>
+    </header>
+    <div id="status" role="status"></div>
+    <p id="mapline" class="hidden"></p>
+    <div class="play hidden" id="play" role="button" tabindex="0">Click to play</div>
+    <section id="signin" class="panel start hidden">
+      <h1 class="display">Sign in</h1>
+      <p id="signintext"></p>
+      <p id="signinwhy" role="alert"></p>
+      <button type="button" class="primary big" id="signinbutton">Sign in with Discord</button>
+    </section>
+    <div id="lobby" class="hidden">
+      <div id="outside" class="cols">
+        <div class="stack">
+          <section class="panel start">
+            <h1 class="display">Play together</h1>
+            <button type="button" class="primary big" id="make">Make a room</button>
+            <div class="or">or join with a code</div>
+            <div class="row">
+              <input type="text" id="code" maxlength="4" placeholder="CODE" aria-label="Room code" autocomplete="off"
+                spellcheck="false">
+              <button type="button" id="joincode">Join</button>
+            </div>
+          </section>
+          <section class="panel start" id="soloentry">
+            <h1 class="display">Play offline</h1>
+            <button type="button" class="big" id="soloopen">Pick a map</button>
+          </section>
+        </div>
+        <section class="browse">
+          <h2>Rooms</h2>
+          <ul class="rooms" id="rooms"></ul>
+        </section>
+      </div>
+      <div id="solo" class="hidden">
+        <div class="cols">
+          <div class="main">
+            <section class="panel mapcard">
+              <div class="mapinfo">
+                <img id="soloimg" alt="">
+                <div class="text">
+                  <div class="label">Map</div>
+                  <div class="about" id="soloabout">
+                    <div><h1 class="display" id="solotitle"></h1><p id="solodesc"></p></div>
+                  </div>
+                </div>
+              </div>
+              <div class="mapgrid" id="solomaps" role="radiogroup" aria-label="The map to play offline"></div>
+            </section>
+          </div>
+          <aside class="panel side">
+            <h2 class="display" id="solohead">Play offline</h2>
+            <button type="button" class="primary big" id="playalone" aria-disabled="true">Play</button>
+            <p id="solonote" class="files hidden"></p>
+            <div class="foot">
+              <button type="button" class="link muted" id="soloback">Back to the lobby</button>
+            </div>
+          </aside>
+        </div>
+      </div>
+      <div id="inside" class="hidden">
+        <div class="cols">
+          <div class="main">
+            <div id="note" class="panel hidden"></div>
+            <section class="panel mapcard">
+              <div class="mapinfo">
+                <img id="mapimg" alt="">
+                <div class="text">
+                  <div class="label">Map</div>
+                  <div class="about" id="mapabout">
+                    <div><h1 class="display" id="maptitle"></h1><p id="mapdesc"></p></div>
+                  </div>
+                </div>
+              </div>
+              <div class="mapgrid hidden" id="mapgrid" role="radiogroup" aria-label="The room's map"></div>
+            </section>
+            <section class="panel options">
+              <div class="tabs" role="tablist" aria-label="The room's options">
+                <button type="button" role="tab" class="tab" id="tabsettings" aria-controls="panelsettings"
+                  aria-selected="true"><span>Settings</span></button>
+                <button type="button" role="tab" class="tab" id="tabmods" aria-controls="panelmods"
+                  aria-selected="false"><span>Mods</span> <span class="count hidden" id="modcount"></span></button>
+              </div>
+              <div id="panelsettings" role="tabpanel" aria-labelledby="tabsettings">
+                <div class="setting">
+                  <span>Private room<span class="desc">Others need the code or the link to join.</span></span>
+                  <button type="button" class="switch" id="visibility" role="switch" aria-label="Private room">
+                    <span class="word"></span><span class="track"><span class="thumb"></span></span>
+                  </button>
+                  <span class="badge hidden" id="vistext"></span>
+                </div>
+                <div class="setting" id="sizesetting">
+                  <span>Room size<span class="desc">How many players the room takes.</span></span>
+                  <span class="badge off hidden" id="sizetext"></span>
+                </div>
+              </div>
+              <div id="panelmods" class="hidden" role="tabpanel" aria-labelledby="tabmods"></div>
+            </section>
+          </div>
+          <aside class="panel side">
+            <div class="between">
+              <div>
+                <div class="label">Room</div>
+                <div class="row"><span id="roomcode"></span><span id="roomgame" class="hidden"></span></div>
+              </div>
+              <button type="button" class="copy" id="copylink" title="Copy a link that joins this room">
+                <span class="idle"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                  stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/>
+                  <path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/></svg><span>Copy link</span></span>
+                <span class="done"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                  stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M20 6 9 17l-5-5"/></svg><span>Copied</span></span>
+              </button>
+            </div>
+            <div class="between label"><span>Players</span><span id="count"></span></div>
+            <ul class="members" id="members"></ul>
+            <button type="button" id="modsline" class="hidden" title="The room's mods">
+              <span class="label">Mods</span><span class="count" id="modslinecount"></span>
+              <span class="names" id="modsnames"></span>
+            </button>
+            <button type="button" class="primary big" id="ready">Ready</button>
+            <p id="roomnote" class="files hidden"></p>
+            <button type="button" class="big hidden" id="endgame" title="No one is playing it">End the game</button>
+            <section id="t6box" class="hidden">
+              <p id="t6get" class="hidden">First time? <a href="/zombies-launcher-setup.exe" download>Install Zombies
+                Launcher</a>.</p>
+              <details id="t6hand">
+                <summary>Join by hand</summary>
+                <div>
+                  <p>In the console of Black Ops II Zombies, started by Plutonium in LAN mode:</p>
+                  <div class="row">
+                    <span id="t6console" class="grow"></span>
+                    <button type="button" class="copy" id="copyt6" title="Copy the line">
+                      <span class="idle"><span>Copy</span></span>
+                      <span class="done"><svg width="16" height="16" viewBox="0 0 24 24" fill="none"
+                        stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+                        aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg><span>Copied</span></span>
+                    </button>
+                  </div>
+                </div>
+              </details>
+            </section>
+            <div id="roomstate"></div>
+            <div class="foot">
+              <button type="button" class="link muted" id="leave">Leave room</button>
+            </div>
+          </aside>
+        </div>
+      </div>
+      <div id="results" class="hidden">
+        <section class="panel resulthead">
+          <img id="resultimg" alt="">
+          <div class="resultmain">
+            <span class="label" id="resultkicker"></span>
+            <h1 class="display" id="resulttitle"></h1>
+            <div class="totals" id="resulttotals"></div>
+          </div>
+        </section>
+        <section class="panel tablewrap">
+          <table>
+            <thead><tr id="resulthead"></tr></thead>
+            <tbody id="resultrows"></tbody>
+          </table>
+        </section>
+        <button type="button" class="primary big" id="resultsback">Back to the room</button>
+      </div>
+      <div id="boards" class="hidden">
+        <section class="panel boardshead">
+          <h1 class="display">Leaderboards</h1>
+          <div class="seg" id="boardtabs" role="radiogroup" aria-label="Which leaderboards"></div>
+        </section>
+        <div id="boardpicks" role="radiogroup" aria-label="Which board"></div>
+        <div id="boardtables"></div>
+        <button type="button" class="primary big" id="boardsback">Back</button>
+        <div id="boardtip" class="hidden" aria-hidden="true"></div>
+      </div>
+    </div>
+  </div>
+</div>
+<div id="toast" class="hidden"></div>
+<div id="notice" class="hidden" role="alert"></div>
+<!-- the lobby's own question, which a gamepad can answer (askInPage) -->
+<div id="ask" class="hidden" role="alertdialog" aria-modal="true" aria-labelledby="asktext">
+  <div class="panel">
+    <p id="asktext"></p>
+    <div class="row">
+      <button type="button" class="primary" id="askyes"></button>
+      <button type="button" id="askno"></button>
+    </div>
+  </div>
+</div>
+<!-- the pictures the player picks their own from (showPictures), and the name of one of them (pictureTip) -->
+<div id="picker" class="hidden" role="dialog" aria-modal="true" aria-labelledby="pickertitle">
+  <div class="panel">
+    <div class="between">
+      <h2 class="display" id="pickertitle">Choose an icon</h2>
+      <button type="button" class="primary" id="pickerdone">Done</button>
+    </div>
+    <div id="pictures" role="radiogroup" aria-labelledby="pickertitle"></div>
+  </div>
+  <div id="picturetip" class="hidden" aria-hidden="true"></div>
+</div>
+<!-- the player's game folder, picked with this where the browser has no folder picker (importMap) -->
+<input type="file" id="folderinput" class="hidden" webkitdirectory aria-hidden="true" tabindex="-1">
+<div id="perf" class="hidden"></div>
+<div id="tour" class="hidden"><button type="button" id="tourcopy">Copy</button><span id="tourcopied"></span><pre id="tourtext"></pre></div>
+<script type="module" src="/src/main.ts"></script>
+</body>
+</html>

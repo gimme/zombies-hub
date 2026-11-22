@@ -1,0 +1,12 @@
+{
+  "name": "Zombies",
+  "short_name": "Zombies",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#120f0f",
+  "theme_color": "#120f0f",
+  "icons": [
+    { "src": "/icon.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml" }
+  ]
+}
