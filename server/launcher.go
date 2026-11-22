@@ -229,6 +229,12 @@ var launcherHold = 45 * time.Second
 func (h *web) serveLauncherPlay(w http.ResponseWriter, r *http.Request) {
 	l := h.lobby
 	seen, ready := r.URL.Query().Get("seen"), r.URL.Query().Get("ready") == "1"
+	// has is there once the launcher knows the game folder that the player's game starts from, even when the folder
+	// has none of the zones
+	has, copied := r.URL.Query()["has"]
+	if copied {
+		has = strings.FieldsFunc(has[0], func(c rune) bool { return c == ',' })
+	}
 	limit := time.NewTimer(launcherHold)
 	defer limit.Stop()
 	l.mu.Lock()
@@ -240,6 +246,7 @@ func (h *web) serveLauncherPlay(w http.ResponseWriter, r *http.Request) {
 	}
 	p.addr = pageAddr(r)
 	l.launcherCalled(p, true, ready)
+	l.launcherHas(p, copied, has)
 	play := h.launcherAnswer(l.launcherPlay(p))
 	gone, unknown := false, false
 	if seen != "" && seen == play.Version {
@@ -357,6 +364,10 @@ type launcherReport struct {
 	// old is set when the server refused a call of the player's launcher for its version (launcherFits), until a
 	// launcher of theirs that the server takes calls.
 	old bool
+	// copied is set once the launcher has said which of the maps' zones the player's game folder has (launcherHas),
+	// and has are those zones. A room on a map in another zone shows the player as missing the map (t6Title.lacks).
+	copied bool
+	has    []string
 }
 
 // launcherQuiet is how long a launcher may have no call open, and make none, before the server considers it stopped.
@@ -394,7 +405,14 @@ func (l *lobby) launcherPlay(p *player) launcherapi.Play {
 	if r == nil || titleOf(r.mapName) != t6 {
 		return play
 	}
-	play.Room = r.code
+	play.Room, play.Needs = r.code, t6Zone(r.mapName)
+	// the zones of the T6 maps that the server has, each once, in the same order each time
+	for _, name := range l.maps() {
+		if zone := t6Zone(name); zone != "" && !slices.Contains(play.Zones, zone) {
+			play.Zones = append(play.Zones, zone)
+		}
+	}
+	slices.Sort(play.Zones)
 	s, t := r.seatOf(p), t6Of(r.game)
 	if s == nil || t == nil || s.left || r.game.ending != "" || !t.updated.Load() {
 		return play
@@ -422,6 +440,21 @@ func (l *lobby) launcherCalled(p *player, play, ready bool) {
 	if !was || wasReady != p.launcher.ready || wasOld {
 		l.change()
 	}
+}
+
+// launcherHas records which of the maps' zones p's launcher says the player's game folder has (launcherPlay: Zones).
+// copied is false while the launcher has not found the folder yet. A ready player whose folder now lacks the zone of
+// their room's map is no longer ready, as when a page removes a map's files (setFiles). The caller holds l.mu.
+func (l *lobby) launcherHas(p *player, copied bool, has []string) {
+	if copied == p.launcher.copied && slices.Equal(has, p.launcher.has) {
+		return
+	}
+	p.launcher.copied, p.launcher.has = copied, has
+	if p.room != nil && p.ready && l.missing(p) {
+		p.ready = false
+		l.checkReady(p.room)
+	}
+	l.change()
 }
 
 // preparing reports whether p's launcher is running and has not yet reported that p's PC has what the game needs. The
@@ -469,11 +502,12 @@ func (l *lobby) launcherStopped(p *player, last launcherapi.Report) {
 }
 
 // launcherSweep handles a launcher that has had no call open, and made none, for launcherQuiet. The launcher has
-// stopped: it was closed, or its PC is gone. The player's room then no longer shows their download. The caller holds
-// l.mu.
+// stopped: it was closed, or its PC is gone. The player's room then no longer shows their download, or what their
+// game folder has. The caller holds l.mu.
 func (l *lobby) launcherSweep(p *player) {
 	if p.launcher.held == 0 && !p.launcher.seen.IsZero() && time.Since(p.launcher.seen) >= launcherQuiet {
 		p.launcher.seen, p.launcher.ready, p.launcher.Failed, p.launcher.Doing = time.Time{}, false, "", ""
+		p.launcher.copied, p.launcher.has = false, nil
 		l.change()
 	}
 	if !p.launcher.Running || time.Since(p.launcher.at) < launcherQuiet {

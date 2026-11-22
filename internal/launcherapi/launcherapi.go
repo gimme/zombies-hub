@@ -10,10 +10,13 @@
 // launcher's version, in the header Zombies-Launcher-Version (VersionHeader). The server answers a launcher older than
 // MinVersion, or one that sends no version, with 426 Upgrade Required and a sentence for the player.
 //
-//	GET  /launcher/play[?ready=1][&seen=<version>]
+//	GET  /launcher/play[?ready=1][&has=<zones>][&seen=<version>]
 //	                                Play: what the player's PC is to play now. The launcher sends ready=1 once the
 //	                                PC has what the game needs (Plutonium, the game files) and it waits for the
-//	                                room's game. With seen, the version of the answer the launcher has (Play.Version),
+//	                                room's game. Once it knows the game folder that the player's game starts from,
+//	                                it sends has: those of the answer's Zones that the folder has, with commas
+//	                                between them. A room on a map in another zone then shows that the player's copy
+//	                                lacks the map. With seen, the version of the answer the launcher has (Play.Version),
 //	                                the server holds the call until its answer is another one, for up to 45 seconds.
 //	                                The launcher asks again as soon as it has an answer, so it has one call open.
 //	                                That call shows the server that the launcher runs, and the launcher learns of a
@@ -98,6 +101,12 @@ type Play struct {
 	// accepts only a player's game of the same revision. The server brings its copy up to date before each game, so
 	// the revision that comes with Game is the game's.
 	Plutonium int `json:"plutonium,omitempty"`
+	// Zones are the game files that tell which of the server's Black Ops II maps a copy of the game has: each map is
+	// in one of them, and a copy without a map's pack lacks its zone. Each is a path in the game's folder, with
+	// slashes (LocalPath). The launcher says which of them the player's game folder has (has, above). Needs is the
+	// zone of the room's map.
+	Zones []string `json:"zones,omitempty"`
+	Needs string   `json:"needs,omitempty"`
 	// Version identifies this answer: it changes when anything else in the answer changes. A launcher sends it back
 	// as seen, and the server then answers only once it has another answer. A server that does not hold calls sends
 	// no version.

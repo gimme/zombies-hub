@@ -50,6 +50,12 @@ export const t6Console = (room: Room): string =>
 /** Whether the server has said where the launcher is. Until it has, a Black Ops II room is joined by hand. */
 export const launcherOn = (): boolean => !!served.launcher;
 
+/**
+ * Whether the server sends game files. The launcher of a player whose copy of Black Ops II lacks the room's map can
+ * then download the server's, and use them instead.
+ */
+export const launcherDownloads = (): boolean => !!served.downloads;
+
 /** The address of the launcher's latest release, which installs it. */
 export const launcherSetup = (): string => served.launcher || '';
 

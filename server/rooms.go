@@ -688,6 +688,7 @@ type memberView struct {
 	Gamepad bool `json:"gamepad,omitempty"`
 	// Missing is set when their page lacks some of the game files of the room's map (missing). Downloading is set
 	// while the page downloads the rest, and Got is how much of that download it has, from 0 to 1. In a T6 room,
+	// Missing is set when their own copy of the game lacks the map, as their launcher says (t6Title.lacks), and
 	// Downloading and Got are for their launcher's download of the game files (player.downloading).
 	Missing     bool    `json:"missing,omitempty"`
 	Downloading bool    `json:"downloading,omitempty"`

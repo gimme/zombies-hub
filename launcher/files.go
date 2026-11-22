@@ -126,12 +126,18 @@ func (la *launcher) gameFiles(ctx context.Context, srv *server, l link, play *la
 	la.finding()
 	defer func() { la.found(dir) }()
 	la.loadConfig() // the player may have chosen a folder in the tray's menu since the run began
+	agreed := false // the player just agreed to the download, as their own copy lacks the room's map (askMissing)
 	if own := la.ownCopy(); own != "" {
 		la.say("Black Ops II: your own copy, in %s", own)
 		if play.Downloads {
 			la.lacks(ctx, srv, own)
 		}
-		return own, nil
+		if dir, err := la.askMissing(ctx, srv, l, play, own); err != nil || dir != "" {
+			return dir, err
+		}
+		// until the download is done, the PC lacks what the room's game needs
+		agreed, la.prepared = true, false
+		srv.setReady(false)
 	}
 	dir = la.downloads()
 	first := !isFile(filepath.Join(dir, launcherapi.StateFile))
@@ -154,7 +160,7 @@ func (la *launcher) gameFiles(ctx context.Context, srv *server, l link, play *la
 	if err != nil {
 		return "", err
 	}
-	if first {
+	if first && !agreed {
 		la.say("The launcher found no Black Ops II on this PC: its game files come from %s, %s, into", l.host, megabytes(list.Bytes))
 		la.say("  %s", dir)
 		if la.boxes {
@@ -195,6 +201,73 @@ func (la *launcher) gameFiles(ctx context.Context, srv *server, l link, play *la
 		la.say("  %s", filepath.Join(dir, "redist", "vcredist_x86.exe"))
 	}
 	return dir, nil
+}
+
+// hasZone reports whether the game folder dir has a zone: a game file by which the server tells that a copy of the
+// game has a map (launcherapi.Play: Zones). A name that is no file's path under the folder counts as one it has, so
+// that the launcher asks nothing about it.
+func hasZone(dir, zone string) bool {
+	return zone == "" || !launcherapi.LocalPath(zone) || isFile(filepath.Join(dir, filepath.FromSlash(zone)))
+}
+
+// zonesIn returns those of the server's zones that the game folder dir has, for the server (server.setHas).
+func zonesIn(dir string, zones []string) []string {
+	var has []string
+	for _, zone := range zones {
+		if launcherapi.LocalPath(zone) && isFile(filepath.Join(dir, filepath.FromSlash(zone))) {
+			has = append(has, zone)
+		}
+	}
+	return has
+}
+
+// askMissing asks the player what to do when their own copy of the game lacks the map of their room: a copy without
+// the map's pack. The room says that the map is missing, and its button, where the server sends game files, says
+// Download and starts a run. askMissing asks only in such a run, one that the player started with the room's button
+// (clicked), and that has no window. A run that starts by itself, for the room's next game, asks nothing.
+//
+// The player has the launcher download the server's game files, which have the map, and use them from then on
+// (config.T6 is "none"; the tray's menu chooses their own copy again). askMissing then returns "". Or they choose
+// another copy's folder, which it returns. It returns own when the copy has the map, when it does not ask, and when
+// the player cancelled.
+func (la *launcher) askMissing(ctx context.Context, srv *server, l link, play *launcherapi.Play, own string) (string, error) {
+	clicked := la.clicked
+	la.clicked = false
+	if !clicked || !la.boxes || !play.Downloads || hasZone(own, play.Needs) {
+		return own, nil
+	}
+	list, err := srv.files(ctx)
+	if err != nil {
+		return "", err
+	}
+	dir, size := la.downloads(), megabytes(list.Bytes)
+	question := fmt.Sprintf("Your Black Ops II doesn't have this map.\n\n%s", own)
+	answer := -1
+	switch {
+	case la.choose != nil:
+		answer = la.choose(question, []string{
+			fmt.Sprintf("Download\n%s, to %s\nYour own copy isn't touched.", size, dir),
+			"Choose another folder…\nA copy that has the map.",
+		})
+	case la.confirm(fmt.Sprintf("%s\n\nDownload the game files (%s) to this folder?\n\n%s", question, size, dir)):
+		answer = 0
+	}
+	switch answer {
+	case 0:
+		la.say("Black Ops II: the game files come from %s from now on, %s, into", l.host, size)
+		la.say("  %s", dir)
+		return "", la.change(func(c *config) { c.T6 = "none" })
+	case 1:
+		other, err := la.pickOwn()
+		if err != nil {
+			return "", err
+		}
+		if other != "" {
+			la.say("Black Ops II: your own copy, in %s", other)
+			return other, la.change(func(c *config) { c.T6 = other })
+		}
+	}
+	return own, nil
 }
 
 // askFiles asks the player what to do, in a run with no window, when the launcher found no copy of Black Ops II on

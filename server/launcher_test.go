@@ -8,6 +8,8 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -145,7 +147,7 @@ func TestLauncherPlay(t *testing.T) {
 		t.Errorf("a key as a page's token: %s", rsp.Status)
 	}
 	play := playOf(t, h, ann.Key)
-	if version := play.Version; version == "" || play != (launcherapi.Play{Player: "Ann", Version: version}) {
+	if version := play.Version; version == "" || !reflect.DeepEqual(play, launcherapi.Play{Player: "Ann", Version: version}) {
 		t.Errorf("in no room: %+v", play)
 	}
 	// a T5 room is the page's to play
@@ -451,5 +453,76 @@ func TestLauncherVersion(t *testing.T) {
 	if _, body := get(t, srv.URL+"/server"); !strings.Contains(body,
 		`"launcher":"https://github.com/gimme/zombies-hub/releases/download/launcher/zombies-launcher-setup.exe"`) {
 		t.Errorf("the server says %s", body)
+	}
+}
+
+// A player's launcher says which of the maps' zones the game folder has that their game starts from. A room on a map
+// in another zone shows the player as missing the map, and takes them as ready only once the folder has it. A
+// launcher that says nothing of the folder, as while it still gets the game files, is taken to have every map.
+func TestLauncherSaysWhatTheCopyHas(t *testing.T) {
+	l, _ := t6Lobby(t)
+	l.minPlayers = 1
+	h := &web{lobby: l, certs: &certificates{}}
+	ann := l.hello("", "Ann")
+	do(l, ann.Token, "create", "map", "zm_classic_tomb")
+	missing := func() bool { return l.viewOf(ann.Token).Room.Members[0].Missing }
+	const tomb, transit = "zone/all/zm_tomb.ff", "zone/all/zm_transit.ff"
+	// the answer names the zones of the server's maps, and the one of the room's map
+	if play := playOf(t, h, ann.Key); !slices.Equal(play.Zones, []string{tomb, transit}) || play.Needs != tomb {
+		t.Errorf("the zones: %q, of which the room's map is in %q", play.Zones, play.Needs)
+	}
+	if missing() {
+		t.Error("a launcher that said nothing of the game folder: the player misses the map")
+	}
+	says := func(has string) {
+		t.Helper()
+		rsp, body := asLauncher(h, http.MethodGet, "/launcher/play?ready=1&has="+has, ann.Key, "")
+		if rsp.StatusCode != http.StatusOK {
+			t.Fatalf("/launcher/play?has=%s: %s, %q", has, rsp.Status, body)
+		}
+	}
+	// a copy of the game without the pack of the room's map
+	says(transit)
+	if !missing() {
+		t.Error("a game folder without the zone of the room's map: the player does not miss the map")
+	}
+	if err := do(l, ann.Token, "ready", "ready", "true"); err != "You don't have the room's map yet." {
+		t.Errorf("ready without the room's map: %q", err)
+	}
+	// the host picks a map that the copy has
+	do(l, ann.Token, "room", "map", "zm_standard_town")
+	if play := playOf(t, h, ann.Key); play.Needs != transit {
+		t.Errorf("the room's map is in %q", play.Needs)
+	}
+	says(transit)
+	if missing() {
+		t.Error("the player misses a map whose zone the game folder has")
+	}
+	if err := do(l, ann.Token, "ready", "ready", "true"); err != "" {
+		t.Errorf("ready with the room's map: %q", err)
+	}
+	do(l, ann.Token, "ready", "ready", "false")
+	// back on the map it lacks; the launcher then plays from the server's game files, which have every map
+	do(l, ann.Token, "room", "map", "zm_classic_tomb")
+	if !missing() {
+		t.Error("back on the map that the game folder lacks: the player does not miss it")
+	}
+	says(tomb + "," + transit)
+	if missing() {
+		t.Error("a game folder with every zone: the player misses the map")
+	}
+	// a folder with none of the zones is not one that the launcher said nothing of
+	says("")
+	if !missing() {
+		t.Error("a game folder with none of the zones: the player does not miss the map")
+	}
+	// a ready player whose folder no longer has the map is not ready
+	says(tomb)
+	if err := do(l, ann.Token, "ready", "ready", "true"); err != "" {
+		t.Fatalf("ready: %q", err)
+	}
+	says(transit)
+	if l.viewOf(ann.Token).You.Ready || !missing() {
+		t.Error("a ready player whose game folder lost the room's map is still ready")
 	}
 }

@@ -33,7 +33,9 @@ import { modNames, modOn, modValue } from './mods';
 import { mayLeaveGame } from './question';
 import { bo1Settings } from './settings';
 import { mapsOf, titleName } from './titles';
-import { launcherHere, launcherOn, launcherSeen, launcherSetup, onWindows, t6Console } from './windows';
+import {
+  launcherDownloads, launcherHere, launcherOn, launcherSeen, launcherSetup, onWindows, t6Console,
+} from './windows';
 
 // A gamepad, on a player whose page reads one: its two grips, its d-pad and two of its buttons.
 const PAD_ICON = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" ' +
@@ -176,6 +178,7 @@ export function showRoomButton(v: View, room: Room): void {
   // not run the engine.
   const t6 = room.of === 't6';
   let m: RoomButton;
+  let lacks = ''; // what the line under the button says of a Black Ops II player's copy that lacks the room's map
   if (!open) m = gameButton(v, room);
   else if (!canRun && !v.you.windows && !t6) m = { label: "Can't play in this browser", disabled: true };
   else {
@@ -191,6 +194,10 @@ export function showRoomButton(v: View, room: Room): void {
     // In a Black Ops II room, once the server has said where the launcher is, the button opens the launcher first.
     // The launcher then gets what the PC lacks for the game, and the button says how far that is. After that the
     // button is Ready. Not for a player who joins by hand, with that box open.
+    //
+    // A copy of the game without the pack of the room's map lacks the map (server/t6.go: lacks). The player is then
+    // not ready until the host picks another map. Where the server sends game files, the button is Download: it
+    // opens the launcher, which asks whether to download the server's game files and use them instead.
     if (t6 && launcherOn() && !v.you.ready && !$<HTMLDetailsElement>('t6hand').open) {
       const mine = room.members.find((x) => x.id === me.id);
       if (v.you.launcherFailed) m = { label: 'Try again', does: 'launch', primary: true };
@@ -198,6 +205,12 @@ export function showRoomButton(v: View, room: Room): void {
       else if (!v.you.launcherReady) {
         m = { label: mine && mine.downloading ? `Downloading · ${Math.floor((mine.got || 0) * 100)}%`
           : (v.you.launcherDoing || 'Starting') + '...', disabled: true };
+      } else if (mine && mine.missing) {
+        lacks = "Your Black Ops II doesn't have this map" + (launcherDownloads()
+          ? '. The launcher can download the game files from the server instead.'
+          : ': it comes with a map pack.');
+        m = launcherDownloads() ? { label: 'Download', does: 'launch', primary: true }
+          : { label: 'Missing map', disabled: true };
       }
     }
   }
@@ -205,9 +218,10 @@ export function showRoomButton(v: View, room: Room): void {
   $('ready').dataset.does = m.disabled ? '' : m.does || '';
   setButton($('ready'), m, m.primary);
   showNote($('roomnote'), room.map, m, open && !windows && canRun && !t6);
-  // The launcher has no window, so the room says what it failed at.
-  if (t6 && v.you.launcherFailed) {
-    $('roomnote').textContent = v.you.launcherFailed;
+  // The launcher has no window, so the room says what it failed at, and what the player's copy of the game lacks.
+  const says = t6 ? v.you.launcherFailed || lacks : '';
+  if (says) {
+    $('roomnote').textContent = says;
     $('roomnote').classList.remove('hidden');
   }
   countDown(open && room.startsIn ? room.startsIn : 0, m.label);

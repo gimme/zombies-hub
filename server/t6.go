@@ -125,13 +125,20 @@ func (*t6Title) drop(l *lobby, r *room, s *seat) {
 
 func (*t6Title) late(l *lobby, r *room, rg *roomGame) { l.t6Late(r, rg) }
 
-// lacks is always false. The game is on the player's own PC, and their launcher gets what the PC lacks.
-func (*t6Title) lacks(*lobby, *player) bool { return false }
+// lacks reports whether p's game folder lacks the zone of their room's map, as their launcher says (launcherHas): a
+// copy of the game without the map's pack. The launcher gets the rest of what the PC lacks. lacks is false while the
+// launcher has said nothing of the folder: it is not running, it is still getting the game files, or it is a launcher
+// from before it said. A player who joins by hand is not checked either.
+func (*t6Title) lacks(l *lobby, p *player) bool {
+	zone := t6Zone(p.room.mapName)
+	return zone != "" && p.launcher.copied && !slices.Contains(p.launcher.has, zone)
+}
 
 func (*t6Title) showMember(l *lobby, r *room, m *player, mv *memberView) {
 	if !mv.InGame {
 		mv.Downloading, mv.Got = m.downloading() // their launcher's download of T6's game files (launcher.go)
 	}
+	mv.Missing = r.game == nil && !mv.Downloading && l.missing(m)
 }
 
 func (*t6Title) showRoom(l *lobby, r *room, p *player, rv *roomView) {
@@ -206,6 +213,15 @@ var t6Maps = map[string]t6Map{
 	"zm_classic_prison":     {"zm_prison", "zclassic", "zclassic", "prison"},
 	"zm_classic_processing": {"zm_buried", "zclassic", "zclassic", "processing"},
 	"zm_classic_tomb":       {"zm_tomb", "zclassic", "zclassic", "tomb"},
+}
+
+// t6Zone returns the game file that a T6 map's zone is, by its path in the game's folder, with slashes: a copy of the
+// game has the map when it has this file. It returns "" for a map that is none of T6's.
+func t6Zone(mapName string) string {
+	if m, ok := t6Maps[mapName]; ok {
+		return "zone/all/" + m.zone + ".ff"
+	}
+	return ""
 }
 
 // t6Installed returns the T6 maps that the game files in dir have. dir is a copy of a Black Ops II install. It has a

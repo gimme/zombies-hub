@@ -1,7 +1,9 @@
 // A Black Ops II room: its host picks the game, then a map of it; its players join by hand and get ready, their own
 // Plutonium joins its game through the relay, and they see its report and the game's own leaderboards. The room's
 // button opens the launcher, and the room links to the launcher's latest release. A launcher too old for the server is
-// turned away, and the room says so.
+// turned away, and the room says so. A player whose copy of the game lacks the room's map is not ready, and where the
+// server sends game files, the room's button offers them.
+import type { Page } from '@playwright/test';
 import { createSocket, type Socket } from 'node:dgram';
 import { expect, test } from '../fixtures';
 
@@ -104,3 +106,58 @@ test("a launcher too old for the server is turned away, and the room links to th
     expect(rsp.status).toBe(200);
     await expect(ann.locator('#t6get')).toBeHidden();
   });
+
+/**
+ * Makes a Black Ops II room on Origins as Ann, the map of a map pack. Returns what her launcher says to the server as
+ * it runs with her PC ready: which of the maps' zones her game folder has (internal/launcherapi: has).
+ */
+async function onOrigins(server: { url: string }, ann: Page): Promise<(has: string) => Promise<number>> {
+  await ann.locator('#make').click();
+  await ann.locator('#titlepick').getByRole('radio', { name: 'Black Ops II', exact: true }).click();
+  await ann.locator('#mapgrid').getByRole('radio', { name: 'Origins', exact: true }).click();
+  await expect(ann.locator('#maptitle')).toHaveText('Origins');
+  await expect(ann.locator('#playbat')).toHaveText(/ [0-9a-f]{16}$/);
+  const key = ((await ann.locator('#playbat').textContent()) || '').split(' ').pop();
+  return async (has) => (await fetch(server.url + '/launcher/play?ready=1&has=' + encodeURIComponent(has), {
+    headers: { Authorization: 'Key ' + key, 'Zombies-Launcher-Version': '1' },
+  })).status;
+}
+
+test("a player whose copy of Black Ops II lacks the room's map is not ready until the room's map is one they have",
+  async ({ server, player }) => {
+    const ann = await player('Ann');
+    const says = await onOrigins(server, ann);
+    // a copy without the pack of Origins
+    expect(await says('zone/all/zm_transit.ff')).toBe(200);
+    await expect(ann.locator('#members li.mine .badge')).toHaveText('Missing map');
+    await expect(ann.locator('#ready')).toHaveText('Missing map');
+    await expect(ann.locator('#ready')).toHaveAttribute('aria-disabled', 'true');
+    await expect(ann.locator('#roomnote')).toHaveText("Your Black Ops II doesn't have this map: it comes with a map pack.");
+    // the host picks a map that the copy has
+    await ann.locator('#mapgrid').getByRole('radio', { name: 'Town', exact: true }).click();
+    await expect(ann.locator('#maptitle')).toHaveText('Town');
+    expect(await says('zone/all/zm_transit.ff')).toBe(200);
+    await expect(ann.locator('#members li.mine .badge')).toHaveText('Not ready');
+    await expect(ann.locator('#ready')).toHaveText('Need 1 more');
+    await expect(ann.locator('#roomnote')).toBeHidden();
+  });
+
+test.describe('a server that sends game files', () => {
+  test.use({ serverArgs: ['-download-rate', 'unlimited'] });
+
+  test("offers them to a player whose copy of Black Ops II lacks the room's map", async ({ server, player }) => {
+    const ann = await player('Ann');
+    const says = await onOrigins(server, ann);
+    expect(await says('zone/all/zm_transit.ff')).toBe(200);
+    await expect(ann.locator('#members li.mine .badge')).toHaveText('Missing map');
+    // the button opens the launcher, which asks before it downloads
+    await expect(ann.locator('#ready')).toHaveText('Download');
+    await expect(ann.locator('#ready')).toHaveAttribute('data-does', 'launch');
+    await expect(ann.locator('#roomnote')).toHaveText("Your Black Ops II doesn't have this map. The launcher can " +
+      'download the game files from the server instead.');
+    // her launcher has the server's game files, which have the map
+    expect(await says('zone/all/zm_tomb.ff,zone/all/zm_transit.ff')).toBe(200);
+    await expect(ann.locator('#members li.mine .badge')).toHaveText('Not ready');
+    await expect(ann.locator('#ready')).toHaveText('Need 1 more');
+  });
+});

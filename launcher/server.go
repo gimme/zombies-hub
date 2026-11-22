@@ -50,6 +50,11 @@ type server struct {
 	renew func()
 	// failed is what the launcher's last try failed at, as the server was told (fail), or "".
 	failed string
+	// has is which of the server's zones the game folder has that the player's game starts from, with commas between
+	// them (launcherapi.Play: Zones). copied is set once the launcher knows the folder. Each call that asks what to
+	// play then sends has (setHas).
+	copied bool
+	has    string
 	// resting is set while the launcher has no call open (rest). wake is closed when watch is to ask again (resume).
 	resting bool
 	wake    chan struct{}
@@ -140,6 +145,12 @@ func (s *server) ask(ctx context.Context, seen string) (*launcherapi.Play, error
 	q := url.Values{}
 	if s.ready.Load() {
 		q.Set("ready", "1")
+	}
+	s.mu.Lock()
+	copied, has := s.copied, s.has
+	s.mu.Unlock()
+	if copied {
+		q.Set("has", has)
 	}
 	if seen != "" {
 		q.Set("seen", seen)
@@ -311,6 +322,20 @@ func (s *server) setReady(ready bool) {
 	renew := s.renew
 	s.mu.Unlock()
 	if renew != nil {
+		renew()
+	}
+}
+
+// setHas records which of the server's zones the game folder has that the player's game starts from, and tells the
+// server at once, as setReady does. The room then says whether the player's copy of the game has its map.
+func (s *server) setHas(zones []string) {
+	has := strings.Join(zones, ",")
+	s.mu.Lock()
+	same := s.copied && s.has == has
+	s.copied, s.has = true, has
+	renew := s.renew
+	s.mu.Unlock()
+	if !same && renew != nil {
 		renew()
 	}
 }

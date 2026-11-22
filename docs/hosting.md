@@ -33,6 +33,8 @@ On Unraid, copy `docker/unraid/my-zombies.xml` to `/boot/config/plugins/dockerMa
 
 By default the server sends no game files to players. They use their own copy: Black Ops players import it in the browser, and the launcher finds a Black Ops II install from Steam. Set `ZOMBIES_DOWNLOAD_RATE` to send the files to players who have none.
 
+A Black Ops II player's copy may lack a map pack. A room on a map of that pack shows the player as missing the map, and its game does not start with them. With `ZOMBIES_DOWNLOAD_RATE` set, such a player can have the launcher download the server's game files, which have every map the server has, and use those instead.
+
 On Docker Desktop for Windows, keep the game files in a Docker volume. Wine can't load them from a Windows folder.
 
 ## What the server downloads

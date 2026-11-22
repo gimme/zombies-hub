@@ -35,6 +35,10 @@
 //     server's into a folder of its own, or one they choose, and keeps that folder the same as the server's
 //     (sync.go). The menu of its icon in the tray says which folder the game starts from, chooses another, and
 //     deletes the game files it downloaded (menu.go).
+//   - tells the server which of its maps the game folder has (server.setHas). A copy of the game without a map's
+//     pack lacks the map, and the room then shows the player as missing it. When the player presses the room's
+//     button then, and the server sends game files, the launcher asks whether to download the server's and play
+//     from them (files.go: askMissing).
 //   - waits for the room's game when there is none yet, and starts Plutonium's bootstrapper to join it, in LAN mode,
 //     under the player's name in the game, with the game's password (launch.go).
 //   - stays with the player's game for as long as it runs, with no window, as the player's one launcher. For the
@@ -93,6 +97,10 @@ type launcher struct {
 	// pressed gets a value each time the player asks to join again with the room's button. The button opens a link.
 	// That link starts another launcher, which finds this launcher running, signals it, and ends (main).
 	pressed <-chan struct{}
+	// clicked is set for a run that the player started with the room's button: the launcher's first, and each one
+	// after a press. Such a run may ask the player about a copy of the game that lacks the room's map (askMissing). A
+	// run that starts by itself, for the room's next game, asks nothing.
+	clicked bool
 	// hide hides the launcher's window, once the game it started has a window of its own.
 	hide func()
 	// rerun starts the launcher again with the same link, to replace this run (update).
@@ -296,6 +304,7 @@ func (la *launcher) run(ctx context.Context, args []string) int {
 	case len(args) == 1 && args[0] == "uninstall":
 		err = la.uninstall()
 	case len(args) == 1 && strings.HasPrefix(strings.ToLower(args[0]), launcherapi.Scheme+":"):
+		la.clicked = true // the player's click on the room's button started the launcher with the link
 		if la.stays {
 			return la.serve(ctx, args[0])
 		}
@@ -473,7 +482,7 @@ func (la *launcher) idle(ctx context.Context, srv *server) bool {
 		select {
 		case <-la.pressed:
 			srv.resume()
-			la.left = ""
+			la.left, la.clicked = "", true
 			return true
 		case <-next:
 		case <-rest:
@@ -588,6 +597,9 @@ func (la *launcher) play(ctx context.Context, url string, srv *server, failed fu
 		return err
 	}
 	done()
+	if len(play.Zones) > 0 {
+		srv.setHas(zonesIn(dir, play.Zones)) // which maps the game folder has, for the room to say (launcherapi.Play)
+	}
 	srv.setReady(true)
 	la.prepared = true
 	la.doing(ctx, srv, "")
@@ -624,6 +636,13 @@ func (la *launcher) play(ctx context.Context, url string, srv *server, failed fu
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
+		case <-la.pressed:
+			// While the game folder lacks the room's map, the room's button says Download. The run then starts again
+			// (serve), and asks the player what to do (askMissing). Any other press has nothing to do here.
+			if now, _, err := srv.latest(); err == nil && now != nil && !hasZone(dir, now.Needs) {
+				la.clicked = true
+				return nil
+			}
 		case <-next:
 		}
 	}

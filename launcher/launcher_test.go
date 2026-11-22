@@ -43,6 +43,7 @@ type fakeServer struct {
 	cut      map[string]int                      // a file's answers end after this many bytes of theirs, by path
 	reports  []launcherapi.Report
 	ready    []bool   // what each call for what to play said of the PC: it has what the game needs
+	has      []string // which zones each such call said the game folder has; "-" for a call that said nothing of it
 	versions []string // the launcher's version, as each call sent it
 	refuse   int      // the status that every call gets instead of its answer, where it is not 0
 }
@@ -116,6 +117,11 @@ func (l *fakeServer) serve(w http.ResponseWriter, r *http.Request) {
 			panic(http.ErrAbortHandler)
 		}
 		l.ready = append(l.ready, r.URL.Query().Get("ready") == "1")
+		if has, ok := r.URL.Query()["has"]; ok {
+			l.has = append(l.has, has[0])
+		} else {
+			l.has = append(l.has, "-")
+		}
 		if l.plays != nil {
 			l.plays(n, &l.play)
 		}

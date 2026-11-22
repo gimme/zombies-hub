@@ -146,6 +146,7 @@ export interface Member {
   windows?: boolean;
   ready?: boolean;
   gamepad?: boolean;
+  /** They lack the room's map: their page its game files, or their own copy of Black Ops II the map's pack. */
   missing?: boolean;
   downloading?: boolean;
   got?: number;
