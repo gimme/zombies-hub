@@ -116,11 +116,15 @@ type Play struct {
 // Game is a Black Ops II room's game, for the player's own game to join.
 type Game struct {
 	// ID identifies the game among the room's games. A launcher whose player's game runs for another of the room's
-	// games starts the player's game again, into this game.
+	// games has the player's game join this one.
 	ID       string `json:"id"`
 	Port     int    `json:"port"`     // the UDP port where the game is reached, on the server's host
 	Password string `json:"password"` // the game's password
 	Name     string `json:"name"`     // the name that the game knows the player by
+	// Up is set once Plutonium's server answers, and a player's game that asks to join gets in. A game that starts
+	// takes longer than the server does, so the launcher starts one before. A player's game that runs already, from
+	// the room's last game, asks to join only once the game is up.
+	Up bool `json:"up,omitempty"`
 }
 
 // Report is how the launcher is doing, for the player's page. The page is where a launcher in the tray shows things.

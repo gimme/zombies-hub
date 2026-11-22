@@ -217,14 +217,35 @@ func (tl *testLauncher) press() {
 	}
 }
 
-// fakeGame is a game the launcher started.
-type fakeGame struct{ open, stopped atomic.Bool }
+// fakeGame is a game the launcher started. lines are the lines typed into its console, and refuse makes typing fail,
+// as for a console that can't be reached.
+type fakeGame struct {
+	open, stopped, refuse atomic.Bool
+	mu                    sync.Mutex
+	lines                 []string
+}
 
 func (g *fakeGame) running() bool { return g.open.Load() }
 
 func (g *fakeGame) stop() {
 	g.stopped.Store(true)
 	g.open.Store(false)
+}
+
+func (g *fakeGame) join(line string) error {
+	if g.refuse.Load() {
+		return errors.New("no console")
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.lines = append(g.lines, line)
+	return nil
+}
+
+func (g *fakeGame) typed() []string {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return slices.Clone(g.lines)
 }
 
 var plutoniumFiles = map[string]string{
@@ -386,6 +407,24 @@ func TestCommandLine(t *testing.T) {
 		{"", "Ann", "x", "h:1", ""},
 	} {
 		if got, err := commandLine(exe, tc.dir, tc.name, tc.password, tc.server); got != tc.want || (err == nil) != (tc.want != "") {
+			t.Errorf("%+v: %q, %v", tc, got, err)
+		}
+	}
+}
+
+// The line that joins a game that runs to a room's game, on its console, sets the password and connects; nothing in
+// it is another command.
+func TestConsoleLine(t *testing.T) {
+	for _, tc := range []struct{ password, server, want string }{
+		{"1a2b3c4d", "zombies.example.com:3075", `password 1a2b3c4d;connect zombies.example.com:3075`},
+		{"x", "10.0.50.11:3075", `password x;connect 10.0.50.11:3075`},
+		{"", "h:1", ""},
+		{"x;quit", "h:1", ""},
+		{`x"`, "h:1", ""},
+		{"x", "h:1;quit", ""},
+		{"x", "h", ""},
+	} {
+		if got, err := consoleLine(tc.password, tc.server); got != tc.want || (err == nil) != (tc.want != "") {
 			t.Errorf("%+v: %q, %v", tc, got, err)
 		}
 	}
@@ -1189,14 +1228,15 @@ func TestWatchTriesAgain(t *testing.T) {
 	}
 }
 
-// The launcher stays with the game it started, for as long as that runs: it starts it anew for the room's next game,
-// and when the player asks to join again while the server has their game in none; and ends once it is closed.
+// The launcher stays with the game it started, for as long as that runs. The game joins the room's next game once
+// that is up, from its console, as it runs; and the same game again when the player asks while the server has their
+// game in none. The launcher ends once the game is closed.
 func TestStaysWithTheGame(t *testing.T) {
 	l := newFakeServer(t)
-	gameOf := func(id string) *launcherapi.Game {
-		return &launcherapi.Game{ID: id, Port: l.port(), Password: "pw", Name: "Ann"}
+	gameOf := func(id string, up bool) *launcherapi.Game {
+		return &launcherapi.Game{ID: id, Port: l.port(), Password: "pw", Name: "Ann", Up: up}
 	}
-	l.play = launcherapi.Play{Player: "Ann", Room: "ABCD", Game: gameOf("first")}
+	l.play = launcherapi.Play{Player: "Ann", Room: "ABCD", Game: gameOf("first", false), Plutonium: 1}
 	own := filepath.Join(t.TempDir(), "Black Ops II")
 	write(t, filepath.Join(own, "zone", "all", "patch_zm.ff"), "the patch")
 	write(t, filepath.Join(own, "binkw32.dll"), "bink")
@@ -1234,19 +1274,36 @@ func TestStaysWithTheGame(t *testing.T) {
 	go func() { done <- tl.run(context.Background(), []string{l.link()}) }()
 	eventually(t, "the launcher started the player's game", func() bool { return started() == 1 })
 	stays("the game runs on, and the room's is the same", 1)
-	set(func(play *launcherapi.Play) { play.Game = gameOf("second") })
-	eventually(t, "the launcher started the player's game again for the room's next game", func() bool { return started() == 2 })
-	stays("the room's next game", 2)
+	set(func(play *launcherapi.Play) { play.Game = gameOf("second", false) })
+	stays("the room's next game, not up yet", 1)
+	if typed := games[0].typed(); len(typed) != 0 {
+		t.Fatalf("the game was told %q before the room's next game was up", typed)
+	}
+	set(func(play *launcherapi.Play) { play.Game = gameOf("second", true) })
+	join := `password pw;connect 127.0.0.1:` + strconv.Itoa(l.port())
+	eventually(t, "the player's game joined the room's next game", func() bool {
+		return slices.Equal(games[0].typed(), []string{join})
+	})
+	stays("the room's next game, up", 1)
+	if typed := games[0].typed(); len(typed) != 1 {
+		t.Fatalf("the game was told %q", typed)
+	}
 	tl.press() // the player presses Join the game, their game in none
-	eventually(t, "the launcher started the player's game again as they asked", func() bool { return started() == 3 })
+	eventually(t, "the player's game joined the room's game again as they asked", func() bool {
+		return slices.Equal(games[0].typed(), []string{join, join})
+	})
+	stays("asked to join again", 1)
 	set(func(play *launcherapi.Play) { play.InGame, play.Game = true, nil }) // the server has their game in the room's
 	time.Sleep(50 * time.Millisecond)
 	tl.press()
-	stays("asked to join again, in the game", 3)
+	stays("asked to join again, in the game", 1)
 	set(func(play *launcherapi.Play) { play.InGame, play.Game = false, nil }) // game over: the room is open
-	stays("no game", 3)
+	stays("no game", 1)
+	if typed := games[0].typed(); len(typed) != 2 {
+		t.Fatalf("the game was told %q", typed)
+	}
 	mu.Lock()
-	games[2].open.Store(false) // the player closes the game
+	games[0].open.Store(false) // the player closes the game
 	mu.Unlock()
 	select {
 	case code := <-done:
@@ -1259,8 +1316,83 @@ func TestStaysWithTheGame(t *testing.T) {
 	if !tl.hidden {
 		t.Errorf("the launcher's window is not gone\n%s", tl.out)
 	}
-	if !games[0].stopped.Load() || !games[1].stopped.Load() || games[2].stopped.Load() {
-		t.Errorf("the games it closed for another: %v, %v, %v", games[0].stopped.Load(), games[1].stopped.Load(), games[2].stopped.Load())
+	if games[0].stopped.Load() {
+		t.Error("the launcher closed the player's game")
+	}
+}
+
+// A game that runs can't join the room's next game from its console when that game's Plutonium is of another
+// revision, or when its console can't be reached. The launcher then starts it anew for that game, at once for another
+// revision, as the game is not up yet: the PC's Plutonium is brought up to date while no game runs. A name that the
+// player asked for since is no reason: the game joins under the name it has.
+func TestStaysRestartsForTheNextGame(t *testing.T) {
+	l := newFakeServer(t)
+	gameOf := func(id string, up bool) *launcherapi.Game {
+		return &launcherapi.Game{ID: id, Port: l.port(), Password: "pw", Name: "Ann", Up: up}
+	}
+	l.play = launcherapi.Play{Player: "Ann", Room: "ABCD", Game: gameOf("first", true), Plutonium: 1}
+	own := filepath.Join(t.TempDir(), "Black Ops II")
+	write(t, filepath.Join(own, "zone", "all", "patch_zm.ff"), "the patch")
+	write(t, filepath.Join(own, "binkw32.dll"), "bink")
+	tl := newTestLauncher(t, "")
+	tl.copies = func() []string { return []string{own} }
+	var mu sync.Mutex
+	var games []*fakeGame
+	revisions := []int{} // the revision of the PC's Plutonium as each game started
+	tl.start = func(exe, line, dir string) (game, error) {
+		g := &fakeGame{}
+		g.open.Store(true)
+		mu.Lock()
+		games = append(games, g)
+		revisions = append(revisions, (&plutonium.Copy{Dir: tl.plutonium, State: "zombies-launcher-files.json"}).Revision())
+		mu.Unlock()
+		return g, nil
+	}
+	started := func() int {
+		mu.Lock()
+		defer mu.Unlock()
+		return len(games)
+	}
+	set := func(change func(play *launcherapi.Play)) {
+		l.mu.Lock()
+		change(&l.play)
+		l.mu.Unlock()
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan int)
+	go func() { done <- tl.run(ctx, []string{l.link()}) }()
+	eventually(t, "the launcher started the player's game", func() bool { return started() == 1 })
+	*tl.revision = 2 // Plutonium's updater has another revision, which the server took for its next game
+	set(func(play *launcherapi.Play) { play.Game, play.Plutonium = gameOf("second", false), 2 })
+	eventually(t, "the launcher started the player's game again for the next game's Plutonium", func() bool { return started() == 2 })
+	mu.Lock()
+	if !games[0].stopped.Load() || len(games[0].typed()) != 0 || !slices.Equal(revisions, []int{1, 2}) {
+		t.Errorf("the first game: closed %v, told %q; the revisions the games started with: %v",
+			games[0].stopped.Load(), games[0].typed(), revisions)
+	}
+	games[1].refuse.Store(true)
+	mu.Unlock()
+	set(func(play *launcherapi.Play) { play.Game = gameOf("third", true) })
+	eventually(t, "the launcher started the player's game again, its console out of reach", func() bool { return started() == 3 })
+	set(func(play *launcherapi.Play) { // the player asked for another name during the last game
+		play.Game = gameOf("fourth", true)
+		play.Game.Name = "Annie"
+	})
+	mu.Lock()
+	third := games[2]
+	mu.Unlock()
+	eventually(t, "the game joined the next game under the name it has", func() bool { return len(third.typed()) == 1 })
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the launcher did not end as it was quit")
+	}
+	if !games[1].stopped.Load() || !strings.Contains(tl.out.String(), "couldn't join the room's game (no console)") {
+		t.Errorf("the second game: closed %v\n%s", games[1].stopped.Load(), tl.out)
+	}
+	if started() != 3 || third.stopped.Load() {
+		t.Errorf("for another name, the launcher started %d games, and closed the one that ran: %v", started(), third.stopped.Load())
 	}
 }
 

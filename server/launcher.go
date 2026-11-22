@@ -393,9 +393,10 @@ func (l *lobby) launcherOf(req *http.Request) *player {
 // seat in the game, and p's own game is not in it yet. launcherPlay returns the game from its start, once the
 // server's copy of Plutonium is up to date for it (t6Prepare), and before Plutonium's server is up. The launcher
 // then starts the player's game at once, because it takes time to start. The player's game asks to join for half a
-// minute from then, and the relay lets it in once Plutonium's server is up (t6Seat). The answer has the revision of
-// the server's copy of Plutonium, which the player's copy has to match. The caller sets the port (launcherAnswer).
-// The caller holds l.mu.
+// minute from then, and the relay lets it in once Plutonium's server is up (t6Seat). The answer says when that is
+// (Game.Up): a player's game that runs already, from the room's last game, joins only then. The answer has the
+// revision of the server's copy of Plutonium, which the player's copy has to match. The caller sets the port
+// (launcherAnswer). The caller holds l.mu.
 func (l *lobby) launcherPlay(p *player) launcherapi.Play {
 	play := launcherapi.Play{Player: p.asked}
 	if title := l.t6(); title != nil && title.pluto != nil {
@@ -418,7 +419,8 @@ func (l *lobby) launcherPlay(p *player) launcherapi.Play {
 		return play
 	}
 	if play.InGame = s.in; !s.in {
-		play.Game = &launcherapi.Game{ID: strconv.FormatInt(r.game.began.UnixMilli(), 36), Password: t.password, Name: p.name}
+		play.Game = &launcherapi.Game{ID: strconv.FormatInt(r.game.began.UnixMilli(), 36), Password: t.password, Name: p.name,
+			Up: !r.game.up.IsZero()}
 	}
 	return play
 }

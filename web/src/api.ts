@@ -129,7 +129,6 @@ export interface Room {
   t6?: { up: boolean; password?: string; name: string };
   up?: boolean;
   password?: string;
-  as?: string;
 }
 
 /** A player in a room (server/rooms.go: memberView). */

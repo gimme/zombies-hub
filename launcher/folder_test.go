@@ -350,6 +350,7 @@ func TestConfigChangesKeepEachOther(t *testing.T) {
 // that the launcher downloaded stay.
 func TestMenuChoosesTheFolder(t *testing.T) {
 	l := downloading(t, "one")
+	l.play.Plutonium = 1 // the revision of the tests' updater: a game that runs could join the next game, but for its folder
 	tl := newTestLauncher(t, "")
 	d := answer(tl, true)
 	d.choices = []int{1} // download them
@@ -374,13 +375,19 @@ func TestMenuChoosesTheFolder(t *testing.T) {
 		read(t, filepath.Join(files, "binkw32.dll")) != "bink" {
 		t.Error("the files downloaded went, or the menu doesn't say the folder chosen")
 	}
-	// the room's next game
+	// the room's next game, which the game that runs would join, were it not for the folder chosen
 	l.mu.Lock()
-	l.play.Game = &launcherapi.Game{ID: "two", Port: l.port(), Password: "pw", Name: "Ann"}
+	l.play.Game = &launcherapi.Game{ID: "two", Port: l.port(), Password: "pw", Name: "Ann", Up: true}
 	l.mu.Unlock()
 	eventually(t, "the game started for the room's next game", func() bool { return g.count() == 2 })
 	if line := g.line(1); !strings.Contains(line, `t6zm "`+own+`" -lan`) {
 		t.Errorf("the room's next game started with %s", line)
+	}
+	g.mu.Lock()
+	first := g.all[0]
+	g.mu.Unlock()
+	if typed := first.typed(); len(typed) != 0 || !first.stopped.Load() {
+		t.Errorf("the game from the files downloaded was told %q, or not closed", typed)
 	}
 	// the player closes the game, and joins again: the run finds the game files anew
 	g.stays.Store(false)

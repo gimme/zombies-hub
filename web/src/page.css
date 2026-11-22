@@ -366,11 +366,12 @@ ul.members { gap: 8px; }
 /* a room on a Black Ops II map (showT6): what a player needs for its game, which their own Plutonium plays, and
    the line that joins it */
 #t6box { display: flex; flex-direction: column; gap: 12px; }
-#t6box p, #t6box summary { font-size: 14px; line-height: 1.45; color: var(--muted); }
+#t6box p, #t6handrow { font-size: 14px; line-height: 1.45; color: var(--muted); }
+#t6handrow { align-self: flex-start; display: flex; align-items: center; gap: 8px; cursor: pointer; }
+#t6hand { width: 14px; height: 14px; margin: 0; accent-color: var(--accent); cursor: pointer; }
 #t6box p { margin: 0; }
 #t6box a { color: var(--fg); }
-#t6box summary { cursor: pointer; }
-#t6box details > div { display: flex; flex-direction: column; gap: 10px; padding-top: 10px; }
+#t6handline { display: flex; flex-direction: column; gap: 10px; }
 #t6box .row > .grow { min-width: 0; }
 
 /* how the room's last game went (showResult): the map's card, with the round and the team's totals, then the

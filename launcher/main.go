@@ -41,8 +41,10 @@
 //     from them (files.go: askMissing).
 //   - waits for the room's game when there is none yet, and starts Plutonium's bootstrapper to join it, in LAN mode,
 //     under the player's name in the game, with the game's password (launch.go).
-//   - stays with the player's game for as long as it runs, with no window, as the player's one launcher. For the
-//     room's next game, or when the player asks to join again, it restarts the player's game (stay).
+//   - stays with the player's game for as long as it runs, with no window, as the player's one launcher. The
+//     player's game joins the room's next game from its menu, and the room's game again when the player asks: the
+//     launcher types the line that connects it into the game's console (rejoin). When the game can't join that way,
+//     the launcher restarts it (stay).
 //   - after a try that failed, waits for the player to press the room's button, which then says Try again. It does
 //     not try again by itself (idle).
 //   - closes its call to the server five minutes after the player left their last Black Ops II room. It then stays
@@ -734,92 +736,152 @@ func sentence(err error) string {
 
 // launch starts the player's game, which joins the room's game: play.Game. The server brought its copy of Plutonium
 // up to date for that game. When that gave the server another revision, the PC's copy follows first
-// (matchPlutonium).
-func (la *launcher) launch(ctx context.Context, srv *server, l link, play *launcherapi.Play, dir string) (game, error) {
+// (matchPlutonium). launch returns the folder that the game started from.
+func (la *launcher) launch(ctx context.Context, srv *server, l link, play *launcherapi.Play, dir string) (game, string, error) {
 	if play.Plutonium != 0 {
 		if err := la.matchPlutonium(ctx, srv, play.Plutonium); err != nil {
-			return nil, err
+			return nil, "", err
 		}
 	}
 	to := play.Game
 	dir, err := la.startFrom(dir) // or the folder the player chose in the tray's menu since
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	exe := filepath.Join(la.plutonium, filepath.FromSlash(plutonium.Bootstrapper))
 	line, err := commandLine(exe, dir, to.Name, to.Password, l.host+":"+strconv.Itoa(to.Port))
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	g, err := la.start(exe, line, la.plutonium)
 	if err != nil {
-		return nil, fmt.Errorf("Plutonium couldn't be started: %v\n\n%s", err, la.plutoniumHint())
+		return nil, "", fmt.Errorf("Plutonium couldn't be started: %v\n\n%s", err, la.plutoniumHint())
 	}
 	la.started(g)
 	la.launched = true
 	la.say("")
 	la.say("Black Ops II is starting, and joins the room's game as %s.", to.Name)
-	return g, nil
+	return g, dir, nil
 }
 
 // game is the player's game that the launcher started. running reports whether it still runs, and stop closes it.
+// join types a line into the game's console, as if the player typed it there (consoleLine).
 type game interface {
 	running() bool
 	stop()
+	join(line string) error
+}
+
+// rejoins reports whether the player's game, which runs, can join the room's game, play.Game, without starting again.
+// rev is the revision of Plutonium that the game started with, and from the folder it started from. The game can't
+// join when the room's game's Plutonium is of another revision: a room's game turns away a game of another revision,
+// and the PC's copy can't be brought up to date while the game runs. Nor when the player chose another folder in the
+// tray's menu than the one the game started from: the game's next start uses that folder, which may have the room's
+// map where the other lacks it. A name that the player asked for since the game started doesn't count: the game
+// plays under the name it started with for as long as it runs (consoleLine).
+func (la *launcher) rejoins(play *launcherapi.Play, dir, from string, rev int) bool {
+	next, err := la.startFrom(dir)
+	return err == nil && next == from && play.Plutonium != 0 && play.Plutonium == rev
+}
+
+// rejoin has the player's game, which runs, join the room's game, play.Game, once that is up. The game's console
+// connects it there, as the player could by hand, so the game doesn't start again. When the server ends a room's
+// game, it quits, and its players' games go back to their menus (server/t6.go: t6Script), where they wait for the
+// room's next game. rejoin returns false when the console can't be reached: the game then has to start again.
+func (la *launcher) rejoin(g game, l link, play *launcherapi.Play) bool {
+	to := play.Game
+	line, err := consoleLine(to.Password, l.host+":"+strconv.Itoa(to.Port))
+	if err == nil {
+		err = g.join(line)
+	}
+	if err != nil {
+		la.say("The game that runs couldn't join the room's game (%v): it starts again.", err)
+		return false
+	}
+	la.say("")
+	la.say("Black Ops II joins the room's game as %s.", to.Name)
+	return true
 }
 
 // stay starts the player's game, which joins the room's game, and stays with it for as long as it runs, so that the
 // player has one game, whatever they press. The launcher has no window of its own once the game has one. stay
 // returns when the game is closed. Until then this is the player's launcher, and another link of theirs finds it
-// running (single). stay reads the server's answers from the call that is open to it (server.watch). It closes the
-// player's game and starts it again when the room has another game than the one the player's game was started for.
-// That is the room's next game: when the server ends a room's game, the player's game is back at its menu. stay also
-// starts the player's game again into the same room's game when the player asks to join again (pressed) while the
-// server has the player's game in no room's game.
+// running (single). stay reads the server's answers from the call that is open to it (server.watch).
+//
+// The player's game joins the room's game as it runs (rejoin): the room's next game, which has another ID than the
+// one the player's game joined, and the same game when the player asks to join it again (pressed) while the server
+// has the player's game in no room's game. When the server ends a room's game, the player's game is back at its menu.
+// It joins a game once that is up. When the game that runs can't join (rejoins), stay closes it and starts it again,
+// at once: a game that starts takes longer than the room's does.
 func (la *launcher) stay(ctx context.Context, srv *server, l link, play *launcherapi.Play, dir string) error {
-	to := play.Game
-	g, err := la.launch(ctx, srv, l, play, dir)
+	to, rev := play.Game, play.Plutonium // the room's game that the player's game joined, and its Plutonium
+	g, from, err := la.launch(ctx, srv, l, play, dir)
 	if err != nil {
 		return err
 	}
 	la.hide()
-	// The player's game runs from here until it is closed. The room's button shows that the game is starting until
-	// the server has the player's game in the room's game.
-	la.doing(ctx, srv, "Starting the game")
+	// The player's game runs from here until it is closed. The room's button shows what the launcher does with it
+	// until the server has it in the room's game: the game starts, or the game that runs joins the room's game. Once
+	// the server has the player's game in, the launcher has nothing to report. When the player's game is out of the
+	// room's game again, the button then asks to join again (pressed).
+	status := "Starting the game"
+	show := func(what string) {
+		if what != status {
+			status = what
+			la.doing(ctx, srv, what)
+		}
+	}
+	la.doing(ctx, srv, status)
 	defer la.doing(context.WithoutCancel(ctx), srv, "")
 	select {
 	case <-la.pressed: // drop a press that came before the game was started: it was for that start
 	default:
 	}
-	for again := false; g.running() && ctx.Err() == nil; again = false {
+	asked := false // the player asked to join the room's game again
+	for g.running() && ctx.Err() == nil {
 		play, next, err := srv.latest()
-		if err == nil && play != nil && play.Game != nil && play.Game.ID != to.ID {
-			again = true // the room's next game
-		} else {
+		ok := err == nil && play != nil
+		if ok && play.InGame {
+			show("")
+			asked = false
+		}
+		again := false
+		if ok && play.Game != nil && (play.Game.ID != to.ID || asked) {
+			switch {
+			case !la.rejoins(play, dir, from, rev):
+				again = true
+			case !play.Game.Up: // the player's game joins it once it is up
+				show("Joining the game")
+			case la.rejoin(g, l, play):
+				show("Joining the game")
+				to, asked = play.Game, false
+				continue
+			default:
+				again = true
+			}
+		}
+		if !again {
 			select {
 			case <-la.pressed:
-				again = true
+				asked = true
 			case <-next:
 			case <-time.After(la.tick):
 			case <-ctx.Done():
 			}
-			play, _, err = srv.latest()
-		}
-		if !g.running() {
-			break
-		}
-		if !again || err != nil || play == nil || play.Game == nil {
 			continue
 		}
+		asked = false
 		g.stop()
-		if g, err = la.launch(ctx, srv, l, play, dir); err != nil {
+		if g, from, err = la.launch(ctx, srv, l, play, dir); err != nil {
 			if la.stays {
 				return err // the player's page shows it
 			}
 			la.notify(err.Error(), true)
 			return nil
 		}
-		to = play.Game
+		to, rev = play.Game, play.Plutonium
+		status = "Starting the game" // also after "Updating Plutonium", which launch may have reported
+		la.doing(ctx, srv, status)
 	}
 	la.left = to.ID
 	return nil

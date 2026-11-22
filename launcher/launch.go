@@ -24,14 +24,35 @@ var (
 // player's PC put into it are checked: a quote or a plus in the wrong place would be another command.
 func commandLine(exe, dir, name, password, server string) (string, error) {
 	dir = strings.TrimRight(dir, `\/`) // a backslash before the closing quote would escape it
+	if strings.ContainsAny(exe+dir, "\"\r\n") || dir == "" {
+		return "", fmt.Errorf("The game can't be started from the folder %q.", dir)
+	}
+	name, err := joinAs(name, password, server)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf(`"%s" t6zm "%s" -lan +name "%s" +set password %s +connect %s`, exe, dir, name, password, server), nil
+}
+
+// consoleLine returns the line that joins a game that runs to a room's game, for the game's console (game.join). It
+// sets the password, as commandLine does, then connects. It sets no name: the game's console has no command for it,
+// and the game plays under the name of its command line for as long as it runs. The values are checked as
+// commandLine checks them: a semicolon would be another command on the console.
+func consoleLine(password, server string) (string, error) {
+	if _, err := joinAs("", password, server); err != nil {
+		return "", err
+	}
+	return fmt.Sprintf(`password %s;connect %s`, password, server), nil
+}
+
+// joinAs checks the server's answer for the game to join, and returns the name to join as: name without the
+// characters that the server removes, or "Player" when nothing is left.
+func joinAs(name, password, server string) (string, error) {
+	if !launchPassword.MatchString(password) || !launchServer.MatchString(server) {
+		return "", errors.New("The server's answer isn't one the launcher can start a game from.")
+	}
 	if name = strings.TrimSpace(launchName.ReplaceAllString(name, "")); name == "" {
 		name = "Player"
 	}
-	switch {
-	case strings.ContainsAny(exe+dir, "\"\r\n") || dir == "":
-		return "", fmt.Errorf("The game can't be started from the folder %q.", dir)
-	case !launchPassword.MatchString(password) || !launchServer.MatchString(server):
-		return "", errors.New("The server's answer isn't one the launcher can start a game from.")
-	}
-	return fmt.Sprintf(`"%s" t6zm "%s" -lan +name "%s" +set password %s +connect %s`, exe, dir, name, password, server), nil
+	return name, nil
 }

@@ -142,7 +142,7 @@ func (*t6Title) showMember(l *lobby, r *room, m *player, mv *memberView) {
 }
 
 func (*t6Title) showRoom(l *lobby, r *room, p *player, rv *roomView) {
-	rv.Password, rv.As = r.password, p.name
+	rv.Password = r.password
 	rv.Up = r.game != nil && !r.game.up.IsZero()
 	// no one can join through a seat in a game that is ending
 	if s := r.seatOf(p); s != nil && r.game.ending == "" && !s.left {

@@ -130,9 +130,9 @@ func TestLauncherPlayIsHeld(t *testing.T) {
 	}
 }
 
-// What the launcher is to play: its player's T6 room's game, once its server is up, with the password and the name
-// the page's line has, at the port players reach; nothing for a key the server doesn't know. Its calls say where the
-// player's game is, as their page's do.
+// What the launcher is to play: its player's T6 room's game, once the server's Plutonium is up to date for it, with
+// the password and the name the page's line has, at the port players reach, and whether Plutonium's server is up yet;
+// nothing for a key the server doesn't know. Its calls say where the player's game is, as their page's do.
 func TestLauncherPlay(t *testing.T) {
 	l, target := t6Lobby(t)
 	h := &web{lobby: l, publicPort: 4000}
@@ -181,7 +181,7 @@ func TestLauncherPlay(t *testing.T) {
 		t.Error("the host may not end a game no one is in yet")
 	}
 	if play.Game == nil || play.Game.ID == "" ||
-		*play.Game != (launcherapi.Game{ID: play.Game.ID, Port: 4000, Password: v.Room.T6.Password, Name: "Ann 2"}) ||
+		*play.Game != (launcherapi.Game{ID: play.Game.ID, Port: 4000, Password: v.Room.T6.Password, Name: "Ann 2", Up: true}) ||
 		v.Room.T6.Name != "Ann 2" || play.InGame {
 		t.Fatalf("the game, to the second Ann's launcher: %+v (%+v), where the page has %+v", play, play.Game, v.Room.T6)
 	}
@@ -377,20 +377,20 @@ func TestLauncherReport(t *testing.T) {
 	}
 }
 
-// The line that joins a T6 room's game by hand is the room's: its players have its password, and their names in its
-// games, from the start, and its games ask for that password.
+// The line that joins a T6 room's game by hand is the room's: its players have its password from the start, and its
+// games ask for that password.
 func TestT6RoomPassword(t *testing.T) {
 	l, _ := t6Lobby(t)
 	a, b := l.hello("", "Ann").Token, l.hello("", "Ann").Token
 	do(l, a, "create", "map", "zombie_theater")
-	if v := l.viewOf(a); v.Room.Password != "" || v.Room.As != "" {
-		t.Errorf("a T5 room: password %q, as %q", v.Room.Password, v.Room.As)
+	if v := l.viewOf(a); v.Room.Password != "" {
+		t.Errorf("a T5 room: password %q", v.Room.Password)
 	}
 	do(l, a, "room", "map", "zm_standard_town")
 	do(l, b, "join", "room", l.viewOf(a).Room.Code)
 	va, vb := l.viewOf(a), l.viewOf(b)
-	if len(va.Room.Password) != 8 || vb.Room.Password != va.Room.Password || va.Room.As != "Ann" || vb.Room.As != "Ann 2" {
-		t.Fatalf("an open T6 room: %q as %q, and %q as %q", va.Room.Password, va.Room.As, vb.Room.Password, vb.Room.As)
+	if len(va.Room.Password) != 8 || vb.Room.Password != va.Room.Password {
+		t.Fatalf("an open T6 room: %q, and %q", va.Room.Password, vb.Room.Password)
 	}
 	if list := l.viewOf(l.hello("", "Cy").Token); strings.Contains(fmt.Sprintf("%+v", list), va.Room.Password) {
 		t.Error("the room's password, to a player who is not in it")

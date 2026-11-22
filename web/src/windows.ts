@@ -28,13 +28,11 @@ export const playLine = (): string =>
 
 /**
  * The line that joins a Black Ops II room's game by hand, for the console of the player's game, which Plutonium
- * started in LAN mode. It sets the name the game is to know the player by, gives the room's password, and connects.
- * The name is the player's, with a number where another player in the room has the same (server/rooms.go:
- * roomView.As). The password is the same for each of the room's games.
+ * started in LAN mode. It gives the room's password, which is the same for each of the room's games, and connects.
+ * It sets no name: the game's console has no command for it. The game plays under the name it started with.
  */
 export const t6Console = (room: Room): string =>
-  'name "' + (room.as || me.name) + '";password ' + room.password + ';connect ' + location.hostname + ':' +
-  (udpPort() || location.port || 3075);
+  'password ' + room.password + ';connect ' + location.hostname + ':' + (udpPort() || location.port || 3075);
 
 // The launcher (launcher/): a program on the player's PC, which a link of its scheme starts once it is installed.
 // The link names this server and the player, by their key. The launcher asks the server what to play, gets what the

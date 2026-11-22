@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -216,4 +217,60 @@ func TestStayingLauncherEndsForAnUnknownPlayer(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("the launcher stayed for a server that doesn't know its player")
 	}
+}
+
+// The room's button says what a launcher that stays does with the player's game: the game starts, or the game that
+// runs joins the room's game. Once the server has the game in, the launcher says nothing, and when the game is out of
+// the room's game again, the button asks to join again, which has the game that runs join it.
+func TestStayingLauncherSaysWhatItDoes(t *testing.T) {
+	l := newFakeServer(t)
+	gameOf := func(id string, up bool) *launcherapi.Game {
+		return &launcherapi.Game{ID: id, Port: l.port(), Password: "pw", Name: "Ann", Up: up}
+	}
+	l.play = launcherapi.Play{Player: "Ann", Room: "ABCD", Game: gameOf("one", true), Plutonium: 1}
+	tl := newTestLauncher(t, "")
+	dir := filepath.Join(t.TempDir(), "Black Ops II")
+	write(t, filepath.Join(dir, "zone", "all", "patch_zm.ff"), "the patch")
+	write(t, filepath.Join(dir, "binkw32.dll"), "bink")
+	tl.copies = func() []string { return []string{dir} }
+	g, _, quit := stayWithTray(t, tl, l.link(), true)
+	set := func(change func(play *launcherapi.Play)) {
+		l.mu.Lock()
+		change(&l.play)
+		l.mu.Unlock()
+	}
+	// says waits until what the launcher last reported doing is what
+	says := func(when, what string) {
+		t.Helper()
+		eventually(t, when+": the launcher says "+strconv.Quote(what), func() bool {
+			l.mu.Lock()
+			defer l.mu.Unlock()
+			return len(l.reports) > 0 && l.reports[len(l.reports)-1].Doing == what
+		})
+	}
+	eventually(t, "the game started", func() bool { return g.count() == 1 })
+	says("the game starts", "Starting the game")
+	set(func(play *launcherapi.Play) { play.InGame, play.Game = true, nil })
+	says("the game is in", "")
+	set(func(play *launcherapi.Play) { play.InGame = false }) // game over: the room is open
+	set(func(play *launcherapi.Play) { play.Game = gameOf("two", false) })
+	says("the room's next game starts", "Joining the game")
+	set(func(play *launcherapi.Play) { play.Game = gameOf("two", true) })
+	g.mu.Lock()
+	first := g.all[0]
+	g.mu.Unlock()
+	eventually(t, "the game joined the next game", func() bool { return len(first.typed()) == 1 })
+	says("the game joins the next game", "Joining the game")
+	set(func(play *launcherapi.Play) { play.InGame, play.Game = true, nil })
+	says("the game is in the next game", "")
+	set(func(play *launcherapi.Play) { play.InGame, play.Game = false, gameOf("two", true) }) // it went back to its menu
+	time.Sleep(100 * time.Millisecond)
+	says("the game is out of the room's game", "")
+	tl.press() // Join the game
+	eventually(t, "the game joined again", func() bool { return len(first.typed()) == 2 })
+	says("the game joins again", "Joining the game")
+	if g.count() != 1 || first.stopped.Load() {
+		t.Errorf("the launcher started %d games, and closed the first: %v", g.count(), first.stopped.Load())
+	}
+	quit()
 }

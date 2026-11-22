@@ -652,10 +652,8 @@ type roomView struct {
 	// Up is set in a T6 room once Plutonium's server is up. The room's game then waits for its players' games, which
 	// can join it from that moment.
 	Up bool `json:"up,omitempty"`
-	// Password and As are set in a T6 room. A player's game that joins the room's game by hand needs them: the room's
-	// password, and the name the player has in its games (player.name).
+	// Password is set in a T6 room. A player's game that joins the room's game by hand needs it.
 	Password string `json:"password,omitempty"`
-	As       string `json:"as,omitempty"`
 }
 
 // t6View is a T6 room's game as shown to a player with a seat in it. Up reports whether Plutonium's server is up.

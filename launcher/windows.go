@@ -4,6 +4,7 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -11,6 +12,7 @@ import (
 	"strings"
 	"syscall"
 	"time"
+	"unicode/utf16"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -132,24 +134,34 @@ func steamCopies() []string {
 
 // startProgram runs exe with the command line exactly as given, because the game parses its own command line. The
 // program runs in dir, in a console window of its own, and is left running, as "start" does from a Command Prompt.
-// The returned game follows the program and any program it starts in turn, through a Windows job that has them all.
+// Its standard input and output are that console, and it inherits no handle of the launcher's. os/exec would give it
+// the launcher's standard handles, or NUL in their place: the game would then read no line typed into its console
+// (process.join), and Windows would let no other program attach to the console to type one. The returned game
+// follows the program and any program it starts in turn, through a Windows job that has them all.
 func startProgram(exe, commandLine, dir string) (game, error) {
-	cmd := &exec.Cmd{Path: exe, Dir: dir, SysProcAttr: &syscall.SysProcAttr{CmdLine: commandLine,
-		CreationFlags: windows.CREATE_NEW_CONSOLE | windows.CREATE_NEW_PROCESS_GROUP}}
-	if err := cmd.Start(); err != nil {
+	exeName, err := windows.UTF16PtrFromString(exe)
+	if err != nil {
 		return nil, err
 	}
-	defer cmd.Process.Release()
-	p := &process{}
-	const rights = windows.PROCESS_TERMINATE | windows.SYNCHRONIZE | windows.PROCESS_QUERY_LIMITED_INFORMATION |
-		windows.PROCESS_SET_QUOTA
-	h, err := windows.OpenProcess(rights, false, uint32(cmd.Process.Pid))
+	line, err := windows.UTF16PtrFromString(commandLine)
 	if err != nil {
-		return p, nil // started, but the launcher can't follow it: it counts as ended
+		return nil, err
 	}
-	p.h = h
+	in, err := windows.UTF16PtrFromString(dir)
+	if err != nil {
+		return nil, err
+	}
+	si := &windows.StartupInfo{}
+	si.Cb = uint32(unsafe.Sizeof(*si))
+	var pi windows.ProcessInformation
+	if err := windows.CreateProcess(exeName, line, nil, nil, false,
+		windows.CREATE_NEW_CONSOLE|windows.CREATE_NEW_PROCESS_GROUP, nil, in, si, &pi); err != nil {
+		return nil, &os.PathError{Op: "start", Path: exe, Err: err}
+	}
+	windows.CloseHandle(pi.Thread)
+	p := &process{pid: pi.ProcessId, h: pi.Process}
 	if job, err := windows.CreateJobObject(nil, nil); err == nil {
-		if windows.AssignProcessToJobObject(job, h) == nil {
+		if windows.AssignProcessToJobObject(job, p.h) == nil {
 			p.job = job
 		} else {
 			windows.CloseHandle(job)
@@ -158,9 +170,12 @@ func startProgram(exe, commandLine, dir string) (game, error) {
 	return p, nil
 }
 
-// process is a program that the launcher started. h is its process. job is the job that has the process and the
-// programs it starts, when Windows gave it one.
-type process struct{ h, job windows.Handle }
+// process is a program that the launcher started. pid is its process's ID, and h its process. job is the job that has
+// the process and the programs it starts, when Windows gave it one.
+type process struct {
+	pid    uint32
+	h, job windows.Handle
+}
 
 // jobAccounting is Windows' JOBOBJECT_BASIC_ACCOUNTING_INFORMATION.
 type jobAccounting struct {
@@ -195,6 +210,65 @@ func (p *process) stop() {
 	for i := 0; i < 100 && p.running(); i++ {
 		time.Sleep(100 * time.Millisecond)
 	}
+}
+
+var (
+	attachConsole      = kernel32.NewProc("AttachConsole")
+	freeConsole        = kernel32.NewProc("FreeConsole")
+	writeConsoleInputW = kernel32.NewProc("WriteConsoleInputW")
+)
+
+// keyEvent is Windows' INPUT_RECORD for a KEY_EVENT_RECORD.
+type keyEvent struct {
+	eventType   uint16
+	_           uint16
+	keyDown     int32
+	repeatCount uint16
+	virtualKey  uint16
+	virtualScan uint16
+	char        uint16
+	controlKeys uint32
+}
+
+// join types line into the program's console window, then Enter, as if the player typed it there. Plutonium's
+// bootstrapper is a console program, and the game runs in its process and reads that console's input, so the line runs
+// as a command of the game's console, whether its window is in front or not. A program has one console at most: the
+// launcher attaches to the game's for the moment it types. A launcher that a link started has no console of its own
+// (-H=windowsgui). One started from a terminal has that terminal's, and can't attach to another.
+func (p *process) join(line string) error {
+	if r, _, err := attachConsole.Call(uintptr(p.pid)); r == 0 {
+		return fmt.Errorf("attaching to the game's console: %w", err)
+	}
+	defer freeConsole.Call()
+	name, err := windows.UTF16PtrFromString("CONIN$")
+	if err != nil {
+		return err
+	}
+	in, err := windows.CreateFile(name, windows.GENERIC_READ|windows.GENERIC_WRITE,
+		windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE, nil, windows.OPEN_EXISTING, 0, 0)
+	if err != nil {
+		return fmt.Errorf("opening the game's console: %w", err)
+	}
+	defer windows.CloseHandle(in)
+	var keys []keyEvent
+	for _, c := range utf16.Encode([]rune(line + "\r")) {
+		key := keyEvent{eventType: 1, keyDown: 1, repeatCount: 1, char: c} // KEY_EVENT
+		if c == '\r' {
+			key.virtualKey = 0x0D // VK_RETURN
+		}
+		up := key
+		up.keyDown = 0
+		keys = append(keys, key, up)
+	}
+	var n uint32
+	if r, _, err := writeConsoleInputW.Call(uintptr(in), uintptr(unsafe.Pointer(&keys[0])), uintptr(len(keys)),
+		uintptr(unsafe.Pointer(&n))); r == 0 {
+		return fmt.Errorf("typing into the game's console: %w", err)
+	}
+	if int(n) != len(keys) {
+		return fmt.Errorf("the game's console took %d of %d keys", n, len(keys))
+	}
+	return nil
 }
 
 // presses returns a channel that gets a value each time the player asks to join again, while their launcher (id)

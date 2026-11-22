@@ -43,10 +43,21 @@ test('a room plays its game to game over, and its round and easter egg are on th
   await bob.locator('#joincode').click();
   await expect(ann.locator('#members')).toContainText('Bob');
 
-  // the button opens the launcher, unless the player joins by hand
+  // the button opens the launcher, unless the player joins by hand, which shows the line for the game's console; the
+  // browser remembers that they do
   for (const page of [ann, bob]) {
     await expect(page.locator('#ready')).toHaveText('Connect');
-    await page.locator('#t6hand > summary').click();
+    await expect(page.locator('#t6console')).toBeHidden();
+    await page.locator('#t6handrow').getByText('Join by hand').click(); // the checkbox's words check it
+    await expect(page.getByRole('checkbox', { name: 'Join by hand' })).toBeChecked();
+    await expect(page.locator('#t6console')).toHaveText(/^password [0-9a-f]+;connect [^;]+:\d+$/);
+    await expect(page.locator('#ready')).toHaveText('Ready');
+  }
+  await bob.reload();
+  await expect(bob.locator('#roomcode')).toHaveText(code);
+  await expect(bob.getByRole('checkbox', { name: 'Join by hand' })).toBeChecked();
+  await expect(bob.locator('#t6console')).toBeVisible();
+  for (const page of [ann, bob]) {
     await expect(page.locator('#ready')).toHaveText('Ready');
     await page.locator('#ready').click();
   }

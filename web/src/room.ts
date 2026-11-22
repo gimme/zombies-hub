@@ -32,6 +32,7 @@ import { mapInfo, mapPicture } from './maps';
 import { modNames, modOn, modValue } from './mods';
 import { mayLeaveGame } from './question';
 import { bo1Settings } from './settings';
+import { store } from './storage';
 import { mapsOf, titleName } from './titles';
 import {
   launcherDownloads, launcherHere, launcherOn, launcherSeen, launcherSetup, onWindows, t6Console,
@@ -193,12 +194,12 @@ export function showRoomButton(v: View, room: Room): void {
     m.primary = !!m.gets || (!!m.ready && !v.you.ready);
     // In a Black Ops II room, once the server has said where the launcher is, the button opens the launcher first.
     // The launcher then gets what the PC lacks for the game, and the button says how far that is. After that the
-    // button is Ready. Not for a player who joins by hand, with that box open.
+    // button is Ready. Not for a player who joins by hand, with that checkbox checked.
     //
     // A copy of the game without the pack of the room's map lacks the map (server/t6.go: lacks). The player is then
     // not ready until the host picks another map. Where the server sends game files, the button is Download: it
     // opens the launcher, which asks whether to download the server's game files and use them instead.
-    if (t6 && launcherOn() && !v.you.ready && !$<HTMLDetailsElement>('t6hand').open) {
+    if (t6 && launcherOn() && !v.you.ready && !handOn()) {
       const mine = room.members.find((x) => x.id === me.id);
       if (v.you.launcherFailed) m = { label: 'Try again', does: 'launch', primary: true };
       else if (!v.you.launcher) m = { label: 'Connect', does: 'launch', primary: true };
@@ -247,9 +248,10 @@ function gameButton(v: View, room: Room): RoomButton {
     return said(mine && mine.inGame ? 'In game' : 'Game in progress');
   }
   // A Black Ops II game is joined by the player's own PC. The page knows of it what the server does: whether their
-  // game is in it. Until it is, the button opens the launcher. A launcher that is already at it does nothing more.
+  // game is in it. Until it is, the button opens the launcher. A launcher that is already at it does nothing more. A
+  // player who joins by hand, with that checkbox checked, gets no launcher, as at the Ready button (showRoomButton).
   if (mine && mine.inGame) return said('In game');
-  if (!launcherOn()) return said('Join by hand');
+  if (!launcherOn() || handOn()) return said('Join by hand');
   // Their launcher has started their game, which is on its way in.
   if (v.you.launcher && v.you.launcherDoing) return said(v.you.launcherDoing + '...');
   return { label: 'Join the game', does: 'launch', primary: true };
@@ -266,20 +268,25 @@ export function showT6(v: View, room: Room): void {
   box.classList.toggle('hidden', room.of !== 't6');
   if (room.of !== 't6') return;
   if (v.you.launcher) launcherSeen();
+  // Where the server offers the launcher, joining by hand is a checkbox (handOn), which the browser remembers.
+  // Checked, it shows the line that joins by hand, and the room's button opens no launcher (showRoomButton), nor does
+  // the box say where to get one. Where the server offers no launcher, joining by hand is the only way: the line is
+  // there, and no checkbox.
+  const byHand = !launcherOn() || handOn();
+  $('t6handrow').classList.toggle('hidden', !launcherOn());
+  $('t6handline').classList.toggle('hidden', !byHand);
+  $('t6console').textContent = t6Console(room);
   const old = !!v.you.launcherOld;
-  $('t6get').classList.toggle('hidden', !launcherOn() || (launcherHere && !old));
+  $('t6get').classList.toggle('hidden', byHand || (launcherHere && !old));
   $('t6why').textContent = old ? 'Your Zombies Launcher is too old for this server.' : 'First time?';
   $('t6setup').textContent = old ? 'Install the new one' : 'Install Zombies Launcher';
   $('t6then').textContent = old ? ', then connect again.' : '.';
   $<HTMLAnchorElement>('t6setup').href = launcherSetup();
-  // The box of joining by hand is open when the player comes into a room before the server has said where the
-  // launcher is. After that, it is the player's to open and close.
-  const key = room.code + launcherOn();
-  if (box.dataset.room !== key) {
-    box.dataset.room = key;
-    $<HTMLDetailsElement>('t6hand').open = !launcherOn();
-  }
-  $('t6console').textContent = t6Console(room);
+}
+
+/** Whether the player joins their Black Ops II room's game by hand, as that checkbox says (showT6). */
+function handOn(): boolean {
+  return $<HTMLInputElement>('t6hand').checked;
 }
 
 // The room's size (server/rooms.go: room.size), in the Settings tab: how many players it takes, which is 4 until the
@@ -466,8 +473,16 @@ export function roomInit(): void {
     $('tabmods').focus();
     $('panelmods').scrollIntoView({ block: 'nearest', behavior: 'smooth' });
   };
-  // A player who joins by hand, with that box open, needs no launcher. The button is Ready then.
-  $('t6hand').addEventListener('toggle', () => view && view.room && showRoomButton(view, view.room));
+  // A player who joins by hand, with that checkbox checked, needs no launcher. The button is Ready then. The browser
+  // remembers the checkbox for the player's next rooms and visits.
+  $<HTMLInputElement>('t6hand').checked = store.get('zombies-by-hand') === '1';
+  $('t6hand').onchange = () => {
+    store.set('zombies-by-hand', handOn() ? '1' : '');
+    if (view && view.room) {
+      showT6(view, view.room);
+      showRoomButton(view, view.room);
+    }
+  };
   $('endgame').onclick = () => act('end');
   $('copyt6').onclick = () => copy($('copyt6'), $('t6console').textContent || '');
   $('leave').onclick = async () => (await mayLeaveGame()) && act('leave');
