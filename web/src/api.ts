@@ -11,8 +11,8 @@ export interface ServerInfo {
   dev?: boolean;
   /** The server sends game files to browsers. */
   downloads?: boolean;
-  /** The server hands out the launcher. */
-  launcher?: boolean;
+  /** The address of the launcher's latest release, for the player to install it. */
+  launcher?: string;
 }
 
 /** The lobby as the player sees it (server/rooms.go: view). */
@@ -88,6 +88,8 @@ export interface You {
   launcherReady?: boolean;
   launcherFailed?: string;
   launcherDoing?: string;
+  /** The server refused their launcher as too old for it, and takes only a newer one. */
+  launcherOld?: boolean;
 }
 
 /** A room in the list of rooms (server/rooms.go: roomItem). A room listed as private has no code. */

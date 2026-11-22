@@ -42,8 +42,9 @@ type fakeServer struct {
 	extra    []launcherapi.File                  // more of the list
 	cut      map[string]int                      // a file's answers end after this many bytes of theirs, by path
 	reports  []launcherapi.Report
-	ready    []bool // what each call for what to play said of the PC: it has what the game needs
-	launcher []byte
+	ready    []bool   // what each call for what to play said of the PC: it has what the game needs
+	versions []string // the launcher's version, as each call sent it
+	refuse   int      // the status that every call gets instead of its answer, where it is not 0
 }
 
 func hashOf(text string) string {
@@ -93,6 +94,11 @@ func (l *fakeServer) serve(w http.ResponseWriter, r *http.Request) {
 		call += " " + rng
 	}
 	l.asked = append(l.asked, call)
+	l.versions = append(l.versions, r.Header.Get(launcherapi.VersionHeader))
+	if l.refuse != 0 {
+		http.Error(w, "This launcher is too old for this server: install the new one from the room's page.", l.refuse)
+		return
+	}
 	if r.Header.Get("Authorization") != launcherapi.Key+l.key {
 		http.Error(w, "no player's key", http.StatusUnauthorized)
 		return
@@ -119,8 +125,6 @@ func (l *fakeServer) serve(w http.ResponseWriter, r *http.Request) {
 		json.NewDecoder(r.Body).Decode(&rep)
 		l.reports = append(l.reports, rep)
 		w.Write([]byte("{}"))
-	case r.URL.Path == "/"+launcherapi.Setup && l.launcher != nil:
-		w.Write(l.launcher)
 	case r.URL.Path == "/launcher/t6/files" && l.play.Downloads:
 		list := launcherapi.Files{Version: "v1", Files: append([]launcherapi.File{}, l.extra...)}
 		for path, text := range l.files {
@@ -1252,8 +1256,8 @@ func TestStaysWithTheGame(t *testing.T) {
 	}
 }
 
-// Installed, the launcher is in its folder, and Windows starts it there; and the server's build takes its place when
-// it is another, in the same run.
+// Installed, the launcher is in its folder, and Windows starts it there; and its latest release takes its place when
+// that is a later build, in the same run.
 func TestInstallAndUpdate(t *testing.T) {
 	tl := newTestLauncher(t, "")
 	downloaded := filepath.Join(t.TempDir(), "zombies-launcher-setup (1).exe")
@@ -1277,25 +1281,20 @@ func TestInstallAndUpdate(t *testing.T) {
 		read(t, installed+".old") != "the launcher, build 1" {
 		t.Errorf("the install over an older one: %d\n%s", code, tl.out)
 	}
-	// a link's run, by the installed launcher: the server's build is another
+	// a link's run, by the installed launcher: its latest release is a later build of its maker, as their signed
+	// statement of it says
 	l := newFakeServer(t)
-	l.launcher = []byte("the launcher, build 3")
-	l.play = launcherapi.Play{Player: "Ann", Launcher: hashOf("the launcher, build 3"), Room: "ABCD",
-		Game: &launcherapi.Game{Port: 4000, Password: "pw", Name: "Ann"}}
-	// which is a later build of the launcher's maker, as their signed statement of it says
+	l.play = launcherapi.Play{Player: "Ann", Room: "ABCD", Game: &launcherapi.Game{Port: 4000, Password: "pw", Name: "Ann"}}
 	public, private, _ := release.NewKey()
 	key, _ := release.ParsePrivate(private)
-	signed := func(version int64, program string) *release.Signed {
-		s, _ := release.Sign(key, release.Statement{Version: version, Hash: release.HashOf([]byte(program))})
-		return &s
-	}
+	releases := newFakeReleases(t)
+	releases.publish(t, key, 3, "the launcher, build 3")
 	tl.key, _ = release.ParsePublic(public)
-	tl.version = 2
-	l.play.Release = signed(3, "the launcher, build 3")
+	tl.version, tl.releases = 2, releases.url()
 	tl.exe = installed
 	tl.again("")
 	if code := tl.run(context.Background(), []string{l.link()}); code != 0 || !tl.handed || len(tl.started) != 0 {
-		t.Fatalf("a run with another build at the server: %d, handed on: %v, started %+v\n%s", code, tl.handed, tl.started, tl.out)
+		t.Fatalf("a run with a later release: %d, handed on: %v, started %+v\n%s", code, tl.handed, tl.started, tl.out)
 	}
 	if read(t, installed) != "the launcher, build 3" || !slices.Equal(tl.reran, []string{installed + " " + l.link()}) {
 		t.Errorf("after the update: %q, and ran again: %q", read(t, installed), tl.reran)
@@ -1303,7 +1302,8 @@ func TestInstallAndUpdate(t *testing.T) {
 	if isFile(filepath.Join(tl.plutonium, filepath.FromSlash(plutonium.Bootstrapper))) {
 		t.Error("the launcher that handed on went on itself")
 	}
-	// the build that runs is the server's: on with it
+	// the build that runs is the release: on with it
+	tl.version = 3
 	tl.again("")
 	tl.reran = nil
 	write(t, filepath.Join(tl.home, "t6", "placeholder"), "")
@@ -1314,26 +1314,13 @@ func TestInstallAndUpdate(t *testing.T) {
 	write(t, filepath.Join(own, "binkw32.dll"), "bink")
 	tl.copies = func() []string { return []string{own} }
 	if code := tl.run(context.Background(), []string{l.link()}); code != 0 || len(tl.reran) != 0 || len(tl.started) != 1 {
-		t.Errorf("a run of the server's build: %d, ran again %q, started %+v\n%s", code, tl.reran, tl.started, tl.out)
+		t.Errorf("a run of the release: %d, ran again %q, started %+v\n%s", code, tl.reran, tl.started, tl.out)
 	}
 	if isFile(installed + ".old") {
 		t.Error("the build that stepped aside is still there")
 	}
-	// what the server sends is not the launcher it named: this one stays, and goes on
-	l.mu.Lock()
-	l.launcher = []byte("something else")
-	l.play.Launcher = hashOf("the launcher, build 4")
-	l.play.Release = signed(4, "the launcher, build 4")
-	l.mu.Unlock()
-	tl.again("")
-	if code := tl.run(context.Background(), []string{l.link()}); code != 0 || len(tl.reran) != 0 || len(tl.started) != 1 ||
-		read(t, installed) != "the launcher, build 3" || !strings.Contains(tl.out.String(), "could not take") {
-		t.Errorf("an update that isn't the one named: %d, ran again %q, started %+v\n%s", code, tl.reran, tl.started, tl.out)
-	}
 	// a launcher that isn't the installed one (a build of the developer's) takes none
-	l.mu.Lock()
-	l.launcher = []byte("the launcher, build 4")
-	l.mu.Unlock()
+	releases.publish(t, key, 4, "the launcher, build 4")
 	tl.exe = downloaded
 	tl.again("")
 	if code := tl.run(context.Background(), []string{l.link()}); code != 0 || len(tl.reran) != 0 || len(tl.started) != 1 ||

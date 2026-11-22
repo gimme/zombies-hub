@@ -1,10 +1,8 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
-	"embed"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -20,7 +18,6 @@ import (
 	"time"
 
 	"zombies/internal/launcherapi"
-	"zombies/internal/release"
 )
 
 // The server's side of the launcher (launcher/: zombies-launcher.exe, on a player's PC). The package
@@ -50,32 +47,13 @@ import (
 // where the server expects the player's game (player.addr). On a server where players sign in with Discord, the key
 // works only while the player has a session.
 //
-// The server also serves the launcher itself (GET /zombies-launcher-setup.exe). The launcher is embedded in the server
-// as the server's build made it (dist/). The answer to GET /launcher/play has its hash, so that a launcher of another
-// build can replace itself with this one.
-
-//go:embed all:dist
-var launcherDir embed.FS
-
-// launcherExe returns the launcher that the server serves, the hash of its contents, and its maker's signed statement
-// about it, if there is one. It returns nil and "" for a server that was built without the launcher.
-func launcherExe() ([]byte, string, *release.Signed) {
-	exe, err := launcherDir.ReadFile("dist/zombies-launcher.exe")
-	if err != nil || len(exe) == 0 {
-		return nil, "", nil
-	}
-	sum := launcherapi.NewHash()
-	sum.Write(exe)
-	// The maker's statement about the launcher. The image's build signs it when it has the maker's key
-	// (docker/Dockerfile). Without a statement, launchers on players' PCs keep the build they have.
-	var signed *release.Signed
-	if text, err := launcherDir.ReadFile("dist/zombies-launcher.sig"); err == nil {
-		if err := json.Unmarshal(text, &signed); err != nil {
-			signed = nil
-		}
-	}
-	return exe, launcherapi.HashOf(sum), signed
-}
+// The launcher's calls also carry its version. The server takes only the versions that its code works with
+// (launcherapi.MinVersion), and a dev build (version 0) only on a dev server (-dev). It refuses any other launcher's
+// calls (launcherFits), and notes on the player that their launcher is too old. Their room then says so, with the
+// link to the launcher's latest release: the launcher that was refused can't report it.
+//
+// The server does not hand out the launcher. Its releases are on GitHub (launcherapi.Releases), and the room's page
+// links to the latest one (GET /server: "launcher"). An installed launcher updates itself from there.
 
 // launcherFiles is the list of a title's game files as the launcher downloads them (launcherapi.Files), with each
 // file's place on disk.
@@ -154,24 +132,41 @@ func (h *web) t6List() *launcherFiles {
 // sendsT6 reports whether the server sends Black Ops II's game files: it sends game files, and it has T6's.
 func (h *web) sendsT6() bool { return h.downloads && h.t6Dir != "" }
 
-// serveLauncher answers GET /zombies-launcher-setup.exe with the launcher, for the player's browser to save. The file
-// is named for what a player does with it, which is to run it once (launcherapi.Setup).
-func (h *web) serveLauncher(w http.ResponseWriter, r *http.Request) {
-	if h.launcher == nil {
-		http.Error(w, "this server's build has no launcher", http.StatusNotFound)
-		return
+// launcherFits reports whether the server takes the calls of the launcher that made the call: one of a version that
+// the server's code works with (launcherapi.MinVersion), or a dev build on a dev server. When it does not, it answers
+// the call with 426 Upgrade Required, and notes on the call's player that their launcher is too old
+// (launcherReport.old). A launcher looks for a later release before its first call, so the server refuses only one
+// that found none it could take.
+func (h *web) launcherFits(w http.ResponseWriter, r *http.Request) bool {
+	sent := r.Header.Get(launcherapi.VersionHeader)
+	version, err := strconv.ParseInt(sent, 10, 64)
+	if err == nil && (version >= launcherapi.MinVersion || version == 0 && h.dev) {
+		return true
 	}
-	w.Header().Set("Content-Type", "application/octet-stream")
-	w.Header().Set("Content-Disposition", `attachment; filename="`+launcherapi.Setup+`"`)
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("ETag", `"`+h.launcherHash+`"`)
-	http.ServeContent(w, r, "", time.Time{}, bytes.NewReader(h.launcher))
+	l := h.lobby
+	l.mu.Lock()
+	if p := l.launcherOf(r); p != nil && !p.launcher.old {
+		p.launcher.old = true
+		l.change()
+		log.Printf("server: %s's launcher is too old for this server (version %q): their room links to its latest release",
+			p.asked, sent)
+	}
+	l.mu.Unlock()
+	said := "This launcher is too old for this server: install the new one from the room's page."
+	if err == nil && version == 0 {
+		said = "This launcher is a dev build, which only a dev server takes: install the launcher from the room's page."
+	}
+	http.Error(w, said, http.StatusUpgradeRequired)
+	return false
 }
 
 // serveLauncherCall answers the launcher's calls (/launcher/..., above). It answers 401 for a key that the server
-// doesn't know.
+// doesn't know, and refuses a launcher whose version it doesn't take (launcherFits).
 func (h *web) serveLauncherCall(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
+	if !h.launcherFits(w, r) {
+		return
+	}
 	l := h.lobby
 	what := strings.TrimPrefix(r.URL.Path, "/launcher/")
 	get := r.Method == http.MethodGet || r.Method == http.MethodHead
@@ -289,7 +284,7 @@ func (h *web) serveLauncherPlay(w http.ResponseWriter, r *http.Request) {
 // launcherAnswer completes the lobby's answer to GET /launcher/play with what the web side knows, and sets the
 // answer's version: a hash of the rest of the answer.
 func (h *web) launcherAnswer(play launcherapi.Play) launcherapi.Play {
-	play.Launcher, play.Release, play.Downloads = h.launcherHash, h.launcherRelease, h.sendsT6()
+	play.Downloads = h.sendsT6()
 	if play.Game != nil {
 		play.Game.Port = h.publicPort
 	}
@@ -359,6 +354,9 @@ type launcherReport struct {
 	seen  time.Time // when the launcher last made any call; zero for a launcher that is not running
 	held  int       // how many of the launcher's calls the server holds now (serveLauncherPlay)
 	ready bool      // the PC has what the game needs, as of the last GET /launcher/play; the launcher waits for the game
+	// old is set when the server refused a call of the player's launcher for its version (launcherFits), until a
+	// launcher of theirs that the server takes calls.
+	old bool
 }
 
 // launcherQuiet is how long a launcher may have no call open, and make none, before the server considers it stopped.
@@ -416,12 +414,12 @@ func (l *lobby) launcherOpen(p *player) bool {
 // launcherCalled records a call from p's launcher, which shows that the launcher is running. For a call to
 // /launcher/play, it also records whether the PC has what the game needs (ready). The caller holds l.mu.
 func (l *lobby) launcherCalled(p *player, play, ready bool) {
-	was, wasReady := l.launcherOpen(p), p.launcher.ready
-	p.launcher.seen = time.Now()
+	was, wasReady, wasOld := l.launcherOpen(p), p.launcher.ready, p.launcher.old
+	p.launcher.seen, p.launcher.old = time.Now(), false
 	if play {
 		p.launcher.ready = ready
 	}
-	if !was || wasReady != p.launcher.ready {
+	if !was || wasReady != p.launcher.ready || wasOld {
 		l.change()
 	}
 }

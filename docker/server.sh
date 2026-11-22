@@ -13,7 +13,8 @@
 # for other machines.
 #
 # It is a dev run (ZOMBIES_DEV=1): where the web client leaves something out of the picture, it shows the engine's
-# blinking colours instead of black. Browsers download the game files of the maps they play as fast as they can
+# blinking colours instead of black, and the server takes the launcher's dev builds (docker/launcher.sh) as well as
+# its releases. Browsers download the game files of the maps they play as fast as they can
 # (ZOMBIES_DOWNLOAD_RATE=unlimited). The server's log and the games' output go to stdout. Each game's output also goes
 # to a log file in $ZOMBIES_SERVER_HOME/logs.
 #
@@ -63,8 +64,7 @@ if [ $# -gt 0 ] && [ "${1#+}" = "$1" ]; then map=$1; shift; fi
 # looks stuck.
 progress=quiet; docker image inspect "$image" >/dev/null 2>&1 || progress=auto
 echo "server: bringing the image $image up to date (a minute or so when server/ or docker/Dockerfile changed)" >&2
-mapfile -t launcher < <(launcher_args "$root")
-docker build --progress=$progress -f "$here/Dockerfile" --target server -t "$image" "${launcher[@]}" \
+docker build --progress=$progress -f "$here/Dockerfile" --target server -t "$image" \
     --build-context repo="$root" \
     --build-arg UID="$uid" --build-arg GID="$gid" "$here" >/dev/null
 # The server serves the built page, web/dist. A change to the page shows after docker/web.sh has run again.

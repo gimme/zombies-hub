@@ -64,44 +64,19 @@ WORKDIR /home/game
 STOPSIGNAL SIGINT
 
 # ---- stage server-build: tests and builds the server (server/, Go) from the build context "repo", the checkout ----
-# The server has the launcher inside it (server/launcher.go). The launcher is zombies-launcher.exe, the program for a
-# player's PC (launcher/). It is built for Windows into server/dist/ first, and the server's build embeds it from
-# there. -H=windowsgui builds the launcher without a console window: it shows message boxes and a tray icon
-# (launcher/main.go). go-winres makes a .syso file next to the source, and the linker links it in. The file has what
-# Windows shows of a program: its icon, which is the page's icon (launcher/icon.png is a copy of
-# web/public/icon.png), its name, and a manifest that gives its dialog boxes the current Windows look.
+# It vets and tests all the Go code, the launcher's too (launcher/), and vets the launcher as the Windows program it
+# is. The image has no launcher in it: the launcher's releases are on GitHub (.github/workflows/launcher.yml), and the
+# room's page links to them.
 FROM golang:1.27.4-bookworm AS server-build
 WORKDIR /src
 COPY --from=repo go.mod go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod go mod download
-RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
-    go install github.com/tc-hib/go-winres@v0.3.3
 COPY --from=repo server server
 COPY --from=repo launcher launcher
 COPY --from=repo internal internal
 COPY --from=repo cmd cmd
-# LAUNCHER_VERSION is built into the launcher as its version: the time of the last commit to its code (host.sh:
-# launcher_args). The launcher is signed with its maker's key when the build gets the key, as the secret launcher_key
-# (make launcher-key makes a key). Launchers on players' PCs replace themselves only with a signed build
-# (internal/release). Without the key the image still has a launcher. New players can install it, but no installed
-# launcher updates to it. LAUNCHER_SIGNED is set when the key is given. It is a build argument as well as the secret,
-# because a changed secret does not invalidate Docker's cache of a step: Docker would reuse the unsigned build made
-# before the key was there.
-ARG LAUNCHER_VERSION=0
-ARG LAUNCHER_SIGNED=
 RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
-    --mount=type=secret,id=launcher_key,required=false \
     go vet ./... && GOOS=windows GOARCH=amd64 go vet ./launcher && go test ./... && \
-    (cd launcher && go-winres simply --arch amd64 --manifest gui --icon icon.png --product-name "Zombies Launcher" \
-        --file-description "Zombies Launcher" --original-filename zombies-launcher.exe) && \
-    GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -trimpath \
-        -ldflags "-s -w -H=windowsgui -X main.version=${LAUNCHER_VERSION}" \
-        -o server/dist/zombies-launcher.exe ./launcher && \
-    rm -f server/dist/zombies-launcher.sig && \
-    if [ -n "${LAUNCHER_SIGNED}" ]; then \
-        go run ./cmd/launcher-release sign /run/secrets/launcher_key "${LAUNCHER_VERSION}" \
-            server/dist/zombies-launcher.exe server/dist/zombies-launcher.sig; \
-    fi && \
     CGO_ENABLED=0 go build -trimpath -o /out/zombies-server ./server
 
 # ---- target server: runs the server, which runs the games ----
@@ -177,7 +152,7 @@ RUN npm ci --no-audit --no-fund && \
 COPY player/pipelines.mjs player/perf.mjs ./
 ENTRYPOINT ["node"]
 
-# ---- stage e2e-build: the server, without the launcher, and the stand-in game (e2e/standin), for the page tests ----
+# ---- stage e2e-build: the server and the stand-in game (e2e/standin), for the page tests ----
 FROM golang:1.27.4-bookworm AS e2e-build
 WORKDIR /src
 COPY --from=repo go.mod go.sum ./

@@ -1,7 +1,12 @@
-// A Black Ops II room: its host picks the game, then a map of it; its players get ready, their own Plutonium joins its
-// game through the relay, and they see its report and the game's own leaderboards.
+// A Black Ops II room: its host picks the game, then a map of it; its players join by hand and get ready, their own
+// Plutonium joins its game through the relay, and they see its report and the game's own leaderboards. The room's
+// button opens the launcher, and the room links to the launcher's latest release. A launcher too old for the server is
+// turned away, and the room says so.
 import { createSocket, type Socket } from 'node:dgram';
 import { expect, test } from '../fixtures';
+
+// Where the room links to the launcher: its latest release (internal/launcherapi: LatestFile).
+const setup = 'https://github.com/gimme/zombies-hub/releases/download/launcher/zombies-launcher-setup.exe';
 
 /**
  * Joins a room's game as a player's Plutonium does: from the address the player's page calls from (127.0.0.1), to the
@@ -34,8 +39,13 @@ test('a room plays its game to game over, and its round is on the leaderboards',
   await bob.locator('#joincode').click();
   await expect(ann.locator('#members')).toContainText('Bob');
 
-  await ann.locator('#ready').click();
-  await bob.locator('#ready').click();
+  // the button opens the launcher, unless the player joins by hand
+  for (const page of [ann, bob]) {
+    await expect(page.locator('#ready')).toHaveText('Connect');
+    await page.locator('#t6hand > summary').click();
+    await expect(page.locator('#ready')).toHaveText('Ready');
+    await page.locator('#ready').click();
+  }
   // the countdown, then the game, which the players join from their own PCs
   const games = await Promise.all([plutonium(server.port, 'Ann'), plutonium(server.port, 'Bob')]);
   for (const page of [ann, bob]) await expect(page.locator('#ready')).toHaveText('In game');
@@ -58,3 +68,39 @@ test('a room plays its game to game over, and its round is on the leaderboards',
   await expect(ann.locator('#boardtables .tile.lit .name')).toHaveText('Town');
   await expect(ann.locator('#boardtables')).toContainText('Ann');
 });
+
+test("a launcher too old for the server is turned away, and the room links to the launcher's latest release",
+  async ({ server, player }) => {
+    const ann = await player('Ann');
+    await ann.locator('#make').click();
+    await ann.locator('#titlepick').getByRole('radio', { name: 'Black Ops II', exact: true }).click();
+    await ann.locator('#mapgrid').getByRole('radio', { name: 'Town', exact: true }).click();
+    await expect(ann.locator('#maptitle')).toHaveText('Town');
+    // a player whose browser has seen no launcher of theirs is shown where to get it
+    await expect(ann.locator('#ready')).toHaveText('Connect');
+    await expect(ann.locator('#t6get')).toHaveText('First time? Install Zombies Launcher.');
+    await expect(ann.locator('#t6setup')).toHaveAttribute('href', setup);
+
+    // calls of Ann's launcher, by her key, which the line of the Windows client in her profile has
+    await expect(ann.locator('#playbat')).toHaveText(/ [0-9a-f]{16}$/);
+    const key = ((await ann.locator('#playbat').textContent()) || '').split(' ').pop();
+    const call = (version?: string) => fetch(server.url + '/launcher/play', {
+      headers: { Authorization: 'Key ' + key, ...(version !== undefined && { 'Zombies-Launcher-Version': version }) },
+    });
+    // a launcher that sends no version
+    let rsp = await call();
+    expect(rsp.status).toBe(426);
+    expect(await rsp.text()).toContain('This launcher is too old for this server');
+    await expect(ann.locator('#t6get')).toHaveText(
+      'Your Zombies Launcher is too old for this server. Install the new one, then connect again.');
+    await expect(ann.locator('#t6setup')).toHaveAttribute('href', setup);
+    await expect(ann.locator('#ready')).toHaveText('Connect');
+    // a dev build, on a server that is no dev server
+    rsp = await call('0');
+    expect(rsp.status).toBe(426);
+    expect(await rsp.text()).toContain('dev build');
+    // a launcher that the server takes, of its lowest version (launcherapi.MinVersion): the room says no more of it
+    rsp = await call('1');
+    expect(rsp.status).toBe(200);
+    await expect(ann.locator('#t6get')).toBeHidden();
+  });

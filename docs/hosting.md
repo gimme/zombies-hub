@@ -86,15 +86,20 @@ The container's log has the server's messages and every game's output. Each game
 
 ## Launcher updates
 
-The launcher that players install for Black Ops II is built into the image. Installed launchers replace themselves with a newer build from the server only if it is signed with the key whose public half is `launcher/release.pub`.
+Players install the launcher for Black Ops II from the [releases of zombies-hub](https://github.com/gimme/zombies-hub/releases) on GitHub. The room's page links to the latest launcher there. The image has no launcher in it.
 
-`make launcher-key` creates that key pair once. The private half is written to `~/.zombies/launcher.key`. Keep it out of the repo. An image built without the key has a launcher that players can install but that installed launchers won't update to.
+Each time an installed launcher goes to play, it first looks for a later release of itself. It replaces itself with that release when it is a later version, signed with the key whose public half is `launcher/release.pub`. The player sees nothing of it. Only the project's maintainer and its release workflow have the private half, so neither your server nor GitHub can put another program in the launcher's place.
+
+The server takes only launchers of the versions its code works with. A launcher updates itself before it calls the server, so the server turns away only a launcher that could not: one that can't reach GitHub. That player's room then says that the launcher is too old, with the link to the latest one.
+
+How the launcher is released is in [Development](development.md#releasing-the-launcher).
 
 ## Limits
 
 - One Black Ops II game runs at a time.
 - Rooms and running games are lost when the server restarts. Players and leaderboards are kept.
 - The launcher has no Windows code-signing certificate, so Windows and the browser warn about it the first time.
+- Players get the launcher from GitHub. Their PCs need to reach github.com to install it and to update it.
 - Dead Ops Arcade is not available.
 
 ## Security
@@ -106,4 +111,4 @@ The Black Ops engine's network code is decompiled from a 2010 game and has not b
 - The server passes a game only the kinds of packets a client sends, from the players seated in that game.
 - All games run as the same user, so a compromised game could reach the other running games.
 
-Players trust the server too. The launcher runs what the server sends it, so it asks before using a server other than the one it was installed from.
+Players trust the server too. The launcher starts the game files that the server sends it, so it asks before using a server other than the one it was installed from. The launcher itself comes only from its signed releases on GitHub, and no server can change it.

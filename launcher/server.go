@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -18,7 +19,8 @@ import (
 	"zombies/internal/launcherapi"
 )
 
-// server is the server the launcher plays on. The launcher calls it with the player's key (launcherapi).
+// server is the server the launcher plays on. The launcher calls it with the player's key and its own version
+// (launcherapi).
 //
 // watch keeps one call open that asks the server what to play. The rest of the launcher reads the server's last
 // answer (latest) and makes no such call itself. While the launcher rests (rest), no call is open, and the launcher
@@ -26,6 +28,7 @@ import (
 type server struct {
 	base, key string
 	client    *http.Client
+	version   int64 // the launcher's version, which each call sends (launcherapi.VersionHeader)
 	// ready records that the PC has what the game needs. Each call that asks what to play sends it (setReady).
 	ready atomic.Bool
 	// poll is how long watch waits between two calls to a server that does not hold calls. Such a server answers at
@@ -80,17 +83,30 @@ func (s *server) request(ctx context.Context, method, path string, body io.Reade
 		return nil, err
 	}
 	req.Header.Set("Authorization", launcherapi.Key+s.key)
+	req.Header.Set(launcherapi.VersionHeader, strconv.FormatInt(s.version, 10))
 	return req, nil
 }
 
-// errUnknown is the error for a key that the server doesn't know.
-var errUnknown = errors.New("The server doesn't know you by this link any more: open its page, and join from the room there again.")
+// errUnknown is the error for a key that the server doesn't know. errOld is the error for a launcher whose version
+// the server doesn't take: it is too old for the server's code (launcherapi.MinVersion), or a dev build on a server
+// that is not a dev server. The server answers neither launcher again, so the launcher stops calling it (ends).
+var (
+	errUnknown = errors.New("The server doesn't know you by this link any more: open its page, and join from the room there again.")
+	errOld     = errors.New("This launcher is too old for this server.")
+)
+
+// ends reports whether err ends the launcher's calls to the server: the server doesn't know the player, or doesn't
+// take this launcher.
+func ends(err error) bool { return errors.Is(err, errUnknown) || errors.Is(err, errOld) }
 
 // failed returns the error for a call that the server answered with an error. It has the server's status and the
 // start of its answer, in one line.
 func failed(rsp *http.Response) error {
-	if rsp.StatusCode == http.StatusUnauthorized {
+	switch rsp.StatusCode {
+	case http.StatusUnauthorized:
 		return errUnknown
+	case http.StatusUpgradeRequired:
+		return errOld
 	}
 	text, _ := io.ReadAll(io.LimitReader(rsp.Body, 200))
 	return fmt.Errorf("The server answered %s: %s", rsp.Status, strings.TrimSpace(string(text)))
@@ -142,8 +158,8 @@ func (s *server) ask(ctx context.Context, seen string) (*launcherapi.Play, error
 // watch asks the server what to play for as long as ctx lasts, one call after another. The server holds each call
 // until its answer changes (server/launcher.go: serveLauncherPlay). The launcher so learns of a change when it
 // happens, makes no call on a timer, and shows the server that it runs. watch waits before it tries a failed call
-// again, longer after each failure, up to a minute. It returns when ctx is done or the server no longer knows the
-// player.
+// again, longer after each failure, up to a minute. It returns when ctx is done, or when the server no longer knows
+// the player or doesn't take this launcher (ends).
 func (s *server) watch(ctx context.Context) {
 	s.started.Store(true)
 	wait := s.retry
@@ -178,7 +194,7 @@ func (s *server) watch(ctx context.Context) {
 		s.set(play, err)
 		pause := time.Duration(0)
 		switch {
-		case errors.Is(err, errUnknown):
+		case ends(err):
 			return
 		case err != nil:
 			pause, wait = wait, min(2*wait, time.Minute)
@@ -234,7 +250,7 @@ func (s *server) current(ctx context.Context) (*launcherapi.Play, error) {
 	switch {
 	case err == nil && play != nil:
 		return play, nil
-	case errors.Is(err, errUnknown):
+	case ends(err):
 		return nil, err
 	case err != nil && renew != nil:
 		renew()

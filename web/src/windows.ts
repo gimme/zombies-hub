@@ -43,9 +43,15 @@ export const t6Console = (room: Room): string =>
 //
 // The browser asks the player whether the link may open the launcher. On a PC without the launcher, the browser does
 // nothing with the link, and tells the page nothing either way.
+//
+// The launcher's releases are on GitHub. The server says where the latest release's setup is (server/web.go: GET
+// /server), and the page links to it. GitHub sends the file as a download, so the page stays.
 
-/** Whether the server hands out the launcher. The page links to its setup, /zombies-launcher-setup.exe. */
+/** Whether the server has said where the launcher is. Until it has, a Black Ops II room is joined by hand. */
 export const launcherOn = (): boolean => !!served.launcher;
+
+/** The address of the launcher's latest release, which installs it. */
+export const launcherSetup = (): string => served.launcher || '';
 
 /**
  * Whether a launcher of the player's has run from this browser. Until one has, a Black Ops II room shows the line that

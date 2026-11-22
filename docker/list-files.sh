@@ -23,8 +23,7 @@ name=zombies-list-files
 [ -d "$game/t5/zone" ] ||
     { echo "no game files in $game/t5 (no zone folder): copy a Black Ops install there" >&2; exit 1; }
 progress=quiet; docker image inspect "$image" >/dev/null 2>&1 || progress=auto
-mapfile -t launcher < <(launcher_args "$root")
-docker build --progress=$progress -f "$here/Dockerfile" --target server -t "$image" "${launcher[@]}" \
+docker build --progress=$progress -f "$here/Dockerfile" --target server -t "$image" \
     --build-context repo="$root" \
     --build-arg UID="$uid" --build-arg GID="$gid" "$here" >/dev/null
 mapfile -t engine < <(engine_args "$name")

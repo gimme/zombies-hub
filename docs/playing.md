@@ -21,8 +21,9 @@ Black Ops runs in the browser tab.
 Black Ops II runs on your Windows PC, on [Plutonium](https://plutonium.pw/). The Zombies Launcher starts it for you and joins your room's game.
 
 - **Game files:** Black Ops II installed from Steam. If the host has turned on downloads, the launcher can download the files instead (about 9 GB). It asks before the first download.
-- **First time:** install the launcher with the link under the Ready button. Windows does not know the program and asks whether to run it: choose More info, then Run anyway.
+- **First time:** install the launcher with the link under the room's button. It downloads from GitHub. Windows does not know the program and asks whether to run it: choose More info, then Run anyway.
 - **Each game:** if the room's button says Connect, press it. The launcher brings Plutonium up to date, checks the game files and stays in the tray. Then press Ready. When the room's game starts, the launcher starts your game and joins it. You don't need to install Plutonium or sign in to it.
+- **Updates:** the launcher updates itself from GitHub. If the room says that your launcher is too old, install the new one with the link there, then press Connect.
 - **Same PC:** keep the room's page open on the PC you play on. The server matches your game to your page by address.
 
 If something goes wrong:

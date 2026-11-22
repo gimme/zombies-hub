@@ -21,7 +21,6 @@ import (
 	"sync"
 
 	"zombies/internal/launcherapi"
-	"zombies/internal/release"
 )
 
 // web is the server's HTTP side. It listens on TCP at the same port number as the relay. Browsers run the web client
@@ -44,10 +43,8 @@ import (
 //	                        the game. "dev" is true on a dev run (-dev): the page then lets the engine blink what it
 //	                        leaves out of the picture instead of drawing it black. "downloads" is true when the
 //	                        server sends game files (-download-rate), which a map's button downloads. "launcher" is
-//	                        true when the server serves the launcher, which joins a Black Ops II room's game from the
-//	                        player's PC (launcher.go).
-//	GET /zombies-launcher-setup.exe
-//	                        the launcher, for the player's browser to save. The player runs it once (launcher.go).
+//	                        the address of the launcher's latest release on GitHub, for the page to link to. The
+//	                        launcher joins a Black Ops II room's game from the player's PC (launcher.go).
 //	/launcher/...           the launcher's calls (launcher.go).
 //	GET /player.js          the engine's host (web/public/player.js), an ES module that the page runs the game with.
 //	                        It starts and stops the engine, and keeps the game files that a map needs in the
@@ -119,15 +116,11 @@ type web struct {
 	// set. pace limits all the downloads together to its rate.
 	downloads bool
 	pace      *pacer
-	// The launcher (launcher.go). launcher is the program that the server serves, and launcherHash is its hash. t6Dir
-	// is the folder of T6's game files, which the launcher downloads, or "" on a server without them. t6list is the
-	// list of them that the server last made.
-	launcher        []byte
-	launcherHash    string
-	launcherRelease *release.Signed // its maker's signed statement about it, or nil for an unsigned build
-	t6Dir           string
-	t6mu            sync.Mutex
-	t6list          *launcherFiles
+	// The launcher (launcher.go). t6Dir is the folder of T6's game files, which the launcher downloads, or "" on a
+	// server without them. t6list is the list of them that the server last made.
+	t6Dir  string
+	t6mu   sync.Mutex
+	t6list *launcherFiles
 
 	hashes   fileHashes // the hashes of the game files' contents (hashes.go)
 	building sync.Mutex // one manifest is made at a time (buildManifest)
@@ -332,8 +325,6 @@ func (h *web) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.servePlayerPicture(w, r)
 	case p == "/strings":
 		h.serveStrings(w, r)
-	case p == "/"+launcherapi.Setup:
-		h.serveLauncher(w, r)
 	case p == "/server":
 		hdr.Set("Content-Type", "application/json")
 		hdr.Set("Cache-Control", "no-store")
@@ -342,8 +333,8 @@ func (h *web) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			Web       string `json:"web"`
 			Dev       bool   `json:"dev,omitempty"`
 			Downloads bool   `json:"downloads,omitempty"`
-			Launcher  bool   `json:"launcher,omitempty"`
-		}{h.publicPort, h.webVersion(), h.dev, h.downloads, h.launcher != nil})
+			Launcher  string `json:"launcher"`
+		}{h.publicPort, h.webVersion(), h.dev, h.downloads, launcherapi.LatestFile(launcherapi.Releases, launcherapi.Setup)})
 	case p == "/certhash":
 		_, hash, err := h.certs.current()
 		if err != nil {

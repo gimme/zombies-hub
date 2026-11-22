@@ -1,7 +1,8 @@
 // Package release lets a launcher recognise another build of itself as its maker's. The maker signs a statement of
-// the build with the maker's key, and every launcher of that maker has the public half of the key built in. A server
-// sends the statement with the build, and can make neither. So whoever runs a server, or breaks into one, cannot put
-// a program of their own in a launcher's place.
+// the build with the maker's key, and every launcher of that maker has the public half of the key built in. The
+// release workflow signs each release with the key, which only it has (.github/workflows/launcher.yml), and the
+// release on GitHub has the statement next to the build. Whoever serves the download, or a server that a launcher
+// plays on, can make no statement. So neither can put a program of their own in a launcher's place.
 package release
 
 import (
@@ -31,7 +32,7 @@ type Signed struct {
 }
 
 // domain is the line that comes before the statement in the text that is signed. With it, a signature that the key
-// made for anything else is not a signature of a build.
+// made for anything else is not a signature of a release.
 const domain = "zombies-launcher release\n"
 
 // NewKey makes a maker's key. It returns the public half, for the launchers, and the private half, which signs their

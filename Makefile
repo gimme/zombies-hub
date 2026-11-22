@@ -8,7 +8,7 @@
 ARGS ?=
 REGISTRY ?=
 .DEFAULT_GOAL := help
-.PHONY: help dev web image push launcher-key test test-go test-e2e
+.PHONY: help dev web image push launcher launcher-key test test-go test-e2e
 # The targets run one at a time and in order.
 .NOTPARALLEL:
 
@@ -35,7 +35,10 @@ image: ## build the server image zombies:latest (docker/image.sh)
 push: image ## make image, then push it to a registry: make push REGISTRY=<host>[:port] (docker/push.sh)
 	docker/push.sh $(REGISTRY) $(ARGS)
 
-launcher-key: ## make the key the launcher's updates are signed with, once (docker/launcher-key.sh)
+launcher: ## build the launcher as a dev build into build/, to try a change (docker/launcher.sh)
+	docker/launcher.sh
+
+launcher-key: ## make the key the launcher's releases are signed with, once (docker/launcher-key.sh)
 	docker/launcher-key.sh
 
 test: ## test the server image with real games, in this machine's Chrome (docker/test-games.sh)

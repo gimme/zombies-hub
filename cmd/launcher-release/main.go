@@ -2,13 +2,14 @@
 // (internal/release).
 //
 //	launcher-release key <private key file> <public key file>
-//	        makes a key. The private half is for the maker to keep, outside the repository. The public half is for
-//	        launcher/release.pub, and every launcher built from then on has it built in. The command overwrites
-//	        neither file.
+//	        makes a key. The private half is for the repository's secret LAUNCHER_KEY and a safe copy, outside the
+//	        repository. The public half is for launcher/release.pub, and every launcher built from then on has it built
+//	        in. The command overwrites neither file.
 //	launcher-release sign <private key file> <version> <launcher> <statement file>
-//	        signs the build. It writes the statement that a server sends with the build. Launchers with the key's
-//	        public half accept the statement as their maker's. The command signs only a build that has that public
-//	        half built in, so that the launchers that update to the build go on accepting their maker's builds.
+//	        signs the build. It writes the statement that the launcher's release has next to the build
+//	        (.github/workflows/launcher.yml). Launchers with the key's public half accept the statement as their
+//	        maker's. The command signs only a build that has that public half built in, so that the launchers that
+//	        update to the build go on accepting their maker's builds.
 package main
 
 import (

@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -15,17 +16,22 @@ import (
 	"zombies/internal/launcherapi"
 )
 
-// asLauncher is a call of a player's launcher, by their key, and its answer's status and body. header is the call's
-// headers, a name and a value each; "from" is the address it comes from.
+// asLauncher is a call of a player's launcher, by their key, and its answer's status and body. The launcher is of the
+// lowest version that the server takes. header is the call's headers, a name and a value each, where "" leaves a
+// header out; "from" is the address it comes from.
 func asLauncher(h http.Handler, method, path, key, body string, header ...string) (*http.Response, string) {
 	req := httptest.NewRequest(method, path, strings.NewReader(body))
 	if key != "" {
 		req.Header.Set("Authorization", launcherapi.Key+key)
 	}
+	req.Header.Set(launcherapi.VersionHeader, strconv.Itoa(launcherapi.MinVersion))
 	for i := 0; i+1 < len(header); i += 2 {
-		if header[i] == "from" { // the address the call comes from
+		switch {
+		case header[i] == "from": // the address the call comes from
 			req.RemoteAddr = header[i+1]
-		} else {
+		case header[i+1] == "":
+			req.Header.Del(header[i])
+		default:
 			req.Header.Set(header[i], header[i+1])
 		}
 	}
@@ -127,7 +133,7 @@ func TestLauncherPlayIsHeld(t *testing.T) {
 // player's game is, as their page's do.
 func TestLauncherPlay(t *testing.T) {
 	l, target := t6Lobby(t)
-	h := &web{lobby: l, publicPort: 4000, launcher: []byte("the launcher"), launcherHash: "abc"}
+	h := &web{lobby: l, publicPort: 4000}
 	ann, bob := l.hello("", "Ann"), l.hello("", "Ann")
 	a, b := ann.Token, bob.Token
 	for _, key := range []string{"", "0123456789abcdef", ann.Token} {
@@ -139,7 +145,7 @@ func TestLauncherPlay(t *testing.T) {
 		t.Errorf("a key as a page's token: %s", rsp.Status)
 	}
 	play := playOf(t, h, ann.Key)
-	if version := play.Version; version == "" || play != (launcherapi.Play{Player: "Ann", Launcher: "abc", Version: version}) {
+	if version := play.Version; version == "" || play != (launcherapi.Play{Player: "Ann", Version: version}) {
 		t.Errorf("in no room: %+v", play)
 	}
 	// a T5 room is the page's to play
@@ -395,23 +401,55 @@ func TestT6RoomPassword(t *testing.T) {
 	}
 }
 
-// The launcher itself, where the server's build has it.
-func TestLauncherServed(t *testing.T) {
-	h := &web{lobby: testLobby(t), certs: &certificates{}}
+// The server takes the calls of a launcher of a version that its code works with, and of a dev build on a dev server.
+// It refuses the others, each with a sentence for the player, and the player's page says that their launcher is too
+// old, until a launcher of theirs that the server takes calls. The page links to the launcher's latest release.
+func TestLauncherVersion(t *testing.T) {
+	l, _ := t6Lobby(t)
+	h := &web{lobby: l, certs: &certificates{}}
+	ann := l.hello("", "Ann")
+	do(l, ann.Token, "create", "map", "zm_standard_town")
+	old := func() bool { return l.viewOf(ann.Token).You.LauncherOld }
+	// a launcher that sends no version
+	rsp, body := asLauncher(h, http.MethodGet, "/launcher/play", ann.Key, "", launcherapi.VersionHeader, "")
+	if rsp.StatusCode != http.StatusUpgradeRequired || !strings.Contains(body, "too old") || !old() {
+		t.Errorf("a launcher with no version: %s, %q; the page says it is too old: %v", rsp.Status, body, old())
+	}
+	if v := l.viewOf(ann.Token).You; v.Launcher {
+		t.Errorf("a launcher that was refused runs, to the page: %+v", v)
+	}
+	// a launcher that the server takes
+	playOf(t, h, ann.Key)
+	if old() {
+		t.Error("the page still says that the player's launcher is too old")
+	}
+	// one of a version below the lowest, a dev build on a server that is no dev server, and a version that is none
+	for _, version := range []string{strconv.Itoa(launcherapi.MinVersion - 1), "0", "-3", "seven"} {
+		for _, call := range [][2]string{{http.MethodGet, "/launcher/play"}, {http.MethodPost, "/launcher/files"}} {
+			rsp, body := asLauncher(h, call[0], call[1], ann.Key, `{"running": true, "need": 100}`,
+				launcherapi.VersionHeader, version)
+			if rsp.StatusCode != http.StatusUpgradeRequired || !strings.HasSuffix(strings.TrimSpace(body), ".") || !old() {
+				t.Errorf("%s %s by a launcher of version %q: %s, %q; the page says it is too old: %v", call[0], call[1],
+					version, rsp.Status, body, old())
+			}
+		}
+	}
+	if m := l.viewOf(ann.Token).Room.Members[0]; m.Downloading {
+		t.Errorf("the report of a launcher that was refused: %+v", m)
+	}
+	// a dev server takes a dev build, and nothing older than the lowest version
+	h.dev = true
+	if rsp, _ := asLauncher(h, http.MethodGet, "/launcher/play", ann.Key, "", launcherapi.VersionHeader, "0"); rsp.StatusCode != http.StatusOK || old() {
+		t.Errorf("a dev build on a dev server: %s; the page says it is too old: %v", rsp.Status, old())
+	}
+	if rsp, _ := asLauncher(h, http.MethodGet, "/launcher/play", ann.Key, "", launcherapi.VersionHeader, "-3"); rsp.StatusCode != http.StatusUpgradeRequired {
+		t.Errorf("a launcher of version -3 on a dev server: %s", rsp.Status)
+	}
+	// the page links to the launcher's latest release
 	srv := httptest.NewServer(h)
 	defer srv.Close()
-	if rsp, _ := get(t, srv.URL+"/zombies-launcher-setup.exe"); rsp.StatusCode != http.StatusNotFound {
-		t.Errorf("the launcher of a build without it: %s", rsp.Status)
-	}
-	if _, body := get(t, srv.URL+"/server"); strings.Contains(body, "launcher") {
-		t.Errorf("a server with no launcher says %s", body)
-	}
-	h.launcher, h.launcherHash = []byte("MZ, the launcher"), "abc"
-	rsp, body := get(t, srv.URL+"/zombies-launcher-setup.exe")
-	if body != "MZ, the launcher" || !strings.Contains(rsp.Header.Get("Content-Disposition"), `filename="zombies-launcher-setup.exe"`) {
-		t.Errorf("the launcher: %s, %q, %q", rsp.Status, body, rsp.Header.Get("Content-Disposition"))
-	}
-	if _, body := get(t, srv.URL+"/server"); !strings.Contains(body, `"launcher":true`) {
-		t.Errorf("a server with the launcher says %s", body)
+	if _, body := get(t, srv.URL+"/server"); !strings.Contains(body,
+		`"launcher":"https://github.com/gimme/zombies-hub/releases/download/launcher/zombies-launcher-setup.exe"`) {
+		t.Errorf("the server says %s", body)
 	}
 }

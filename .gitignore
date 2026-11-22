@@ -11,9 +11,7 @@ __pycache__/
 # Claude Code: agent worktrees and personal settings (.claude/settings.json is shared)
 /.claude/worktrees/
 /.claude/settings.local.json
-# the launcher's files that the image's build makes and puts in the server (server/dist/README.md)
-/server/dist/zombies-launcher.exe
-/server/dist/zombies-launcher.sig
+# the launcher's icon and manifest, which go-winres makes for its build (.github/workflows/launcher.yml)
 /launcher/*.syso
 # the built page (docker/web.sh, or npm run build in web/)
 /web/dist/

@@ -608,6 +608,9 @@ type youView struct {
 	// LauncherDoing describes in a few words what the launcher is doing to get the PC ready. It is "" when the
 	// launcher has nothing to report.
 	LauncherDoing string `json:"launcherDoing,omitempty"`
+	// LauncherOld is set when the server refused their launcher for its version, until a launcher of theirs that the
+	// server takes calls (launcher.go: launcherFits). Their page then links to the launcher's latest release.
+	LauncherOld bool `json:"launcherOld,omitempty"`
 }
 
 // roomItem is a room in the list. A room that is private, or less than privateFor old, is listed as private and
@@ -738,7 +741,7 @@ func (l *lobby) view(p *player) view {
 	v := view{You: youView{ID: p.id, Name: p.asked, Avatar: l.avatar(p), Picture: l.pictureShown(p),
 		DiscordAvatar: p.discordAvatar(), Windows: p.shown.windows, Ready: l.isReady(p),
 		Launcher: l.launcherOpen(p), LauncherReady: l.launcherOpen(p) && p.launcher.ready,
-		LauncherFailed: p.launcher.Failed, LauncherDoing: p.launcher.Doing},
+		LauncherFailed: p.launcher.Failed, LauncherDoing: p.launcher.Doing, LauncherOld: p.launcher.old},
 		Size: l.roomSize, MinPlayers: l.minPlayers, Mods: modList, Pictures: l.picturesShown, Rooms: []roomItem{},
 		Full: l.full(), DefaultMap: l.mapName("")}
 	if v.Pictures == nil {

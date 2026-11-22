@@ -25,12 +25,6 @@
 #             when set. ZOMBIES_ENGINE_FILE is the path of a local engine archive: the archive is mounted, and the
 #             server is told to use it. In Git Bash the folder that the server unpacks the engine into is the Docker
 #             volume <name>-engine, because Wine can't run a program from a Windows folder (for_wine).
-# launcher_args <checkout>
-#             Prints docker build's arguments for the launcher in the image, one per line (docker/Dockerfile, stage
-#             server-build). LAUNCHER_VERSION is the launcher's version: the time of the last commit to its code, so
-#             that a later build has a larger number. When this machine has the maker's key, the arguments also pass
-#             the key to sign the launcher with, and LAUNCHER_SIGNED, which tells the build to sign it. The key is the
-#             file ZOMBIES_LAUNCHER_KEY, by default ~/.zombies/launcher.key, which make launcher-key makes.
 #
 # Git Bash would also rewrite docker's arguments that look like paths as Windows paths: a path in the container
 # (/src), and a volume's host:container pair as a list of two paths (C:\...;C:\Program Files\Git\...).
@@ -48,15 +42,6 @@ engine_args() {
     fi
     if [ -n "${MSYSTEM:-}" ]; then
         printf '%s\n' -v "$1-engine:/config/engine"
-    fi
-}
-launcher_args() {
-    local key=${ZOMBIES_LAUNCHER_KEY:-$HOME/.zombies/launcher.key} version
-    version=$(git -C "$1" log -1 --format=%ct -- launcher internal cmd go.mod go.sum 2>/dev/null) || version=
-    printf '%s\n' --build-arg "LAUNCHER_VERSION=${version:-0}"
-    if [ -s "$key" ]; then
-        printf '%s\n' --build-arg LAUNCHER_SIGNED=1 \
-            --secret "id=launcher_key,src=$(abs "$(dirname "$key")")/$(basename "$key")"
     fi
 }
 if [ -n "${MSYSTEM:-}" ]; then

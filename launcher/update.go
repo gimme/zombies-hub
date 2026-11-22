@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -16,8 +17,8 @@ import (
 	"zombies/internal/release"
 )
 
-// exeName is the name of the launcher's file in its folder. The server offers the same program under another name,
-// which describes what a player does with it (launcherapi.Setup).
+// exeName is the name of the launcher's file in its folder. A release has the same program under another name, which
+// describes what a player does with it (launcherapi.Setup).
 const exeName = "zombies-launcher.exe"
 
 // appName is the launcher's name on a player's PC: in Windows' list of installed apps, in a browser's question
@@ -128,55 +129,56 @@ func (la *launcher) uninstall() error {
 	return nil
 }
 
-// update replaces this launcher with the server's build of it, without asking the player, when that is a later build
-// of this launcher's maker. The server sends the maker's signed statement of the build with it (internal/release),
-// and can't make a statement itself. So whoever runs a server, or breaks into one, can't put a program of their own
-// in the launcher's place: the launcher keeps the build it is, and plays on with it. The launcher doesn't accept an
-// earlier build of the maker's either, which may have a fault that was fixed since. update acts only for the
-// installed launcher, which links run, and once a run. It returns true when the server's build is in place, for the
-// caller to start it instead of this one.
-func (la *launcher) update(ctx context.Context, srv *server, play *launcherapi.Play) (bool, error) {
+// update replaces this launcher with its latest release, without asking the player, when that is a later build of
+// this launcher's maker. The releases are on GitHub (launcherapi.Releases), and each has the maker's signed statement
+// of its build (internal/release). update first downloads the latest release's statement, from the release that
+// always has it (launcherapi.Current), and checks its signature with the public half of the maker's key, which is
+// built into the launcher. It goes on only for a statement of a later version than its own. It then downloads the
+// build from the release of that version, by the version's tag, so that a release published between the two
+// downloads can't put another build in its place. It takes the build only when the build's hash is the one the
+// statement names.
+//
+// Neither whoever serves the download, nor anyone between GitHub and the PC, nor a server that the launcher plays on
+// can make a statement. So none of them can put a program of their own in the launcher's place. Nor can they put an
+// earlier build of the maker's there, which may have a fault that was fixed since. When anything is wrong, or GitHub
+// can't be reached in time, the launcher keeps the build it is and plays on with it.
+//
+// update acts only for the installed launcher, which links run, and once a run: a launcher that an update started
+// (updatedEnv) does not update again. A build without its maker's key, or with version 0 (a dev build,
+// docker/launcher.sh), never replaces itself and asks GitHub nothing. update returns true when the later build is in
+// place, for the caller to start it instead of this one (renew).
+//
+// A run looks for a later release before it calls the server (play), so the look is one small download with a short
+// limit (checkLimit). turn takes the turn to change what the PC's launchers share (filesTurn). update calls it only
+// once there is a later release to take, so a launcher that has none waits for no other launcher.
+func (la *launcher) update(ctx context.Context, turn func()) (bool, error) {
 	to := la.installed()
 	os.Remove(to + ".old") // left by an earlier update
-	if play.Launcher == "" || la.exe == "" || os.Getenv(updatedEnv) != "" || !sameFile(la.exe, to) {
+	if la.key == nil || la.version <= 0 || la.exe == "" || os.Getenv(updatedEnv) != "" || !sameFile(la.exe, to) {
 		return false, nil
 	}
-	if own, err := hashFile(ctx, la.exe); err != nil || own == play.Launcher {
+	text, err := la.download(ctx, launcherapi.LatestFile(la.releases, launcherapi.Signed), checkLimit, 64<<10)
+	if err != nil {
 		return false, err
 	}
-	switch {
-	case la.key == nil:
-		return false, errors.New("this launcher was built without its maker's key, and takes no other build by itself")
-	case play.Release == nil:
-		return false, errors.New("the server's build is not signed")
+	var signed release.Signed
+	if err := json.Unmarshal(text, &signed); err != nil {
+		return false, errors.New("the latest release's statement can't be read")
 	}
-	st, err := play.Release.Verify(la.key)
+	st, err := signed.Verify(la.key)
 	if err != nil {
 		return false, err
 	}
 	if st.Version <= la.version {
-		return false, nil // the server's build is an earlier one, or this one: the launcher keeps its own
+		return false, nil // an earlier release, or this one: the launcher keeps its own
 	}
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
-	defer cancel()
-	req, err := srv.request(ctx, http.MethodGet, "/"+launcherapi.Setup, nil)
-	if err != nil {
-		return false, err
-	}
-	rsp, err := srv.client.Do(req)
-	if err != nil {
-		return false, err
-	}
-	defer rsp.Body.Close()
-	if rsp.StatusCode != http.StatusOK {
-		return false, failed(rsp)
-	}
-	data, err := io.ReadAll(io.LimitReader(rsp.Body, 64<<20))
+	turn()
+	data, err := la.download(ctx, launcherapi.ReleaseFile(la.releases, st.Version, launcherapi.Setup), 5*time.Minute, 64<<20)
 	if err != nil {
 		return false, err
 	}
 	if release.HashOf(data) != st.Hash {
-		return false, errors.New("what the server sent is not the build its maker signed")
+		return false, errors.New("what was downloaded is not the build its maker signed")
 	}
 	if err := writeFile(to+".new", data); err != nil {
 		return false, err
@@ -186,3 +188,52 @@ func (la *launcher) update(ctx context.Context, srv *server, play *launcherapi.P
 	}
 	return true, nil
 }
+
+// checkLimit is how long the launcher waits for the latest release's statement (update). A link's run waits for it
+// before the server, and so the player's room, hears of the launcher, so it is short.
+const checkLimit = 8 * time.Second
+
+// download returns the file at url, of the launcher's releases. It gives up after wait, and on a file of more than
+// limit bytes.
+func (la *launcher) download(ctx context.Context, url string, wait time.Duration, limit int64) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(ctx, wait)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+	rsp, err := la.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("the launcher's releases can't be reached: %v", err)
+	}
+	defer rsp.Body.Close()
+	if rsp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("%s: %s", url, rsp.Status)
+	}
+	data, err := io.ReadAll(io.LimitReader(rsp.Body, limit+1))
+	switch {
+	case err != nil:
+		return nil, fmt.Errorf("the launcher's releases can't be reached: %v", err)
+	case int64(len(data)) > limit:
+		return nil, fmt.Errorf("%s is larger than it can be", url)
+	}
+	return data, nil
+}
+
+// tooOld returns the error for a server that doesn't take this launcher (errOld). It says where the launcher's latest
+// release is, for the player to install by hand. The launcher looked for a later release before (update), and took
+// none.
+func (la *launcher) tooOld() error {
+	setup := launcherapi.LatestFile(la.releases, launcherapi.Setup)
+	if la.version <= 0 {
+		return oldError("This launcher is a dev build, and this server takes only the launcher's releases. Install the " +
+			"latest release, and join from the room's page again: " + setup)
+	}
+	return oldError(errOld.Error() + " Install the new one, and join from the room's page again: " + setup)
+}
+
+// oldError is errOld, with what the player can do about it.
+type oldError string
+
+func (e oldError) Error() string        { return string(e) }
+func (e oldError) Is(target error) bool { return target == errOld }

@@ -30,7 +30,7 @@ func TestSignAndVerify(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// as a server hands it out, and a launcher reads it
+	// as a release has it, and a launcher reads it
 	wire, _ := json.Marshal(signed)
 	var got Signed
 	if err := json.Unmarshal(wire, &got); err != nil {

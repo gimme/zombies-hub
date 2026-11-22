@@ -33,7 +33,7 @@ import { modNames, modOn, modValue } from './mods';
 import { mayLeaveGame } from './question';
 import { bo1Settings } from './settings';
 import { mapsOf, titleName } from './titles';
-import { launcherHere, launcherOn, launcherSeen, onWindows, t6Console } from './windows';
+import { launcherHere, launcherOn, launcherSeen, launcherSetup, onWindows, t6Console } from './windows';
 
 // A gamepad, on a player whose page reads one: its two grips, its d-pad and two of its buttons.
 const PAD_ICON = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" ' +
@@ -188,9 +188,9 @@ export function showRoomButton(v: View, room: Room): void {
     if (m.ready && !v.you.ready && (v.full || short > 0)) m.disabled = true;
     m.does = m.gets ? 'map' : 'ready';
     m.primary = !!m.gets || (!!m.ready && !v.you.ready);
-    // In a Black Ops II room on a server with a launcher, the button opens the launcher first. The launcher then gets
-    // what the PC lacks for the game, and the button says how far that is. After that the button is Ready. Not for a
-    // player who joins by hand, with that box open.
+    // In a Black Ops II room, once the server has said where the launcher is, the button opens the launcher first.
+    // The launcher then gets what the PC lacks for the game, and the button says how far that is. After that the
+    // button is Ready. Not for a player who joins by hand, with that box open.
     if (t6 && launcherOn() && !v.you.ready && !$<HTMLDetailsElement>('t6hand').open) {
       const mine = room.members.find((x) => x.id === me.id);
       if (v.you.launcherFailed) m = { label: 'Try again', does: 'launch', primary: true };
@@ -243,17 +243,23 @@ function gameButton(v: View, room: Room): RoomButton {
 
 /**
  * Draws the box of a room on a Black Ops II map. Nothing opens the launcher but the room's button. The box has the
- * line that installs the launcher, in a browser that has never seen a launcher of the player's run, and the line
- * that joins by hand.
+ * line that installs the launcher, and the line that joins by hand. The line that installs the launcher is there in a
+ * browser that has never seen a launcher of the player's run, and when the server refused the player's launcher as
+ * too old. That launcher can't say so itself, because the server takes no report from it.
  */
 export function showT6(v: View, room: Room): void {
   const box = $('t6box');
   box.classList.toggle('hidden', room.of !== 't6');
   if (room.of !== 't6') return;
   if (v.you.launcher) launcherSeen();
-  $('t6get').classList.toggle('hidden', !launcherOn() || launcherHere);
-  // The box of joining by hand is open when the player comes into a room on a server without a launcher. After
-  // that, it is the player's to open and close.
+  const old = !!v.you.launcherOld;
+  $('t6get').classList.toggle('hidden', !launcherOn() || (launcherHere && !old));
+  $('t6why').textContent = old ? 'Your Zombies Launcher is too old for this server.' : 'First time?';
+  $('t6setup').textContent = old ? 'Install the new one' : 'Install Zombies Launcher';
+  $('t6then').textContent = old ? ', then connect again.' : '.';
+  $<HTMLAnchorElement>('t6setup').href = launcherSetup();
+  // The box of joining by hand is open when the player comes into a room before the server has said where the
+  // launcher is. After that, it is the player's to open and close.
   const key = room.code + launcherOn();
   if (box.dataset.room !== key) {
     box.dataset.room = key;

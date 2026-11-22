@@ -127,7 +127,7 @@ func run() int {
 	webPage := flag.String("web-page", env("ZOMBIES_WEB_PAGE", "/web"), "the folder of the web client's built page, with index.html (ZOMBIES_WEB_PAGE)")
 	wine := flag.String("wine", env("ZOMBIES_WINE", "wine"), "the wine command (ZOMBIES_WINE)")
 	consoleSocket := flag.String("console", env("ZOMBIES_CONSOLE", defaultConsole), `the console's Unix socket, for "zombies-server console"; "" for none (ZOMBIES_CONSOLE)`)
-	dev := flag.Bool("dev", envInt("ZOMBIES_DEV", 0) != 0, "a dev run: the web client blinks what it leaves out of the picture, as the engine does, instead of drawing it black (ZOMBIES_DEV=1)")
+	dev := flag.Bool("dev", envInt("ZOMBIES_DEV", 0) != 0, "a dev run: the web client blinks what it leaves out of the picture, as the engine does, instead of drawing it black, and the server takes dev builds of the launcher (ZOMBIES_DEV=1)")
 	cheats := flag.Bool("cheats", envInt("ZOMBIES_CHEATS", 0) != 0, "run games with cheats on (devmap), for tests (ZOMBIES_CHEATS=1)")
 	downloadRate := flag.String("download-rate", env("ZOMBIES_DOWNLOAD_RATE", ""), "send browsers the game files, at most this many bits a second in total (40M, 500k, 1G), or unlimited; empty sends none (ZOMBIES_DOWNLOAD_RATE)")
 	hangTimeout := flag.Duration("hang-timeout", envDuration("ZOMBIES_HANG_TIMEOUT", time.Minute), "how long a game may run no frame, or answer no one, before it ends; 0: never (ZOMBIES_HANG_TIMEOUT)")
@@ -298,7 +298,6 @@ func run() int {
 		pipelinesDir: eng.Pipelines, gameDir: t5Files,
 		dev: *dev, lobby: l, downloads: downloads, pace: &pacer{rate: rate},
 		hashes: fileHashes{file: filepath.Join(*dataDir, "hashes.tsv")}}
-	pages.launcher, pages.launcherHash, pages.launcherRelease = launcherExe()
 	if len(t6Maps) > 0 {
 		pages.t6Dir = t6Files
 	}
@@ -374,16 +373,11 @@ func run() int {
 	}
 	if len(t6Maps) > 0 {
 		log.Printf("server: rooms play Black Ops II on Plutonium, one game at a time (its copy: %s)", *plutoniumDir)
-		if pages.launcher != nil {
-			signed := "not signed: launchers on players' PCs keep the build they have"
-			if pages.launcherRelease != nil {
-				signed = "signed: launchers of its maker take it in their place"
-			}
-			log.Printf("server: its players join from their PCs with the launcher, which the page hands out (%s, %s; %s)",
-				launcherapi.Setup, pages.launcherHash, signed)
-		} else {
-			log.Printf("server: this build has no launcher (docker/Dockerfile builds it in): Black Ops II's players join by hand")
+		takes := fmt.Sprintf("version %d and later", launcherapi.MinVersion)
+		if *dev {
+			takes += ", and dev builds"
 		}
+		log.Printf("server: its players join from their PCs with the launcher, from %s (%s)", launcherapi.Releases, takes)
 	}
 	if gameUID != 0 {
 		log.Printf("server: the games run as user %d, the server as %d", gameUID, os.Getuid())

@@ -1,7 +1,8 @@
 // zombies-launcher is the launcher, Zombies Launcher. It starts Black Ops II on a player's PC and joins their room's
 // game on a Zombies server (server/launcher.go). A browser can't do that: a Black Ops II room's game is Plutonium's
-// server, and its players join it from their own PCs. The room's page offers the launcher as its own setup program
-// (GET /zombies-launcher-setup.exe). The player runs it once by hand. It then copies itself to its folder
+// server, and its players join it from their own PCs. The launcher's releases are on GitHub
+// (.github/workflows/launcher.yml), and the room's page links to the latest release's setup program
+// (zombies-launcher-setup.exe). The player runs it once by hand. It then copies itself to its folder
 // (%LOCALAPPDATA%\Zombies Launcher), registers the links of its scheme with Windows, and adds itself to the PC's list
 // of installed apps, all for the player's Windows user alone. From then on a link on the room's page starts it, and
 // Windows' list of apps uninstalls it:
@@ -16,11 +17,14 @@
 //   - asks the player whether this PC plays on the link's server, the first time a link names that server
 //     (config.Servers). It does not ask for the first server the PC plays on (trust). The server sends the launcher
 //     what the game runs, so it has to be a server of someone the player trusts.
-//   - asks the server what to play (launcherapi: GET /launcher/play), with the player's key. It keeps one such call
-//     open while the player is in a Black Ops II room, and the server answers when something changes for the player
-//     (server.go: watch).
-//     The launcher makes no call on a timer. It replaces itself with the server's build of the launcher when that
-//     is a later build signed by the launcher's maker (update.go).
+//   - replaces itself with the latest release of the launcher on GitHub, when that is a later build signed by the
+//     launcher's maker (update.go). It looks once each time it goes to play, before it calls the server. A server
+//     that takes only later versions (launcherapi.MinVersion) so never hears of the older one, and the player's room
+//     has nothing to say of it. When the server doesn't take the launcher and there is no later release, the launcher
+//     ends, and says where the latest release is.
+//   - asks the server what to play (launcherapi: GET /launcher/play), with the player's key and its own version. It
+//     keeps one such call open while the player is in a Black Ops II room, and the server answers when something
+//     changes for the player (server.go: watch). The launcher makes no call on a timer.
 //   - makes sure that the PC's Plutonium is of the server's revision, which the server's answer has: a room's game
 //     turns away a player's game of another revision. Plutonium is in %LOCALAPPDATA%\Plutonium, where Plutonium's
 //     own launcher keeps it too (plutonium.Copy). When the revisions differ, the launcher updates the PC's copy from
@@ -37,10 +41,10 @@
 //   - closes its call to the server five minutes after the player left their last Black Ops II room. It then stays
 //     in the tray and sends nothing, until the player presses Connect in a room again (idle).
 //
-// The launcher is built without a console window of its own (docker/Dockerfile: -H=windowsgui). Installing and
-// uninstalling show nothing but a message box at their end, or for a question. A link's run has no window either.
-// It writes what it does to its log (launcher.log) and reports it to the server, whose page shows it. It then stays
-// in the tray (serve).
+// The launcher is built without a console window of its own (-H=windowsgui, .github/workflows/launcher.yml).
+// Installing and uninstalling show nothing but a message box at their end, or for a question. A link's run has no
+// window either. It writes what it does to its log (launcher.log) and reports it to the server, whose page shows it.
+// It then stays in the tray (serve).
 package main
 
 import (
@@ -72,6 +76,7 @@ type launcher struct {
 	home      string // its folder: the program, its config, and the game files it downloads
 	plutonium string // the PC's copy of Plutonium
 	manifest  string // the URL of the manifest of Plutonium's updater
+	releases  string // the launcher's releases (launcherapi.Releases), which update takes later builds from
 	exe       string // the path of the program that runs, or "" when it is not known
 	client    *http.Client
 	in        *bufio.Reader
@@ -133,8 +138,9 @@ type launcher struct {
 	// logged is set once a launcher that stays has started its log. Its next runs append to the log.
 	logged bool
 	// key is the public half of the key of the launcher's maker, or nil for a launcher built without one. version is
-	// the number of this build. The launcher replaces itself with another build only when that is a later build of
-	// the same maker (update).
+	// the number of this build, its release, or 0 for a dev build. The launcher replaces itself with another build
+	// only when that is a later build of the same maker (update). It sends its version with each call to the server,
+	// which takes only versions that its code works with (launcherapi.MinVersion).
 	key     ed25519.PublicKey
 	version int64
 	// programs has Black Ops II's own programs, the only programs the launcher accepts from a server. It maps each
@@ -143,8 +149,9 @@ type launcher struct {
 }
 
 // makerKey is the public half of the key that the launcher's maker signs its builds with (release.pub, which make
-// launcher-key writes). version is the number of this build. The image's build sets it to the time of the last commit
-// to the launcher's code (docker/Dockerfile).
+// launcher-key writes). version is the number of this build. The release workflow sets it to the number in the
+// release's tag, launcher-v<version> (.github/workflows/launcher.yml). It is 0 for a build that is no release
+// (docker/launcher.sh, go build).
 //
 //go:embed release.pub
 var makerKey string
@@ -180,7 +187,8 @@ func main() {
 	boxes := windowless()
 	la := &launcher{
 		home: filepath.Join(local, appName), plutonium: filepath.Join(local, "Plutonium"),
-		manifest: plutonium.Manifest, client: newClient(), in: bufio.NewReader(os.Stdin), out: os.Stdout,
+		manifest: plutonium.Manifest, releases: launcherapi.Releases,
+		client: newClient(), in: bufio.NewReader(os.Stdin), out: os.Stdout,
 		status: os.Stdout,
 		start:  startProgram, rerun: rerun, register: register, unregister: unregister, later: removeLater,
 		copies: steamCopies,
@@ -198,6 +206,9 @@ func main() {
 	}
 	if url := os.Getenv("ZOMBIES_PLUTONIUM_URL"); url != "" { // Plutonium's updater, for tests
 		la.manifest = url
+	}
+	if url := os.Getenv("ZOMBIES_LAUNCHER_RELEASES"); url != "" { // the launcher's releases, for tests
+		la.releases = url
 	}
 	la.exe, _ = os.Executable()
 	la.key, _ = release.ParsePublic(makerKey)
@@ -311,6 +322,7 @@ func (la *launcher) link(ctx context.Context, url string) int {
 // srv.start, and stays open until stop is called.
 func (la *launcher) open(ctx context.Context, l link) (srv *server, stop func()) {
 	srv = newServer(l, la.client)
+	srv.version = la.version
 	if la.poll > 0 {
 		srv.poll = la.poll
 	}
@@ -336,8 +348,9 @@ func (la *launcher) open(ctx context.Context, l link) (srv *server, stop func())
 // serve is a link's run for a launcher that stays. It plays the link (play), then waits in the tray for its player's
 // next game on the link's server, and plays again. It has no window, so it reports what goes wrong to the server,
 // which shows it in the player's page (launcherapi.Report). It ends when the player quits it from the tray, when
-// another build replaces it, or when the server no longer knows the player (they signed out, and their page starts
-// the launcher again).
+// another build replaces it, when the server no longer knows the player (they signed out, and their page starts the
+// launcher again), or when the server doesn't take this launcher's version. The next link then starts the installed
+// launcher, which may be a newer one.
 //
 // While its player is in a Black Ops II room, it has one call open to the server (open). While nothing changes for
 // its player, it does nothing else: it makes no call on a timer, to the server or to Plutonium. Once its player has
@@ -365,13 +378,45 @@ func (la *launcher) serve(ctx context.Context, url string) int {
 		switch {
 		case ctx.Err() != nil || la.handed:
 			return 0
-		case errors.Is(err, errUnknown):
+		case ends(err):
 			return 1
 		}
 		if !la.idle(ctx, srv) {
+			// The server was updated while the launcher waited, and takes it no more: a later release takes the link,
+			// when there is one.
+			if _, _, err := srv.latest(); errors.Is(err, errOld) && ctx.Err() == nil {
+				held := func() {}
+				la.renew(ctx, url, func() { held = filesTurn(func() {}) }, func() {
+					held()
+					if la.turn != nil {
+						la.turn()
+					}
+				})
+			}
 			return 0
 		}
 	}
+}
+
+// renew looks for a later release of the launcher (update). When it took one, it starts that launcher with the link,
+// in this run's place, and returns true: the run then ends (handed). files takes the turn to change what the PC's
+// launchers share, and giveUp gives up what this run holds, for the launcher that replaces it. When the PC could not
+// take the release, renew says so, and the run plays on with the build it is.
+func (la *launcher) renew(ctx context.Context, url string, files, giveUp func()) (bool, error) {
+	again, err := la.update(ctx, files)
+	switch {
+	case err != nil:
+		la.say("This PC could not take the launcher's latest release, and plays on with this build: %v", err)
+		return false, nil
+	case !again:
+		return false, nil
+	}
+	giveUp()
+	if err := la.rerun(la.installed(), url); err != nil {
+		return false, fmt.Errorf("The launcher's latest release is in place, and could not be started: %v\nJoin from the room's page again.", err)
+	}
+	la.handed = true
+	return true, nil
 }
 
 // idle waits for something to play. It makes no call: it waits for the next answer of the call that is open to the
@@ -379,8 +424,8 @@ func (la *launcher) serve(ctx context.Context, url string) int {
 // in a Black Ops II room whose game the player's game isn't in, or when the player presses the button. It does not
 // return for the room's game that the player's game just left: the player has to ask for that one. After a try that
 // failed, it returns only when the player presses the button, which then says Try again. The launcher does not try
-// again by itself. It returns false when the launcher is to end, because the player quit it or the server no longer
-// knows the player.
+// again by itself. It returns false when the launcher is to end, because the player quit it, or the server no longer
+// knows the player or doesn't take this launcher.
 //
 // When the player has been in no Black Ops II room for away, or the server could not be reached for as long, the
 // launcher rests: it closes its call to the server (server.rest) and sends nothing more. The server then takes the
@@ -392,7 +437,7 @@ func (la *launcher) idle(ctx context.Context, srv *server) bool {
 	for {
 		play, next, err := srv.latest()
 		switch {
-		case errors.Is(err, errUnknown):
+		case ends(err):
 			return false
 		case err != nil || play == nil || play.Room == "":
 			if since.IsZero() {
@@ -469,36 +514,51 @@ func (la *launcher) play(ctx context.Context, url string, srv *server, failed fu
 	if err := la.trust(l); err != nil {
 		return err
 	}
+	// Only one launcher at a time changes what the PC's launchers share: their own program, the copy of Plutonium
+	// and the game files. If another player's launcher on this PC is changing them now, this launcher waits for it.
+	// files takes the turn, unless the run has it, and done gives it up.
+	var held func()
+	files := func() {
+		if held == nil {
+			held = filesTurn(func() {
+				la.say("Another player's launcher on this PC is getting its files: waiting for it...")
+			})
+		}
+	}
+	done := func() {
+		if held != nil {
+			held()
+			held = nil
+		}
+	}
+	defer done()
+	// giveUp gives up what the run holds, for the launcher that replaces it (renew).
+	giveUp := func() {
+		done()
+		release()
+		if la.stays && turn != nil && !taken {
+			turn() // the launcher that replaces this one takes the turn
+		}
+	}
+	// The launcher looks for a later release of itself before it calls the server, and hands the link to that one.
+	// A server that takes only later versions than this one's then never hears of this one, and the player's room
+	// has nothing to say of it.
+	if again, err := la.renew(ctx, url, files, giveUp); again || err != nil {
+		return err
+	}
 	srv.start()
 	if la.stays {
 		srv.fail(ctx, "") // a new try: the last try's failure is no longer reported
 	}
 	play, err := srv.current(ctx)
-	if err != nil {
+	switch {
+	case errors.Is(err, errOld): // the server doesn't take this launcher, and there was no later release to take
+		return la.tooOld()
+	case err != nil:
 		return err
 	}
+	files()
 	la.say("You are %s on %s.", play.Player, l.host)
-	// Only one launcher at a time changes what the PC's launchers share: their own program, the copy of Plutonium
-	// and the game files. If another player's launcher on this PC is changing them now, this launcher waits for it.
-	files := sync.OnceFunc(filesTurn(func() {
-		la.say("Another player's launcher on this PC is getting its files: waiting for it...")
-	}))
-	defer files()
-	if again, err := la.update(ctx, srv, play); err != nil {
-		la.say("The server has another build of this launcher, which this PC could not take: %v", err)
-	} else if again {
-		// the server's build runs on and replaces this run
-		files()
-		release()
-		if la.stays && turn != nil && !taken {
-			turn() // the launcher that replaces this one takes the turn
-		}
-		if err := la.rerun(la.installed(), url); err != nil {
-			return fmt.Errorf("The server's build of the launcher is in place, and could not be started: %v\nJoin from the room's page again.", err)
-		}
-		la.handed = true
-		return nil
-	}
 	// The launcher now prepares the PC, and then reports that the PC has what the game needs (setReady). A room's
 	// game waits for a player whose launcher is still preparing, however long a first download of the game files
 	// takes. The call that is open to the server shows it that the launcher runs through all of this.
@@ -510,7 +570,7 @@ func (la *launcher) play(ctx context.Context, url string, srv *server, failed fu
 	if err != nil {
 		return err
 	}
-	files()
+	done()
 	srv.setReady(true)
 	la.prepared = true
 	la.doing(ctx, srv, "")
@@ -522,6 +582,11 @@ func (la *launcher) play(ctx context.Context, url string, srv *server, failed fu
 		switch {
 		case errors.Is(err, errUnknown):
 			return err
+		case errors.Is(err, errOld): // the server was updated, and takes this launcher no more
+			if again, err := la.renew(ctx, url, files, giveUp); again || err != nil {
+				return err
+			}
+			return la.tooOld()
 		case err != nil: // the server can't be reached now: the call tries again by itself
 		case play.Game != nil && la.left != "" && play.Game.ID == la.left:
 			return nil // the game the player's game left: the player has to ask for it (idle)
@@ -548,10 +613,10 @@ func (la *launcher) play(ctx context.Context, url string, srv *server, failed fu
 }
 
 // trust decides whether this PC plays on the link's server, and returns an error when it does not. That server sends
-// what the launcher starts: the game files and the launcher's own next build. The launcher accepts the first server
-// it is opened for without a question. Its player installed the launcher from that server a moment ago, and their
-// browser asked whether the server's page may open it. A link to any other server starts nothing until the player
-// agrees here, once for each server. Any page may have such a link, and the browser's question names only the page.
+// what the launcher starts: the game files. The launcher accepts the first server it is opened for without a
+// question. Its player installed the launcher from that server's page a moment ago, and their browser asked whether
+// the server's page may open it. A link to any other server starts nothing until the player agrees here, once for
+// each server. Any page may have such a link, and the browser's question names only the page.
 // A server on plain HTTP has to be in the player's own network: anyone between the PC and a server further away
 // could send those files in its place.
 func (la *launcher) trust(l link) error {

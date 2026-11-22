@@ -1,0 +1,121 @@
+# .github/workflows/launcher.yml - release the launcher (launcher/) when a tag launcher-v<N> is pushed.
+#
+# N, a whole number above 0, is the launcher's version. It is built into the launcher (main.version) and named in the
+# release's signed statement (internal/release). Installed launchers replace themselves only with a later version
+# (launcher/update.go), so each release has a larger N than every release before it. The run fails before it builds
+# anything when the tag is not launcher-v<N>, or when N is not larger than the version of every launcher release so
+# far. Only one release runs at a time.
+#
+# The build job vets and tests the launcher's packages, as test.yml does, and builds the launcher for Windows, as
+# docker/launcher.sh does but with the version N. go-winres gives the program its icon, its name and version, and a
+# manifest. -H=windowsgui builds it without a console window. The job then signs the statement of the build with the
+# maker's key, the repository's secret LAUNCHER_KEY (cmd/launcher-release). Only that step has the key.
+#
+# The publish job publishes two releases on GitHub, each with the build (zombies-launcher-setup.exe) and the statement
+# (zombies-launcher.sig). Only that job may write to the repository. The first release is this version's, at the tag
+# that was pushed. The second is the one tagged launcher, which always has the files of the latest version: the job
+# moves its tag to this commit and puts this version's files in place of the last one's. The room's page links to the
+# launcher there, and installed launchers read the statement there, then download the build from its version's own
+# release (internal/launcherapi). Neither goes by the release that GitHub calls the latest, so the repository may have
+# other releases too. The job can be run again when a step of it failed.
+name: launcher
+on:
+  push:
+    tags: ['launcher-v*']
+permissions:
+  contents: read
+concurrency:
+  group: launcher-release
+  cancel-in-progress: false
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - id: version
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          if ! [[ $TAG =~ ^launcher-v[1-9][0-9]{0,8}$ ]]; then
+            echo "::error::the tag is $TAG: a launcher's release is tagged launcher-v<N>, with N a whole number above 0"
+            exit 1
+          fi
+          version=${TAG#launcher-v}
+          last=$(gh release list --repo "$GITHUB_REPOSITORY" --limit 1000 --json tagName --jq \
+            '[.[].tagName | select(test("^launcher-v[1-9][0-9]*$")) | ltrimstr("launcher-v") | tonumber] | max // 0')
+          if [ "$version" -le "$last" ]; then
+            echo "::error::launcher-v$last is released already: the next release's version is above $last"
+            exit 1
+          fi
+          echo "version=$version" >>"$GITHUB_OUTPUT"
+      - run: go vet ./launcher/... ./internal/... ./cmd/... && GOOS=windows GOARCH=amd64 go vet ./launcher
+      - run: go test -count=1 ./launcher/... ./internal/... ./cmd/...
+      - env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          (cd launcher && go run github.com/tc-hib/go-winres@v0.3.3 simply --arch amd64 --manifest gui --icon icon.png \
+            --product-name "Zombies Launcher" --file-description "Zombies Launcher" \
+            --original-filename zombies-launcher.exe --product-version "$VERSION" --file-version "$VERSION")
+          GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -trimpath \
+            -ldflags "-s -w -H=windowsgui -X main.version=$VERSION" -o build/zombies-launcher-setup.exe ./launcher
+      # The key goes into a file that only the runner's user can read, and the file is removed when the step ends.
+      # Nothing prints the key.
+      - env:
+          LAUNCHER_KEY: ${{ secrets.LAUNCHER_KEY }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          if [ -z "$LAUNCHER_KEY" ]; then
+            echo "::error::the repository has no secret LAUNCHER_KEY, the private half of the launcher's key"
+            exit 1
+          fi
+          key=$RUNNER_TEMP/launcher.key
+          trap 'rm -f "$key"' EXIT
+          (umask 077 && printf '%s\n' "$LAUNCHER_KEY" >"$key")
+          unset LAUNCHER_KEY
+          go run ./cmd/launcher-release sign "$key" "$VERSION" build/zombies-launcher-setup.exe build/zombies-launcher.sig
+      - uses: actions/upload-artifact@v7
+        with:
+          name: release
+          path: |
+            build/zombies-launcher-setup.exe
+            build/zombies-launcher.sig
+          if-no-files-found: error
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v7
+        with:
+          name: release
+          path: release
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          # this version's release, which a run that is started again finds there
+          gh release view "$TAG" >/dev/null 2>&1 ||
+            gh release create "$TAG" --verify-tag --title "Zombies Launcher $VERSION" \
+              --notes "Zombies Launcher, version $VERSION. Installed launchers update themselves to it."
+          gh release upload "$TAG" release/zombies-launcher-setup.exe release/zombies-launcher.sig --clobber
+          # The release that always has the latest version's files. The launcher goes first, and its statement last:
+          # a launcher that reads the statement then finds the build it names in this version's release, above.
+          notes="The latest Zombies Launcher, version $VERSION. To install it, download zombies-launcher-setup.exe and run it. The room's page links here, and installed launchers update themselves from here."
+          if gh release view launcher >/dev/null 2>&1; then
+            gh api --method PATCH "repos/$GH_REPO/git/refs/tags/launcher" -f sha="$GITHUB_SHA" -F force=true >/dev/null
+            gh release upload launcher release/zombies-launcher-setup.exe --clobber
+            gh release upload launcher release/zombies-launcher.sig --clobber
+            gh release edit launcher --notes "$notes"
+          else
+            gh release create launcher release/zombies-launcher-setup.exe release/zombies-launcher.sig \
+              --target "$GITHUB_SHA" --latest=false --title "Zombies Launcher" --notes "$notes"
+          fi

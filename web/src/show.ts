@@ -154,7 +154,7 @@ export function showFiles(): void {
   reportFiles();
 }
 
-// What the server says of itself changes what the views say: whether it sends game files, and has a launcher.
+// What the server says of itself changes what the views say: whether it sends game files, and where the launcher is.
 loadedServer.then(() => {
   showFiles();
   if (view && view.room) showT6(view, view.room);
