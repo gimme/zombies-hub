@@ -26,7 +26,9 @@ import (
 // (storage/t6/lobby.cfg), prints as Plutonium does, in colour after its prompt, and answers on its port. Its remote
 // console, to the password: status, clientkick <slot> and quit; it prints any other line it gets. Its clients, which
 // are in from their "connectReq", answered with the address it sees them at, until their "leave"; "connectReq Ann" is
-// one that plays under that name, where the others are Player and their slot. A client's "round 3"
+// one that plays under that name, where the others are Player and their slot. A client is also in from its connect,
+// as a real one is (connect "\name\Ann": the name it plays under), answered with the slot it has: the first free one.
+// A client's "round 3"
 // is a round beginning, as the server's script in the game says it (t6Script), after each client's line of the
 // scoreboard (stats), its "egg" the map's main quest done, with every client in the game, and its "over" game over, on
 // round 7, with its end played out a moment later; its "rotate" is the server rotating its map with no word of the
@@ -108,12 +110,16 @@ func fakeT6(port string) {
 		if name, named := strings.CutPrefix(text, "connectReq "); oob && named {
 			names[from.String()], text = name, "connectReq"
 		}
+		_, connects := strings.CutPrefix(text, `connect "`)
+		if name := regexp.MustCompile(`\\name\\([^\\"]*)`).FindStringSubmatch(text); oob && connects && name != nil {
+			names[from.String()] = name[1]
+		}
 		switch {
 		case oob && isRound:
 			n, _ := strconv.Atoi(round)
 			stats(n)
 			say("zombies_lobby: round " + round)
-		case oob && text == "connectReq":
+		case oob && (text == "connectReq" || connects):
 			if !slices.Contains(clients, from.String()) {
 				if i := slices.Index(clients, ""); i >= 0 {
 					clients[i] = from.String()
@@ -121,7 +127,11 @@ func fakeT6(port string) {
 					clients = append(clients, from.String())
 				}
 			}
-			reply("connectRes " + from.String())
+			if connects {
+				reply("connectResponse " + strconv.Itoa(slices.Index(clients, from.String())))
+			} else {
+				reply("connectRes " + from.String())
+			}
 		case oob && text == "leave":
 			if i := slices.Index(clients, from.String()); i >= 0 {
 				clients[i] = ""
@@ -222,6 +232,30 @@ func TestT6ClientSends(t *testing.T) {
 	} {
 		if got := t6ClientSends([]byte(packet)); got != want {
 			t.Errorf("%q: %v", packet, got)
+		}
+	}
+}
+
+// A T6 client's connect, which waits for its turn, and the name it plays under.
+func TestT6Connect(t *testing.T) {
+	type connect struct {
+		name string
+		ok   bool
+	}
+	for packet, want := range map[string]connect{
+		"\xff\xff\xff\xff" + `connect "\protocol\2089\name\Ann B\qport\123"`: {"Ann B", true},
+		"\xff\xff\xff\xff" + `CONNECT "\NAME\Ann"`:                           {"Ann", true},
+		"\xff\xff\xff\xff\n connect\t" + `"\name\Ann"`:                       {"Ann", true},
+		"\xff\xff\xff\xff" + `connect \name\Ann`:                             {"Ann", true},
+		"\xff\xff\xff\xff" + `connect 1 "\name\Ann"`:                         {"Ann", true},
+		"\xff\xff\xff\xff" + `connect "\protocol\2089" \name\Ann`:            {"", true},
+		"\xff\xff\xff\xffconnect":                                            {"", true},
+		"\xff\xff\xff\xffconnectReq":                                         {"", false},
+		"\xff\xff\xff\xff" + `getchallenge 0 "offline" 5369`:                 {"", false},
+		"\x05\x00\x00\x00" + `connect "\name\Ann"`:                           {"", false},
+	} {
+		if name, ok := t6Connect([]byte(packet)); name != want.name || ok != want.ok {
+			t.Errorf("%q: %q, %v", packet, name, ok)
 		}
 	}
 }
@@ -587,6 +621,169 @@ func TestT6RoomKicksTheGameOfThePlayerWhoLeft(t *testing.T) {
 	v := waitView(t, l, a, "Ann alone in the room", func(v view) bool { return len(v.Room.Members) == 1 })
 	if !v.Room.Members[0].InGame {
 		t.Errorf("Ann, whose game is in: %+v", v.Room.Members[0])
+	}
+}
+
+// t6Up is a T6 room's game up, with the players of the names in the room in that order, the first its host. Each
+// one's page calls from an address of its own (127.0.0.2 and on), and each has a game there, which has yet to ask to
+// connect.
+func t6Up(t *testing.T, names ...string) (l *lobby, tokens []string, games []*net.UDPConn) {
+	t.Helper()
+	l, target := t6Lobby(t)
+	to, err := net.ResolveUDPAddr("udp4", target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range names {
+		token := l.hello("", name).Token
+		if tokens = append(tokens, token); len(tokens) == 1 {
+			do(l, token, "create", "map", "zm_standard_town")
+		} else if err := do(l, token, "join", "room", l.viewOf(tokens[0]).Room.Code); err != "" {
+			t.Fatal(err)
+		}
+	}
+	pagesOpen(l, tokens...)
+	for _, token := range tokens {
+		if err := do(l, token, "ready", "ready", "true"); err != "" {
+			t.Fatal(err)
+		}
+	}
+	waitView(t, l, tokens[0], "the server up", func(v view) bool { return v.Room.T6 != nil && v.Room.T6.Up })
+	for i, token := range tokens {
+		address := fmt.Sprintf("127.0.0.%d", i+2)
+		pagesAt(l, address, token)
+		game, err := net.DialUDP("udp4", &net.UDPAddr{IP: net.ParseIP(address)}, to)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { game.Close() })
+		games = append(games, game)
+	}
+	return l, tokens, games
+}
+
+// t6Ask has a game ask to connect, under a name, as a client's connect does.
+func t6Ask(game *net.UDPConn, name string) {
+	game.Write([]byte("\xff\xff\xff\xff" + `connect "\protocol\2089\name\` + name + `\qport\1"`))
+}
+
+// t6Slot is the slot that the stand-in for Plutonium's server answered a game's connect with. It is -1 when the game
+// got no answer within the time: its connect waits for its turn.
+func t6Slot(game *net.UDPConn, within time.Duration) int {
+	game.SetReadDeadline(time.Now().Add(within))
+	buf := make([]byte, 2048)
+	n, err := game.Read(buf)
+	if err != nil {
+		return -1
+	}
+	slot, err := strconv.Atoi(strings.TrimPrefix(string(buf[:n]), "\xff\xff\xff\xffconnectResponse "))
+	if err != nil {
+		return -1
+	}
+	return slot
+}
+
+// The players of a T6 room join its game in the order of their places in the room, whatever order their games ask to
+// connect in. The game gives each the first free slot, so each has the slot of their place, and the game shows them
+// in the colour their place has in the room.
+func TestT6RoomLetsItsPlayersInByPlace(t *testing.T) {
+	l, tokens, games := t6Up(t, "Ann", "Bob", "Cy")
+	t6Ask(games[2], "Cy")
+	t6Ask(games[1], "Bob")
+	for _, i := range []int{2, 1} {
+		if slot := t6Slot(games[i], 300*time.Millisecond); slot >= 0 {
+			t.Fatalf("the game at place %d was let in before the host's, to slot %d", i, slot)
+		}
+	}
+	t6Ask(games[0], "Ann")
+	for place, game := range games {
+		if slot := t6Slot(game, 5*time.Second); slot != place {
+			t.Errorf("the game at place %d has slot %d", place, slot)
+		}
+	}
+	v := waitView(t, l, tokens[0], "everyone in the game", func(v view) bool { return v.Room.State == "playing" })
+	for place, m := range v.Room.Members {
+		if m.Place != place || !m.InGame {
+			t.Errorf("%s in the room: %+v", m.Name, m)
+		}
+	}
+	// round 1 has begun: a game that comes back joins at once, whoever is out
+	games[0].Write([]byte("\xff\xff\xff\xffleave"))
+	games[2].Write([]byte("\xff\xff\xff\xffleave"))
+	waitView(t, l, tokens[0], "Ann and Cy out of the game", func(v view) bool {
+		return !v.Room.Members[0].InGame && !v.Room.Members[2].InGame
+	})
+	t6Ask(games[2], "Cy")
+	if slot := t6Slot(games[2], 5*time.Second); slot != 0 {
+		t.Errorf("Cy's game, back in a game that has begun, Ann's being out: slot %d", slot)
+	}
+}
+
+// A player whose game doesn't come is waited for only so long (joinWait). Then the others join without them, in their
+// own order, and the one who comes late has the slot that is left.
+func TestT6RoomWaitsOnlySoLongForAPlayersGame(t *testing.T) {
+	l, _, games := t6Up(t, "Ann", "Bob", "Cy")
+	l.mu.Lock()
+	l.joinWait = 500 * time.Millisecond
+	l.mu.Unlock()
+	began := time.Now()
+	t6Ask(games[2], "Cy")
+	t6Ask(games[1], "Bob")
+	bob := t6Slot(games[1], 5*time.Second)
+	waited := time.Since(began)
+	if cy := t6Slot(games[2], 5*time.Second); bob != 0 || cy != 1 || waited < 500*time.Millisecond {
+		t.Errorf("Bob's and Cy's games, Ann's not having come: slots %d and %d, after %s", bob, cy, waited)
+	}
+	t6Ask(games[0], "Ann")
+	if slot := t6Slot(games[0], 5*time.Second); slot != 2 {
+		t.Errorf("Ann's game, which came late: slot %d", slot)
+	}
+}
+
+// No one waits for a player whose launcher still gets their PC ready, which can take any time.
+func TestT6RoomWaitsForNoPlayerWhoseLauncherIsAtWork(t *testing.T) {
+	l, tokens, games := t6Up(t, "Ann", "Bob")
+	l.mu.Lock()
+	key := l.playerOf(tokens[0]).key
+	l.mu.Unlock()
+	asLauncher(&web{lobby: l}, http.MethodGet, "/launcher/t6/files", key, "")
+	t6Ask(games[1], "Bob")
+	if slot := t6Slot(games[1], time.Second); slot != 0 {
+		t.Errorf("Bob's game, Ann's launcher downloading: slot %d", slot)
+	}
+}
+
+// Two players behind one address: a game's connect says the name it plays under, so the server knows whose game it
+// is before the game is in. Bob's, the first to ask, has the host's seat until then, and waits for Ann's.
+func TestT6RoomLetsPlayersOfOneAddressInByPlace(t *testing.T) {
+	l, target := t6Lobby(t)
+	a, b := l.hello("", "Ann").Token, l.hello("", "Bob").Token
+	do(l, a, "create", "map", "zm_standard_town")
+	do(l, b, "join", "room", l.viewOf(a).Room.Code)
+	pagesOpen(l, a, b)
+	do(l, a, "ready", "ready", "true")
+	do(l, b, "ready", "ready", "true")
+	waitView(t, l, a, "the server up", func(v view) bool { return v.Room.T6 != nil && v.Room.T6.Up })
+	pagesAt(l, "127.0.0.1", a, b)
+	annsGame, bobsGame := windowsPlayer(t, target), windowsPlayer(t, target)
+	t6Ask(bobsGame, "Bob")
+	if slot := t6Slot(bobsGame, 300*time.Millisecond); slot >= 0 {
+		t.Fatalf("Bob's game was let in before Ann's, the host's, to slot %d", slot)
+	}
+	t6Ask(annsGame, "Ann")
+	if ann, bob := t6Slot(annsGame, 5*time.Second), t6Slot(bobsGame, 5*time.Second); ann != 0 || bob != 1 {
+		t.Errorf("the slots of Ann's game and Bob's: %d and %d", ann, bob)
+	}
+	waitView(t, l, a, "both in the game", func(v view) bool { return v.Room.State == "playing" })
+	// the game's word of slot 0 is of Ann, and of slot 1 of Bob
+	annsGame.Write([]byte("\xff\xff\xff\xffover"))
+	res := waitView(t, l, a, "game over", func(v view) bool { return v.Room.Result != nil }).Room.Result
+	scores := map[string]int{}
+	for _, p := range res.Players {
+		scores[p.Name] = p.Score
+	}
+	if scores["Ann"] != 1700 || scores["Bob"] != 2700 {
+		t.Errorf("the report's scores, slot 0 being Ann's game: %v", scores)
 	}
 }
 

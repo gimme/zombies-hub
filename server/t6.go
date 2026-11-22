@@ -42,6 +42,23 @@ import (
 // game has no stats or collectibles kept by the server, no mods, and no browser to play it in. The server runs
 // one T6 game at a time. Each Plutonium server also opens a UDP port, counting up from 3074, and a second Plutonium
 // server would take a port that the server or one of its games uses.
+//
+// The players join a T6 game in the order of their places in the room (t6Turn), so that the game shows each of them
+// in the colour their place has in the room (web/src/page.css: .avatar[data-place]). The game's HUD colours a
+// player's points by their position among the players in the game, the first white, then blue, yellow and green
+// (ui_mp/t6/zombie/hudcompetitivescoreboardzombie.lua in the game's files). Plutonium's server picks each client's
+// slot itself: nothing tells it a player's place, as the server tells a T5 game (t5.go: placesOf). The game is taken
+// to order its players by their slots, and to give a new client the first free slot, as a T5 game does
+// (bo1-zombies/src/client_mp/sv_client_mp.cpp: SV_DirectConnect). T6 has no source code to read either from. So a
+// player has their room's colour while everyone before them in the room is in the game. While one of those is yet to
+// join, or once one has left, everyone after them is a colour up.
+//
+// A client joins in steps. Plutonium's server logs the first three, and https://github.com/Alextechgamer/bo2-ios
+// sends them all (ios/PlutoniumLAN.cpp): Plutonium's own connectReq, connectGTSReq and moddl_list, then the game's
+// getchallenge and connect. The connect takes the slot, so it is the packet that waits for the client's turn
+// (relay.holds). A T5 client sends its connect again every 3 seconds, and gives up when the game has sent it nothing
+// for cl_connectTimeout, 200 seconds (bo1-zombies/src/client_mp/cl_main_mp.cpp: CL_CheckForResend, CL_CheckTimeout).
+// T6 has the same setting, and a turn comes far sooner (lobby.joinWait).
 
 const t6 = "t6"
 
@@ -674,37 +691,24 @@ func (l *lobby) t6Status(r *room, rg *roomGame, clients []t6Client) {
 		rg.up, changed = time.Now(), true
 		log.Printf("server: room %s's game is up: its players join it", r.code)
 	}
-	// Several players can be behind one address. A game from that address got the first of their seats that was free,
-	// whichever of them started it (t6Seat). The game plays under the name that its player's page gave it (t6View),
-	// and no one else in the room's game has that name. When the name is that of another player at the same address,
-	// the two seats swap their addresses from now on. Each player then has the address of their own game, and with it
-	// what the game reported about them.
+	// Several players can be behind one address. The seat of a game from that address is its player's by the name it
+	// plays under (t6Whose). The game's connect said the name, when it had one. The status says it again here, for a
+	// game whose connect did not.
 	for _, c := range clients {
 		i := slices.IndexFunc(rg.seats, func(s *seat) bool { return s.local.String() == c.address })
-		if i < 0 || rg.seats[i].left || strings.EqualFold(rg.seats[i].player.name, c.name) {
-			continue
+		if i >= 0 && rg.t6Whose(r.code, rg.seats[i], c.name) != rg.seats[i] {
+			changed = true
 		}
-		at := rg.seats[i]
-		j := slices.IndexFunc(rg.seats, func(s *seat) bool {
-			return s != at && !s.left && s.player.addr == at.player.addr && strings.EqualFold(s.player.name, c.name)
-		})
-		if j < 0 {
-			continue
-		}
-		whose := rg.seats[j]
-		log.Printf("server: the game at %s in room %s is %s's, by its name, not %s's, whose address it comes from too",
-			c.address, r.code, whose.player.name, at.player.name)
-		at.local, whose.local = whose.local, at.local
-		at.in, whose.in = whose.in, at.in
-		changed = true
 	}
-	in := 0
+	in, joined := 0, false
 	for _, s := range rg.seats {
 		i := slices.IndexFunc(clients, func(c t6Client) bool { return c.address == s.local.String() })
-		s.slot = -1
+		slot := -1
 		if i >= 0 {
-			s.slot = clients[i].slot
+			slot = clients[i].slot
 		}
+		joined = joined || slot >= 0 && s.slot < 0
+		s.slot = slot
 		if now := i >= 0 && clients[i].in; now != s.in {
 			s.in, changed = now, true
 			if now {
@@ -721,10 +725,39 @@ func (l *lobby) t6Status(r *room, rg *roomGame, clients []t6Client) {
 		rg.started, rg.round1, changed = true, time.Now(), true
 		log.Printf("server: room %s's game has begun", r.code)
 	}
+	if joined {
+		l.relay.wakeUp() // the game has a client more: the next player's turn to join may have come (t6Turn)
+	}
 	if changed {
 		l.checkGame(r)
 		l.change()
 	}
+}
+
+// t6Whose returns the seat of the player whose game is at the address of the seat at, going by name, the name the
+// game plays under. Several players can be behind one address. A game from that address got the first of their seats
+// that was free, whichever of them started it (t6Seat). The game plays under the name that its player's page gave it
+// (t6View), and no one else in the room's game has that name. When the name is that of another player at the same
+// address, the two seats swap their addresses from now on, and what the server knows of the clients at them. Each
+// player then has the address of their own game, and with it what the game reports about them. t6Whose returns at
+// when the name is its player's or no such player's. The caller holds l.mu.
+func (rg *roomGame) t6Whose(code string, at *seat, name string) *seat {
+	if at.left || name == "" || strings.EqualFold(at.player.name, name) {
+		return at
+	}
+	j := slices.IndexFunc(rg.seats, func(s *seat) bool {
+		return s != at && !s.left && s.player.addr == at.player.addr && strings.EqualFold(s.player.name, name)
+	})
+	if j < 0 {
+		return at
+	}
+	whose := rg.seats[j]
+	log.Printf("server: the game at %s in room %s is %s's, by its name, not %s's, whose address it comes from too",
+		at.local, code, whose.player.name, at.player.name)
+	at.local, whose.local = whose.local, at.local
+	at.in, whose.in = whose.in, at.in
+	at.slot, whose.slot = whose.slot, at.slot
+	return whose
 }
 
 // t6Said reads what a T6 room's game prints: the lines of the server's script in it (t6Script), and one line of the
@@ -902,6 +935,90 @@ func (l *lobby) t6Seat(ip netip.Addr, verb string) (game, local *net.UDPAddr, na
 
 // t6Requiet is how long a T6 client must have sent nothing before another client from its address can take its seat.
 const t6Requiet = 3 * time.Second
+
+// t6Turn reports whether the T6 client at a seat's address may join its room's game now. The relay asks for each
+// connect of a client that the game has not accepted, and again while the connect waits (relay.holds, relay.letIn).
+// name is the name the client plays under, from its connect, or "". The client's seat is its player's by that name,
+// when several players are behind one address (t6Whose).
+//
+// The players join in the order of their places in the room, which is the order of the game's seats, so that each
+// has their room's colour in the game (the comment at the top). A client may join once no player before its own is
+// awaited (t6Awaited). Once round 1 has begun, a client joins at once: the game has given its slots, and a player
+// who comes back to it is not kept out of it for a player who may not come back.
+func (l *lobby) t6Turn(local *net.UDPAddr, name string) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	at := local.String()
+	for _, r := range l.rooms {
+		rg := r.game
+		if t6Of(rg) == nil {
+			continue
+		}
+		i := slices.IndexFunc(rg.seats, func(s *seat) bool { return s.local.String() == at })
+		if i < 0 {
+			continue
+		}
+		if rg.started || rg.ending != "" {
+			return true
+		}
+		whose := rg.t6Whose(r.code, rg.seats[i], name)
+		if whose != rg.seats[i] {
+			l.change() // the two seats' players are in the game or out of it as each other were
+		}
+		if whose.left || whose.slot >= 0 {
+			return true // the relay lets a player who left in no more, and the game has this client already
+		}
+		for _, s := range rg.seats {
+			if s == whose {
+				return true
+			}
+			if l.t6Awaited(s) {
+				return false
+			}
+		}
+	}
+	return true // the seat's game has ended
+}
+
+// t6Awaited reports whether the players after s in the room wait to join their T6 game until s has joined it. They
+// do not wait for a player who is in the game or has left it. Nor do they wait for one whose launcher is still
+// getting their PC ready, which can take any time (preparing).
+//
+// For anyone else, it depends on where their game is (relay.door):
+//   - It has not asked to connect in the last t6Asks. It is yet to come, and the others wait for it for joinWait,
+//     from when the first of them began to wait. A game on a slower PC, or one that its player joins by hand, comes
+//     within that time or the others go first.
+//   - It asks to connect, and waits for its own turn. The others wait for as long as it does. Its turn comes, because
+//     the players it waits for are before it too.
+//   - It asks, and the relay has passed its connect on. The game takes it within a moment, or else within t6Asks it
+//     does not take it at all (a wrong password), and the others wait no longer.
+//
+// The caller holds l.mu.
+func (l *lobby) t6Awaited(s *seat) bool {
+	if s.left || s.slot >= 0 || l.preparing(s.player) {
+		return false
+	}
+	asked, passed, taken := l.relay.door(s.local)
+	if taken {
+		return false
+	}
+	now := time.Now()
+	if s.awaited.IsZero() {
+		s.awaited = now
+	}
+	switch {
+	case now.Sub(asked) >= t6Asks:
+		return now.Sub(s.awaited) < l.joinWait
+	case passed.IsZero():
+		return true
+	default:
+		return now.Sub(passed) < t6Asks
+	}
+}
+
+// t6Asks is how long after a T6 client's connect the client still counts as asking to connect. A client sends its
+// connect every 3 seconds until the game answers, so this is two of them and a second.
+const t6Asks = 7 * time.Second
 
 // t6Late calls off a T6 room's game that has waited loadTimeout for its players, when not everyone with a seat is
 // in, as for a T5 game. The wait counts from when the game was up. It starts again at the last moment that the

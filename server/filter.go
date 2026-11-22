@@ -50,23 +50,53 @@ const maxFromT6 = 1472
 // t6ClientSends reports whether a T6 client may send packet to its game (t6.go). It may send any netchan packet, and
 // any out-of-band packet except one for the game's remote console. Only the server uses the remote console, whatever
 // password a packet carries. A T6 client's handshake is Plutonium's own, and the relay has no list of its packets,
-// so the relay passes every packet it has no rule against. t6ClientSends finds the first word the way the game does:
-// the game's tokenizer skips all leading bytes with a value up to that of a space, and reads the word in any letter
-// case.
+// so the relay passes every packet it has no rule against. t6ClientSends finds the first word the way the game does
+// (t6Word).
 func t6ClientSends(packet []byte) bool {
 	if len(packet) > maxFromT6 {
 		return false
 	}
+	word, _, oob := t6Word(packet)
+	return !oob || len(word) > 0 && !bytes.EqualFold(word, []byte("rcon"))
+}
+
+// t6Word returns the first word of an out-of-band packet, and what follows the word, the way a T6 game finds them:
+// the game's tokenizer skips all leading bytes with a value up to that of a space, and the word ends at the next such
+// byte. The game reads the word in any letter case. oob is false for a packet that is not out of band.
+func t6Word(packet []byte) (word, rest []byte, oob bool) {
 	text, oob := bytes.CutPrefix(packet, outOfBand)
 	if !oob {
-		return true
+		return nil, nil, false
 	}
-	text = bytes.TrimLeftFunc(text, func(r rune) bool { return r <= ' ' })
-	word, _, _ := bytes.Cut(text, []byte(" "))
-	if i := bytes.IndexFunc(word, func(r rune) bool { return r <= ' ' }); i >= 0 {
-		word = word[:i]
+	blank := func(r rune) bool { return r <= ' ' }
+	text = bytes.TrimLeftFunc(text, blank)
+	end := bytes.IndexFunc(text, blank)
+	if end < 0 {
+		end = len(text)
 	}
-	return len(word) > 0 && !bytes.EqualFold(word, []byte("rcon"))
+	return text[:end], text[end:], true
+}
+
+// t6Connect reports whether a T6 client's packet is its connect, the packet that takes the client a slot in the game
+// (t6.go: the order the players join in). name is the name the client plays under, from the packet's userinfo
+// (connect "\protocol\2089\name\Ann\..."), or "" when the userinfo has none. The userinfo is what the packet has in
+// quotes, or else all that follows the word.
+func t6Connect(packet []byte) (name string, ok bool) {
+	word, rest, oob := t6Word(packet)
+	if !oob || !bytes.EqualFold(word, []byte("connect")) {
+		return "", false
+	}
+	info := strings.TrimSpace(string(rest))
+	if _, quoted, found := strings.Cut(info, `"`); found {
+		info, _, _ = strings.Cut(quoted, `"`)
+	}
+	parts := strings.Split(strings.TrimPrefix(info, `\`), `\`)
+	for i := 0; i+1 < len(parts); i += 2 {
+		if strings.EqualFold(parts[i], "name") {
+			return strings.TrimSpace(parts[i+1]), true
+		}
+	}
+	return "", true
 }
 
 // playerFilter decides which of a player's packets go on to their game. It passes the packets that a client sends

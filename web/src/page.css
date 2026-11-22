@@ -156,7 +156,9 @@ body.padnav #overlay :focus, body.padnav #ask :focus, body.padnav #picker :focus
 .avatar.pic { background: #1b1716; color: transparent; }
 .chip .avatar { width: 32px; height: 32px; }
 /* in a room, a ring in the colour the player's points have in the game's HUD, by their place (setAvatar): the
-   game's own, cg_ScoresColor_Gamertag_0 to 3 (bo1-zombies/src/qcommon/common.cpp), which a fifth player and on take again */
+   game's own, cg_ScoresColor_Gamertag_0 to 3 (bo1-zombies/src/qcommon/common.cpp), which a fifth player and on take
+   again. Black Ops II has the same four, by the order its players are in the game, which the server makes that of
+   their places (server/t6.go) */
 .avatar[data-place] { outline: 2px solid var(--place); outline-offset: 2px; }
 .avatar[data-place="0"] { --place: #fff; }
 .avatar[data-place="1"] { --place: #7ccfee; }

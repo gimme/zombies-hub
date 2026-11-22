@@ -27,6 +27,7 @@ Black Ops II runs on your Windows PC, on [Plutonium](https://plutonium.pw/). The
 - **The next game:** leave your game open at its menu when a game ends. When the room's next game starts, your game joins it without starting again. The launcher restarts your game instead when Plutonium has been updated, or when you chose another game folder in its menu.
 - **Updates:** the launcher updates itself from GitHub. If the room says that your launcher is too old, install the new one with the link there, then press Connect.
 - **The launcher's icon in the tray:** its menu shows which game folder the launcher uses. Choose Black Ops II folder… points it at another copy, from the game's next start. Delete downloaded Black Ops II files… frees the space of files the launcher downloaded.
+- **Your colour:** the game shows your points in the colour of your ring in the room, while everyone listed before you in the room is in the game. For that, the games join in the room's order: yours may stay at Connecting for up to 30 seconds while it waits for the game of a player before you.
 - **Same PC:** keep the room's page open on the PC you play on. The server matches your game to your page by address.
 
 If something goes wrong:

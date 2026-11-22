@@ -135,6 +135,7 @@ type lobby struct {
 	mapDesc     func(string) string // returns a map's description in the game's map select, or "" (mapart.go)
 	gamePorts   []int               // the games' ports on 127.0.0.1, one for each game that can run at once
 	loadTimeout time.Duration       // how long a game waits for its players before it is called off
+	joinWait    time.Duration       // how long a T6 player's game waits to join for a player before them (t6Turn)
 	sweepEvery  time.Duration       // how often sweep checks for players who are gone and games to end
 	countdown   time.Duration       // how long a room's game waits to start once everyone in the room is ready
 	privateFor  time.Duration       // how long a new room is listed as private, so that its maker can make it private
@@ -386,6 +387,8 @@ type seat struct {
 	left   bool         // they chose to leave it
 	gone   bool         // the game dropped their client: they left, were kicked, or were away for keepCharacter
 	slot   int          // in a T6 game, the slot Plutonium's server has their client in (t6Status), or -1 for none
+	// awaited is when, in a T6 game, a player after them in the room first waited to join for them (t6Awaited).
+	awaited time.Time
 }
 
 // lost reports whether the seat's character is gone for good, so that its player can't take it back. That is the case
@@ -400,8 +403,8 @@ func newLobby(ctx context.Context) *lobby {
 		rooms: map[string]*room{}, reports: map[string]*gameResult{}, unsavedGames: map[string]*gameResult{},
 		titles: []title{&t5Title{}, &t6Title{knocked: map[netip.Addr]time.Time{}}},
 		busy:   map[int]bool{}, changed: make(chan struct{}), roomSize: 4, minPlayers: 2,
-		loadTimeout: 5 * time.Minute,
-		sweepEvery:  time.Second, countdown: 4 * time.Second, privateFor: 3 * time.Second}
+		loadTimeout: 5 * time.Minute, joinWait: 30 * time.Second,
+		sweepEvery: time.Second, countdown: 4 * time.Second, privateFor: 3 * time.Second}
 }
 
 // change wakes the event streams. The caller holds l.mu.
@@ -669,8 +672,9 @@ type memberView struct {
 	ID     string `json:"id"`
 	Name   string `json:"name"`
 	Avatar string `json:"avatar,omitempty"` // their picture, as a URL the page loads (avatar)
-	// Place is their place in the room, from 0 (placeOf). The room's game gives them the client slot of their place,
-	// which decides the colour of their score in the game's HUD.
+	// Place is their place in the room, from 0 (placeOf), which decides the colour of their score in the game's HUD.
+	// A T5 game gives them the client slot of their place. A T6 game takes its players in the order of their places,
+	// and has them in their place's colour while everyone before them is in it (t6.go).
 	Place int `json:"place"`
 	// Team is their team, 1 or 2, while the room has Grief on (teamOf). A player with a seat in the room's game has
 	// their team in that game. While the room has no game, Team is the team its next game would give them with the
@@ -721,9 +725,9 @@ func (r *room) seatOf(p *player) *seat {
 }
 
 // placeOf returns the place in r of its member p, from 0. While r's game runs, it is the place of p's seat in the
-// game. The game received the places when it started (placesOf) and gives each player the client slot of their place.
-// p keeps this place when other players leave the room. While r has no game, it is p's position among r's members,
-// which is their place in r's next game.
+// game. A T5 game received the places when it started (placesOf) and gives each player the client slot of their
+// place. A T6 game's players join it in the order of their places (t6Turn). p keeps this place when other players
+// leave the room. While r has no game, it is p's position among r's members, which is their place in r's next game.
 func (r *room) placeOf(p *player) int {
 	if r.game != nil {
 		if i := slices.IndexFunc(r.game.seats, func(s *seat) bool { return s.player == p }); i >= 0 {
