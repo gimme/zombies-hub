@@ -8,7 +8,7 @@
 ARGS ?=
 REGISTRY ?=
 .DEFAULT_GOAL := help
-.PHONY: help dev web image push launcher launcher-key test test-go test-e2e
+.PHONY: help dev web image push launcher launcher-key test test-stop test-go test-e2e
 # The targets run one at a time and in order.
 .NOTPARALLEL:
 
@@ -43,6 +43,9 @@ launcher-key: ## make the key the launcher's releases are signed with, once (doc
 
 test: ## test the server image with real games, in this machine's Chrome (docker/test-games.sh)
 	docker/test-games.sh $(ARGS)
+
+test-stop: ## stop the run of make test that is going, safely, and wait for it (docker/test-games.sh --stop)
+	docker/test-games.sh --stop
 
 test-go: ## test the Go code alone, in about a minute (docker/test-go.sh)
 	docker/test-go.sh $(ARGS)

@@ -8,22 +8,31 @@
 # pointer all the same; Chrome draws with the GPU there as anywhere. The station and its desktop (zombies-test) go with
 # their last process.
 #
-#   powershell -NoProfile -ExecutionPolicy Bypass -File window-station.ps1 <args file> <log file>
+#   powershell -NoProfile -ExecutionPolicy Bypass -File window-station.ps1 <args file> <log file> <exit file>
 #
 # <args file> has the program and its arguments, a line each (so that none is read as PowerShell's own, or quoted
-# twice). The program's output and errors are added to <log file>, it has no input and no console window, and its
-# environment is this one's. This waits for it, and exits with its exit code.
+# twice). This starts another PowerShell, apart from the terminal, which runs the program and waits for it, prints that
+# PowerShell's process id, and returns at once. The program's output and errors are added to <log file>, it has no
+# input and no console window, and its environment and folder are this one's. Once it has ended, its exit code is in
+# <exit file> (written whole, as it is renamed into place).
 #
-# The program and all it starts are in a job that Windows ends as this ends (JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE): to
-# stop them, end this process, and no other. Not taskkill /T, which takes for a process's children whatever says its
-# number is their parent's: a number Windows gives again once a process is gone, so that it can end processes that were
-# never this one's.
+# The run is apart from the terminal so that nothing there can end it: the other PowerShell has a console of its own,
+# with no window, so that neither Ctrl+C in the terminal nor the terminal closing reaches it, nor Git Bash's signals,
+# and it ignores Ctrl+C besides. The program stops when it ends by itself, or when it is asked to (test-games.sh
+# --stop).
+#
+# The program and all it starts are in a job that Windows ends as that PowerShell ends
+# (JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE): the last resort, should it die. Nothing ends it on purpose: a Chrome ended from outside while it draws can leave the
+# GPU's driver hung (e2e/game/chrome.ts). Nor taskkill /T, which takes for a process's children whatever says its number
+# is their parent's: a number Windows gives again once a process is gone, so that it can end processes that were never
+# this one's. Once the program has ended, what it left in the job (a Chrome still closing) has a minute to end by itself
+# before that PowerShell ends, and the log says so.
 $ErrorActionPreference = 'Stop'
-if ($args.Count -ne 2) { [Console]::Error.WriteLine('usage: window-station.ps1 <args file> <log file>'); exit 2 }
 
 Add-Type @'
 using System;
 using System.ComponentModel;
+using System.IO;
 using System.Runtime.InteropServices;
 using System.Text;
 
@@ -43,6 +52,11 @@ public static class Bo1Desktop {
         public long PerProcessUserTimeLimit, PerJobUserTimeLimit; public uint LimitFlags;
         public UIntPtr MinimumWorkingSetSize, MaximumWorkingSetSize; public uint ActiveProcessLimit;
         public UIntPtr Affinity; public uint PriorityClass, SchedulingClass;
+    }
+    [StructLayout(LayoutKind.Sequential)]
+    struct JOBOBJECT_BASIC_ACCOUNTING_INFORMATION {
+        public long TotalUserTime, TotalKernelTime, ThisPeriodTotalUserTime, ThisPeriodTotalKernelTime;
+        public uint TotalPageFaultCount, TotalProcesses, ActiveProcesses, TotalTerminatedProcesses;
     }
     [StructLayout(LayoutKind.Sequential)]
     struct IO_COUNTERS { public ulong ReadOps, WriteOps, OtherOps, ReadBytes, WriteBytes, OtherBytes; }
@@ -76,6 +90,9 @@ public static class Bo1Desktop {
     [DllImport("kernel32.dll", SetLastError = true)]
     static extern bool AssignProcessToJobObject(IntPtr job, IntPtr process);
     [DllImport("kernel32.dll", SetLastError = true)]
+    static extern bool QueryInformationJobObject(IntPtr job, int kind, out JOBOBJECT_BASIC_ACCOUNTING_INFORMATION info,
+        int length, IntPtr returned);
+    [DllImport("kernel32.dll", SetLastError = true)]
     static extern uint ResumeThread(IntPtr thread);
     [DllImport("kernel32.dll", SetLastError = true)]
     static extern bool TerminateProcess(IntPtr process, uint code);
@@ -83,6 +100,10 @@ public static class Bo1Desktop {
     static extern uint WaitForSingleObject(IntPtr handle, uint ms);
     [DllImport("kernel32.dll", SetLastError = true)]
     static extern bool GetExitCodeProcess(IntPtr process, out uint code);
+    [DllImport("kernel32.dll", SetLastError = true)]
+    static extern bool CloseHandle(IntPtr handle);
+    [DllImport("kernel32.dll", SetLastError = true)]
+    static extern bool SetConsoleCtrlHandler(IntPtr handler, bool add);
 
     // an argument as CommandLineToArgvW reads it back
     static string Quote(string a) {
@@ -95,6 +116,35 @@ public static class Bo1Desktop {
             slashes = 0;
         }
         return s.Append('\\', 2 * slashes).Append('"').ToString();
+    }
+
+    // Starts the command apart from this process's console and job: in a console of its own, with no window
+    // (CREATE_NO_WINDOW), which no Ctrl+C or close of the terminal reaches, and out of the job of whatever started
+    // this, where that job lets it go (a terminal's job could end the run as the terminal closes). It inherits no
+    // handle, so that nothing that reads this one's output waits for it. Returns its process id.
+    public static int Detach(string[] command) {
+        const uint CREATE_NO_WINDOW = 0x08000000, CREATE_BREAKAWAY_FROM_JOB = 0x01000000;
+        const int ERROR_ACCESS_DENIED = 5;
+        var line = string.Join(" ", Array.ConvertAll(command, Quote));
+        var startup = new STARTUPINFO();
+        startup.cb = Marshal.SizeOf(startup);
+        PROCESS_INFORMATION process;
+        if (!CreateProcess(null, new StringBuilder(line), IntPtr.Zero, IntPtr.Zero, false,
+                CREATE_NO_WINDOW | CREATE_BREAKAWAY_FROM_JOB, IntPtr.Zero, null, ref startup, out process)) {
+            int error = Marshal.GetLastWin32Error();
+            if (error != ERROR_ACCESS_DENIED ||
+                !CreateProcess(null, new StringBuilder(line), IntPtr.Zero, IntPtr.Zero, false, CREATE_NO_WINDOW,
+                    IntPtr.Zero, null, ref startup, out process))
+                throw new Win32Exception(Marshal.GetLastWin32Error(), "starting " + command[0]);
+        }
+        CloseHandle(process.hThread);
+        CloseHandle(process.hProcess);
+        return process.dwProcessId;
+    }
+
+    // Ctrl+C (and Ctrl+Break) in this process's console does nothing to it: its handlers are not called.
+    public static void IgnoreCtrlC() {
+        SetConsoleCtrlHandler(IntPtr.Zero, true);
     }
 
     public static int Run(string desktop, string[] command, string log) {
@@ -150,15 +200,76 @@ public static class Bo1Desktop {
         ResumeThread(process.hThread);
         WaitForSingleObject(process.hProcess, INFINITE);
         uint code;
-        return GetExitCodeProcess(process.hProcess, out code) ? (int)code : 1;
+        int exit = GetExitCodeProcess(process.hProcess, out code) ? (int)code : 1;
+        // What the program left in the job, such as a Chrome still closing, has a minute to end by itself before the
+        // job closes, which ends it.
+        int left = Active(job);
+        if (left > 0) {
+            Append(log, "window-station: " + left + " processes the program left are still running: they have a " +
+                "minute to end by themselves\n");
+            for (int waited = 0; waited < 60000 && left > 0; waited += 500) {
+                System.Threading.Thread.Sleep(500);
+                left = Active(job);
+            }
+            Append(log, left > 0 ? "window-station: " + left + " processes the program left did not end: Windows " +
+                "ends them now\n" : "window-station: they ended\n");
+        }
+        return exit;
+    }
+
+    // the processes in the job now
+    static int Active(IntPtr job) {
+        const int JobObjectBasicAccountingInformation = 1;
+        JOBOBJECT_BASIC_ACCOUNTING_INFORMATION info;
+        return QueryInformationJobObject(job, JobObjectBasicAccountingInformation, out info, Marshal.SizeOf(
+            typeof(JOBOBJECT_BASIC_ACCOUNTING_INFORMATION)), IntPtr.Zero) ? (int)info.ActiveProcesses : 0;
+    }
+
+    // Adds the text to the log, which the program's handle of it shares.
+    public static void Append(string log, string text) {
+        using (var f = new FileStream(log, FileMode.Append, FileAccess.Write, FileShare.ReadWrite | FileShare.Delete)) {
+            var bytes = Encoding.UTF8.GetBytes(text);
+            f.Write(bytes, 0, bytes.Length);
+        }
+    }
+
+    // The exit code, in the file: written beside it, then renamed into place, so that a reader finds it whole or not
+    // at all.
+    public static void WriteExit(string file, int code) {
+        string part = file + ".part";
+        File.WriteAllText(part, code + "\n");
+        if (File.Exists(file)) File.Delete(file);
+        File.Move(part, file);
     }
 }
 '@
 
-$command = @(Get-Content -LiteralPath $args[0] -Encoding UTF8 | Where-Object { $_ -ne '' })
-if ($command.Count -eq 0) { [Console]::Error.WriteLine("window-station: $($args[0]) names no program"); exit 2 }
+if ($args.Count -eq 4 -and $args[0] -eq 'run') {
+    # the PowerShell apart from the terminal, which Detach started (below): it runs the program and waits for it
+    $null, $argsFile, $log, $exitFile = $args
+    [Bo1Desktop]::IgnoreCtrlC()
+    $code = 1
+    try {
+        $command = @(Get-Content -LiteralPath $argsFile -Encoding UTF8 | Where-Object { $_ -ne '' })
+        if ($command.Count -eq 0) { throw "$argsFile names no program" }
+        $code = [Bo1Desktop]::Run('zombies-test', $command, $log)
+    } catch {
+        [Bo1Desktop]::Append($log, "window-station: $($_.Exception.Message)`n")
+    }
+    [Bo1Desktop]::WriteExit($exitFile, $code)
+    exit $code
+}
+if ($args.Count -ne 3) {
+    [Console]::Error.WriteLine('usage: window-station.ps1 <args file> <log file> <exit file>')
+    exit 2
+}
+# a Ctrl+C as this starts the run is the caller's to answer (test-games.sh asks the run to stop): it does not cut the
+# start short, leaving a run no one knows of
+[Bo1Desktop]::IgnoreCtrlC()
 try {
-    exit [Bo1Desktop]::Run('zombies-test', $command, $args[1])
+    $self = [Diagnostics.Process]::GetCurrentProcess().MainModule.FileName
+    $full = @($args | ForEach-Object { [IO.Path]::GetFullPath($_) })
+    [Bo1Desktop]::Detach(@($self, '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $PSCommandPath, 'run') + $full)
 } catch {
     [Console]::Error.WriteLine("window-station: $($_.Exception.Message)")
     exit 1

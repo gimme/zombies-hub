@@ -5,11 +5,17 @@
 //             and stopped as it ends, which fails the test unless the server stopped cleanly (Server.stop).
 // servers     starts another server, zombies-test-<n>-<suffix>, which stops as the test ends.
 // players     opens a player's page (player.ts) on the test's server: players.open('Ann'), players.open('Bob',
-//             { query: 'room=KXQM' }), or on another's (players.openOn). Each player's Chrome closes as the test ends.
-//             Their logs are in the test's results, with a screenshot of each page where the test failed, and a failed
-//             assert in a page's engine fails the test.
+//             { query: 'room=KXQM' }), or on another's (players.openOn). Each player's Chrome closes as the test ends,
+//             in the order they opened, one still opening once it has opened, and none opens after. Their logs are in
+//             the test's results, with a screenshot of each page where the test failed, and a failed assert in a
+//             page's engine fails the test.
 // api         players who have no page: the test says for them what a page says to the lobby (api.player), and makes
 //             a room whose game starts at once and waits for a player who never comes (api.room).
+// leftovers   the worker's own, at its end: each player's Chrome of its tests that is still open closes, and each
+//             server still running stops. A test does that itself as it ends; a run that is stopped (stop.ts) gives up
+//             on what a test was doing, even a fixture's teardown, which goes on by itself. A Chrome still open as its
+//             worker ends is ended with it, by force (Playwright's exit handlers, and on Windows the job Node puts each
+//             process it starts in), which can leave the GPU's driver hung (chrome.ts).
 import { test as base, expect } from '@playwright/test';
 import { randomBytes } from 'node:crypto';
 import { rmSync } from 'node:fs';
@@ -45,8 +51,14 @@ export interface Api {
 }
 
 export const test = base.extend<{ serverOptions: ServerOptions; server: Server; servers: Servers; players: Players;
-  api: Api }>({
+  api: Api }, { leftovers: void }>({
   serverOptions: [{}, { option: true }],
+
+  leftovers: [async ({}, use) => {
+    await use();
+    await Player.closeAll();
+    await Server.stopAll();
+  }, { scope: 'worker', auto: true }],
 
   server: async ({ serverOptions }, use, testInfo) => {
     const server = await Server.start(`zombies-test-${testInfo.parallelIndex}`, testInfo.outputPath('server'),
@@ -76,20 +88,26 @@ export const test = base.extend<{ serverOptions: ServerOptions; server: Server; 
   },
 
   players: async ({ server }, use, testInfo) => {
-    const opened: Player[] = [];
-    const openOn = async (on: Server, name: string, options: PlayerOptions = {}) => {
+    // the players' opens, as they began: an open under way as the test ends is waited for (a stopped test's goes on)
+    const opening: Promise<Player | null>[] = [];
+    let ended = false;
+    const openOn = (on: Server, name: string, options: PlayerOptions = {}) => {
+      if (ended) return Promise.reject(new Error(`${name} opens no page: the test has ended`));
       const id = `${testInfo.parallelIndex}-${name.replace(/\W/g, '')}-${randomBytes(4).toString('hex')}`;
       const profile = join(profiles, id);
       const log = testInfo.outputPath(`${name.replace(/\W/g, '')}.log`);
-      const player = await Player.open(name, options.proxy ? on.proxyUrl : on.url, profile, log, options,
+      const open = Player.open(name, options.proxy ? on.proxyUrl : on.url, profile, log, options,
         options.proxy ? { port: on.proxyPort, spki: on.spki } : undefined);
-      opened.push(player);
-      return player;
+      opening.push(open.catch(() => null));
+      return open;
     };
     await use({ open: (name, options) => openOn(server, name, options), openOn });
+    ended = true;
     const failed = testInfo.status !== testInfo.expectedStatus;
     const problems: string[] = [];
-    for (const player of opened) {
+    for (const open of opening) {
+      const player = await open;
+      if (!player) continue; // its open failed, and closed its Chrome
       if (failed || player.failure) await player.shot('failed');
       try {
         await player.close();

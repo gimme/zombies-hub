@@ -16,8 +16,14 @@ import { type Browser, type BrowserContext, chromium, type ConsoleMessage, type 
 import { type ChildProcess, execFileSync, spawn } from 'node:child_process';
 import { createWriteStream, existsSync, type WriteStream, writeFileSync } from 'node:fs';
 import { chrome, chromeExecutable, chromeLeft, stuckNote } from './chrome';
+import { stopAsked } from './stop';
 
 const sleep = (ms: number) => new Promise((done) => setTimeout(done, ms));
+
+// The players of this process whose Chrome is open, or opening, until it has closed (closeAll); and whether closeAll
+// has begun, after which no Chrome starts.
+const players = new Set<Player>();
+let allClosing = false;
 
 /** How a player's page opens. */
 export interface PlayerOptions {
@@ -149,6 +155,9 @@ export class Player {
   private readonly heard = new Set<string>();
   private readonly out: WriteStream;
   private closing = false;
+  private closed: Promise<void> | null = null;
+  // the start of the player's Chrome, under way or done (open)
+  private launched: Promise<void> | null = null;
   // a Chrome started by hand (throttled), and Playwright's connection to it
   private browser: Browser | null = null;
   private chromeProcess: ChildProcess | null = null;
@@ -157,13 +166,17 @@ export class Player {
     this.out = createWriteStream(logFile);
   }
 
-  /** Opens the page at url (the server's, with ?name= and the options' query) in a Chrome of the player's own. */
+  /**
+   * Opens the page at url (the server's, with ?name= and the options' query) in a Chrome of the player's own. A Chrome
+   * that started for an open that failed after is closed (close) before the open fails.
+   */
   static async open(name: string, base: string, profile: string, logFile: string, options: PlayerOptions = {},
     proxy?: { port: number; spki: string }): Promise<Player> {
     if (existsSync(stuckNote)) {
       throw new Error(`no Chrome is started: the GPU's driver holds an earlier Chrome's processes (${stuckNote}): ` +
         'restart the machine');
     }
+    if (allClosing || stopAsked()) throw new Error(`no Chrome is started for ${name}: the run is stopping`);
     const p = new Player(name, profile, logFile);
     const url = new URL(base);
     url.search = `name=${encodeURIComponent(name)}${options.query ? '&' + options.query : ''}`;
@@ -174,44 +187,59 @@ export class Player {
     const switches = ['--autoplay-policy=no-user-gesture-required',
       ...(proxy ? [`--ignore-certificate-errors-spki-list=${proxy.spki}`,
         '--host-resolver-rules=MAP zombies.test 127.0.0.1'] : [])];
-    if (options.throttled) {
-      await p.startByHand(switches);
-    } else {
-      p.context = await chromium.launchPersistentContext(profile, {
-        ...chrome(), headless: true, viewport: { width: 1280, height: 720 }, args: switches });
+    // Playwright's handlers of SIGINT, SIGTERM and SIGHUP are off: they close every browser of the process at once,
+    // behind its tests' backs, and end them by force at a second SIGINT. A run stops through Playwright's own stop
+    // (stop.ts), and each player's Chrome closes as at a test's end.
+    const signals = { handleSIGINT: false, handleSIGTERM: false, handleSIGHUP: false };
+    players.add(p);
+    p.launched = options.throttled ? p.startByHand(switches) : chromium.launchPersistentContext(profile, {
+      ...chrome(), ...signals, headless: true, viewport: { width: 1280, height: 720 }, args: switches })
+      .then((context) => {
+        p.context = context;
+      });
+    try {
+      await p.launched;
+      await p.load(url, options);
+    } catch (e) {
+      await p.close().catch(() => {});
+      throw e;
     }
-    p.context.on('close', () => {
-      if (!p.closing) p.fail(new Error(`${name}'s Chrome went away`));
+    return p;
+  }
+
+  // Opens the page at the url in the player's Chrome, once it has started.
+  private async load(url: URL, options: PlayerOptions): Promise<void> {
+    this.context.on('close', () => {
+      if (!this.closing) this.fail(new Error(`${this.name}'s Chrome went away`));
     });
-    await p.instrument(options);
+    await this.instrument(options);
     // a tab of its own, not the one Chrome opens with, which is not the active one: the page could not capture the
     // mouse in it ("The root document of this element is not valid for pointer lock"), nor go full screen
-    const first = p.context.pages();
-    p.page = await p.context.newPage();
+    const first = this.context.pages();
+    this.page = await this.context.newPage();
     for (const page of first) await page.close();
-    if (p.browser) await p.page.setViewportSize({ width: 1280, height: 720 });
-    p.watch(p.page, '');
-    p.page.on('load', () => p.loads++);
-    p.page.on('crash', () => p.fail(new Error(`${name}'s page crashed`)));
-    p.page.on('request', (request) => {
+    if (this.browser) await this.page.setViewportSize({ width: 1280, height: 720 });
+    this.watch(this.page, '');
+    this.page.on('load', () => this.loads++);
+    this.page.on('crash', () => this.fail(new Error(`${this.name}'s page crashed`)));
+    this.page.on('request', (request) => {
       const u = new URL(request.url());
       const pack = /^\/maps\/[^/]+\/pack$/.test(u.pathname);
       if (!pack && (!u.pathname.startsWith('/game/') || u.pathname.endsWith('/manifest.txt'))) return;
-      p.reads.push({ path: u.pathname, pack, byGame: p.engineRuns });
+      this.reads.push({ path: u.pathname, pack, byGame: this.engineRuns });
     });
     // Chrome's dialog as the page leaves its game, which the player accepts, as one who means to leave does; the
     // page asks nothing else in a dialog of Chrome's, but in its own (web/src/question.ts: askInPage)
-    p.page.on('dialog', (dialog) => {
+    this.page.on('dialog', (dialog) => {
       if (dialog.type() !== 'beforeunload') {
-        p.note(`the page asked in Chrome's ${dialog.type()} dialog, not its own: ${dialog.message()}`);
+        this.note(`the page asked in Chrome's ${dialog.type()} dialog, not its own: ${dialog.message()}`);
         return dialog.dismiss();
       }
-      p.askedToLeave++;
-      p.note('the page asked before it left the game');
+      this.askedToLeave++;
+      this.note('the page asked before it left the game');
       return dialog.accept();
     });
-    await p.page.goto(url.toString());
-    return p;
+    await this.page.goto(url.toString());
   }
 
   // Starts Chrome by hand, headless, without Chrome's own work in the background, as Playwright starts it, and joins
@@ -695,6 +723,7 @@ export class Player {
   /** The player in the game, as bo1_player says (null until the engine runs and has a snapshot). */
   async ask(at = this.page): Promise<PlayerState | null> {
     if (this.failure) throw this.failure;
+    if (this.closing) throw new Error(`${this.name}'s Chrome has closed: the test has ended`);
     const line = new Promise<string>((done) => {
       this.answers.set(at, done);
       setTimeout(() => done(''), 5000);
@@ -1025,21 +1054,41 @@ export class Player {
 
   /**
    * Closes the player's Chrome, as a player closes theirs: its pages go, their GPU devices with them, and its GPU
-   * process ends by itself. Fails when its processes are still there 10 s on (chrome.ts), noting it for the run.
+   * process ends by itself. A Chrome that is still starting closes once it has started. Fails when its processes are
+   * still there 10 s on (chrome.ts), noting it for the run. Closing again waits for the first close, and fails as it
+   * did.
    */
-  async close(): Promise<void> {
-    if (this.closing) return;
+  close(): Promise<void> {
+    this.closed ??= this.closeNow().finally(() => players.delete(this));
+    return this.closed;
+  }
+
+  /**
+   * Closes every player's Chrome of this process that is open, or opening, one at a time, each as close does, and
+   * starts no Chrome after: for the end of a worker, whose Chrome Playwright would end by force (fixtures.ts:
+   * leftovers). A close that fails is the player's test's to report.
+   */
+  static async closeAll(): Promise<void> {
+    allClosing = true;
+    for (const p of [...players]) await p.close().catch(() => {});
+  }
+
+  private async closeNow(): Promise<void> {
     this.closing = true;
     for (const l of [...this.listeners]) l.done(false);
     this.listeners.clear();
+    // Playwright's start of a Chrome takes 3 min at most before it fails
+    await Promise.race([this.launched?.catch(() => {}), sleep(200_000)]);
+    this.note('Chrome closes');
     const proc = this.chromeProcess;
     if (this.browser && proc) {
       const ended = proc.exitCode !== null ? Promise.resolve() : new Promise((done) => proc.once('exit', done));
       await this.browser.newBrowserCDPSession().then((s) => s.send('Browser.close')).catch(() => proc.kill());
       await Promise.race([ended, sleep(8000)]);
-    } else {
+    } else if (this.context) {
       await Promise.race([this.context.close().catch(() => {}), sleep(8000)]);
     }
+    this.note('Chrome closed');
     await new Promise((done) => this.out.end(done));
     for (let i = 0; i < 5; i++) {
       if (!chromeLeft(this.profile)) return;

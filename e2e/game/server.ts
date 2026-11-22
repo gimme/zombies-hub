@@ -18,8 +18,13 @@ import { createWriteStream, mkdirSync, readFileSync, type WriteStream, writeFile
 import { type AddressInfo, createServer } from 'node:net';
 import { isAbsolute, join, resolve } from 'node:path';
 import { createInterface } from 'node:readline';
+import { stopAsked } from './stop';
 
 export const image = 'zombies:test';
+
+// The servers of this process that have yet to stop (stopAll), and whether stopAll has begun, after which none starts.
+const running = new Set<Server>();
+let allStopping = false;
 
 /** The rooms' map, and the one a player plays alone (ZOMBIES_TEST_MAP, default Kino). */
 export const map = process.env.ZOMBIES_TEST_MAP || 'zombie_theater';
@@ -138,6 +143,7 @@ export class Server {
       ZOMBIES_DOWNLOAD_RATE: 'unlimited', ZOMBIES_MIN_PLAYERS: '1', ZOMBIES_MAX_PLAYERS: '4',
       ZOMBIES_PUBLIC_PORT: String(port), ...options.env,
     };
+    if (allStopping || stopAsked()) throw new Error(`no server is started as ${name}: the run is stopping`);
     const proc = spawn('docker', ['run', '--rm', '--name', name, '--network', 'bridge',
       '-p', `127.0.0.1:${port}:3075/tcp`, '-p', `127.0.0.1:${port}:3075/udp`, '-p', `127.0.0.1:${proxyPort}:443/tcp`,
       ...(options.noFirewall ? [] : ['--cap-add', 'NET_ADMIN']),
@@ -145,6 +151,7 @@ export class Server {
       ...mount(game, '/game', true), ...engineArgs(name), ...mount(join(dir, 'config'), '/config'), image],
     { windowsHide: true });
     const server = new Server(name, dir, port, proxyPort, proc);
+    running.add(server);
     await server.poll('Docker found the server healthy', 180_000, async () =>
       (await docker(['container', 'inspect', '-f', '{{.State.Health.Status}}', name])).out.trim() === 'healthy');
     await server.waitFor(new RegExp(`^files: ${map} reads [0-9]+ MB of the install: [0-9]+ files, 0 of its names ` +
@@ -309,11 +316,26 @@ export class Server {
    * Stopping it again gives the same.
    */
   stop(): Promise<void> {
-    this.stopped ??= this.stopNow();
+    this.stopped ??= this.stopNow().finally(() => {
+      if (this.exitCode !== null) running.delete(this);
+    });
     return this.stopped;
   }
 
   private stopped: Promise<void> | null = null;
+
+  /**
+   * Ends every server of this process that has yet to stop, each once a stop under way has ended, and starts none
+   * after: for the end of a worker, whose tests a stopped run gave up on (fixtures.ts: leftovers).
+   */
+  static async stopAll(): Promise<void> {
+    allStopping = true;
+    for (const server of [...running]) {
+      await server.stopped?.catch(() => {});
+      await server.kill();
+      await server.release();
+    }
+  }
 
   private async stopNow(): Promise<void> {
     if (this.exitCode !== null) throw new Error(`the server ended before the test did (exit code ${this.exitCode})`);
@@ -336,10 +358,17 @@ export class Server {
     if (problems.length) throw new Error(problems.join('\n'));
   }
 
-  /** Ends the server at once. */
+  /**
+   * Ends the server at once. Its container is removed again while its docker run goes on, up to 3 times, 10 s apart:
+   * a container docker run has yet to make when it is first removed is made after.
+   */
   async kill(): Promise<void> {
-    await docker(['rm', '-f', `${this.name}-proxy`, this.name]);
-    await Promise.race([this.exited, sleep(30_000)]);
+    for (let i = 0; i < 3; i++) {
+      await docker(['rm', '-f', `${this.name}-proxy`, this.name]);
+      await Promise.race([this.exited, sleep(10_000)]);
+      if (this.exitCode !== null) break;
+    }
+    if (this.exitCode !== null) running.delete(this);
     if (!this.out.closed) await new Promise((done) => this.out.end(done));
   }
 

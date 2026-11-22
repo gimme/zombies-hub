@@ -72,7 +72,9 @@ Two things in this repo depend on the engine build:
   - `engine`: what the engine does in the page and as a room's game. Playing alone with the settings menu, the gamepad, tabs, the end scoreboard, mods, a hung game and a client of another build.
   - `long`: a revive, a door bought, and six players in a room, one at a time, in about six minutes.
 
-  With nothing named, `smoke` and `engine` run, in about seven minutes. `docker/test-games.sh smoke` runs a group, and `docker/test-games.sh coop solo` the named tests. A test's results are in `build/test/results`: the server's log and data, each player's log, and screenshots.
+  With nothing named, `smoke` and `engine` run, in about seven minutes. `docker/test-games.sh smoke` runs a group, and `docker/test-games.sh coop solo` the named tests. A test's results are in `build/test/results`: the server's log and data, each player's log, and screenshots. One run goes at a time.
+
+  To stop a run, press Ctrl+C in its terminal, or run `make test-stop` (`docker/test-games.sh --stop`) in another, which waits for the run to end. The run then stops by itself, in a few minutes at most: its tests end as at their own end, each player's Chrome closing and each server stopping, and it exits with code 130, the results so far in `build/test/results`. A second Ctrl+C does not hurry it. The run goes on apart from its terminal, so closing the terminal, or killing the script, stops it the same way. Don't end its processes (node, Chrome, or the PowerShell it runs in on Windows): a Chrome ended while it draws can hang the GPU's driver until the machine restarts (`e2e/game/chrome.ts`).
 - A new check of what the page does belongs in the page tests, and one of what the engine does in the game tests.
 
 The tests use the pinned engine build. Set `ZOMBIES_ENGINE_FILE` to test another.
