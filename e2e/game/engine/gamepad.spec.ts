@@ -10,7 +10,8 @@
 // A skips the loading movie (play.ts: loadingMovie). Then the sticks walk and turn, the right trigger fires and rumbles
 // the gamepad, Start pauses the game under its menu, the gamepad and the keyboard go through the game's menus
 // (gamepadGame), the aim assist slows the view over a zombie and turns it on to one (gamepadAimAssist), and the knife
-// lunges (gamepadLunge).
+// lunges (gamepadLunge). From his spawn on he is unhurt (god), so that the zombies he waits for and turns to, which
+// come and swing at him, never down him: a down would end his game, played alone.
 import { expect, map, type Player, type PlayerState, test } from '../fixtures';
 import { loadingMovie } from '../play';
 import { PAD } from '../player';
@@ -20,6 +21,12 @@ const fail = (what: string): never => {
   throw new Error(what);
 };
 const degrees = (from: PlayerState, to: PlayerState) => Math.abs(((to.yaw - from.yaw + 540) % 360) - 180);
+// the player as god keeps him from his spawn (gamepadGame): up, with a weapon; or the test fails at once
+const up = (s: PlayerState, doing: string) => {
+  if (s.pmType !== 0 || s.weapon === 'none') {
+    fail(`a zombie downed the player ${doing}, whom god was to keep unhurt: pm_type ${s.pmType}, weapon ${s.weapon}`);
+  }
+};
 
 interface MenuView {
   screen: number;
@@ -404,6 +411,13 @@ function steerToZombie(p: Player, within: number, ms: number, which = (s: Player
 async function gamepadGame(p: Player): Promise<void> {
   const spawn = await p.spawned();
   p.note(`spawned alone at ${spawn.origin.join(' ')} with ${spawn.weapon}, ${spawn.clip}/${spawn.stock}`);
+  // From here the player is unhurt (god), as the zombies come for him while the test turns the view and waits for
+  // them, and a down ends a game played alone. A map played alone has cheats on (bo1-zombies/src/server_mp/
+  // sv_ccmds_mp.cpp: SV_Map_f). The zombies still come and swing at him, and push him; he takes no damage (G_Damage
+  // returns for god before the damage callback).
+  expect(await p.dvar('sv_cheats'), 'cheats in the game played alone, which god needs').toBe('1');
+  await p.command('god');
+  p.note('god: the zombies do the player no harm');
   expect(await p.dvar('gpad_enabled'), 'the gamepad, once spawned').toBe('1');
   // the left stick forward (up: negative) for 3 s, up to 8 times: the map's intro holds the player still after
   // spawning, the screen black
@@ -814,6 +828,7 @@ async function gamepadAimAssist(p: Player): Promise<void> {
           `${s.nearest.distance} units off at ${s.nearest.x} ${s.nearest.y}, slowdown ${s.slowdown ? 1 : 0}`);
       }
       s = await p.state();
+      up(s, 'as he waited for one in the middle of the screen');
       if (!s.aimTargets) {
         if (Date.now() - looked > 5000) {
           s = (await holdStick(p, (t) => (t.aimTargets ? null : 1), 5000)).s;
@@ -897,7 +912,7 @@ async function gamepadLunge(p: Player): Promise<void> {
         `${s.aimTargets} on screen, the closest ${s.closest.distance} units off at ${s.closest.x} ${s.closest.y}`);
     }
     s = await p.state();
-    if (s.weapon === 'none') fail(`a zombie downed the player before one came within the knife's reach on screen`);
+    up(s, 'as he waited for one to come within the knife\'s reach');
     if (!near(s)) {
       s = (await holdStick(p, (t) => (near(t) || t.weapon === 'none' ? null : 1), 5000)).s;
       continue;
