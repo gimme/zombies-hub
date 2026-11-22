@@ -30,7 +30,7 @@ Black Ops II runs on your Windows PC, on [Plutonium](https://plutonium.pw/). The
 If something goes wrong:
 
 - **The launcher doesn't find your Black Ops II, or uses the wrong copy:** click its icon in the tray, choose Choose Black Ops II folder… and pick the game's folder. A folder above it works too, such as a Steam library.
-- **"Black Ops II can't start from that folder":** the folder's path has a letter other than A to Z, such as é or я. Move the game to a folder such as `D:\Games\Black Ops II` and choose it there.
+- **"Black Ops II can't run from that folder":** the folder's path has a character other than A to Z, such as é or я. Move the game to a folder such as `D:\Games\Black Ops II` and choose that one.
 - **A file is missing (`d3dx9_43.dll`, `XINPUT1_3.dll`, `MSVCR100.dll`):** run `redist\DirectX\DXSETUP.exe` and `redist\vcredist_x86.exe` from the game's folder, once.
 - **"Your game is outdated":** press Join the game again.
 - **Antivirus removes Plutonium's files:** add an exception for `%LOCALAPPDATA%\Plutonium`.

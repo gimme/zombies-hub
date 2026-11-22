@@ -31,7 +31,7 @@ func commandLine(exe, dir, name, password, server string) (string, error) {
 	case strings.ContainsAny(exe+dir, "\"\r\n") || dir == "":
 		return "", fmt.Errorf("The game can't be started from the folder %q.", dir)
 	case !launchPassword.MatchString(password) || !launchServer.MatchString(server):
-		return "", errors.New("The server's answer is not one the launcher starts a game with.")
+		return "", errors.New("The server's answer isn't one the launcher can start a game from.")
 	}
 	return fmt.Sprintf(`"%s" t6zm "%s" -lan +name "%s" +set password %s +connect %s`, exe, dir, name, password, server), nil
 }

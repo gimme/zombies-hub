@@ -147,8 +147,7 @@ func (la *launcher) startFrom(dir string) (string, error) {
 	case !la.state.chosen:
 		return dir, nil
 	case la.state.dir == "":
-		return "", errors.New("The game files that the launcher downloaded were deleted. Join from the room's page again, " +
-			"for the launcher to ask where Black Ops II is.")
+		return "", errors.New("The downloaded game files were deleted. Join from the room's page again.")
 	}
 	return la.state.dir, nil
 }
@@ -173,7 +172,8 @@ func (la *launcher) menuDone() {
 
 // chooseFolder is the menu's "Choose Black Ops II folder…". The player points the launcher at their own copy of the
 // game, which the game starts from from its next start. The game files that the launcher downloaded stay: the menu
-// deletes them only when the player asks for that (deleteFiles).
+// deletes them only when the player asks for that (deleteFiles). The menu's line then names the folder, and that is
+// all the launcher says of it, unless the game runs: the player then hears that the game that runs is not affected.
 func (la *launcher) chooseFolder() {
 	if !la.menuTurn() {
 		return
@@ -188,7 +188,7 @@ func (la *launcher) chooseFolder() {
 		return
 	}
 	if _, err := la.rewrite(func(c *config) { c.T6 = own }); err != nil {
-		la.notify(fmt.Sprintf("The launcher could not keep the folder: %v", err), true)
+		la.notify(fmt.Sprintf("Couldn't save the folder: %v", err), true)
 		return
 	}
 	running := false
@@ -197,11 +197,8 @@ func (la *launcher) chooseFolder() {
 		running = s.running()
 	})
 	if running {
-		la.notify(fmt.Sprintf("Black Ops II starts from this folder from its next start. The game that runs now goes on as "+
-			"it is.\n\n%s", own), false)
-		return
+		la.notify(fmt.Sprintf("Black Ops II starts from here next time.\n\n%s", own), false)
 	}
-	la.notify(fmt.Sprintf("Black Ops II starts from this folder from now on.\n\n%s", own), false)
 }
 
 // deleteFiles is the menu's "Delete downloaded Black Ops II files…". It deletes what the launcher downloaded, as
@@ -227,10 +224,9 @@ func (la *launcher) deleteFiles() {
 	}
 	var now gameState
 	la.share(func(s *gameState) { now = *s })
-	question := fmt.Sprintf("Delete the Black Ops II game files that %s downloaded (%s)?\n\n%s", appName, megabytes(bytes), files)
+	question := fmt.Sprintf("Delete the downloaded Black Ops II files (%s)?\n\n%s", megabytes(bytes), files)
 	if now.dir == files {
-		question += "\n\nThe game starts from them now. Without them, the launcher asks again at your next game: for the " +
-			"folder of your copy, or to download them."
+		question += "\n\nThe game uses them now. The launcher will ask where the game is next time."
 	}
 	if !la.confirm(question) {
 		return
@@ -239,7 +235,7 @@ func (la *launcher) deleteFiles() {
 	// the turn while it finds the game files, too. The turn is given up before any message, which may stay open.
 	release, ok := tryFilesTurn()
 	if !ok {
-		la.notify("Another player's launcher on this PC is getting its files: delete them once it is done.", true)
+		la.notify("Another user's launcher on this PC is using the game files. Try again when it's done.", true)
 		return
 	}
 	why := la.notNow() // the run may have started on the game files while the player read the question
@@ -266,10 +262,10 @@ func (la *launcher) deleteFiles() {
 		}
 	})
 	if left > 0 {
-		la.notify(fmt.Sprintf("Some of the game files could not be deleted (is the game open?). Their folder:\n\n%s", files), true)
+		la.notify(fmt.Sprintf("Couldn't delete some of the files (is the game open?).\n\n%s", files), true)
 		return
 	}
-	la.notify(fmt.Sprintf("The game files are deleted: %s are free again.", megabytes(bytes)), false)
+	la.notify(fmt.Sprintf("Deleted the downloaded files (%s).", megabytes(bytes)), false)
 }
 
 // notNow returns why the menu deletes no game files now, or "" when it may: it deletes none while the game runs, or
@@ -279,9 +275,9 @@ func (la *launcher) notNow() string {
 	la.share(func(s *gameState) { now = *s })
 	switch {
 	case now.running():
-		return "Close Black Ops II first: the launcher deletes no game files while the game runs."
+		return "Close Black Ops II first."
 	case now.getting:
-		return "The launcher is checking or downloading the game files now: delete them once it is done."
+		return "The launcher is using the game files. Try again when it's done."
 	}
 	return ""
 }

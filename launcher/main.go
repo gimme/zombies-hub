@@ -217,7 +217,7 @@ func main() {
 		la.choose = taskDialogs()
 	}
 	if err != nil {
-		la.notify(fmt.Sprintf("The launcher can't find this PC's folder for programs' data: %v", err), true)
+		la.notify(fmt.Sprintf("The launcher couldn't find this PC's app data folder: %v", err), true)
 		pause(true)
 		os.Exit(1)
 	}
@@ -430,7 +430,7 @@ func (la *launcher) renew(ctx context.Context, url string, files, giveUp func())
 	}
 	giveUp()
 	if err := la.rerun(la.installed(), url); err != nil {
-		return false, fmt.Errorf("The launcher's latest release is in place, and could not be started: %v\nJoin from the room's page again.", err)
+		return false, fmt.Errorf("The launcher updated itself, but the new one couldn't be started: %v\nJoin from the room's page again.", err)
 	}
 	la.handed = true
 	return true, nil
@@ -638,15 +638,14 @@ func (la *launcher) play(ctx context.Context, url string, srv *server, failed fu
 // could send those files in its place.
 func (la *launcher) trust(l link) error {
 	if !l.tls && !nearby(l.host) {
-		return fmt.Errorf("%s is no secure page (https), and no PC of your own network: the launcher doesn't play there.", l.base)
+		return fmt.Errorf("%s isn't a secure (https) address, and isn't on your own network, so the launcher won't play there.", l.base)
 	}
 	if slices.Contains(la.cfg.Servers, l.base) {
 		return nil
 	}
 	if len(la.cfg.Servers) > 0 {
-		if !la.confirm(fmt.Sprintf("This PC plays on %s, and hasn't played on %s before.\n\n"+
-			"Playing there lets that server send this PC game files and programs, which the launcher starts: say yes "+
-			"only to a server of someone you trust.\n\nPlay on %s?", strings.Join(la.cfg.Servers, ", "), l.base, l.host)) {
+		if !la.confirm(fmt.Sprintf("Play on %s?\n\nThis PC hasn't played there before, only on %s. That server can send "+
+			"game files that the launcher runs, so say yes only if you trust it.", l.host, strings.Join(la.cfg.Servers, ", "))) {
 			return errors.New("Nothing was started.")
 		}
 	}
@@ -698,8 +697,8 @@ func (la *launcher) getPlutonium(ctx context.Context) error {
 
 // plutoniumHint returns advice for the player about what usually keeps the launcher from Plutonium's files.
 func (la *launcher) plutoniumHint() string {
-	return "If Plutonium or the game is open, close it, and join from the room's page again. If an antivirus took the\n" +
-		"file away: Plutonium's own site says how to make an exception for its folder,\n  " + la.plutonium
+	return "If Plutonium or the game is open, close it and try again. If your antivirus removed the file, add an " +
+		"exception for Plutonium's folder:\n  " + la.plutonium
 }
 
 // sentence returns an error's text as a sentence, with a capital first letter and a full stop.
@@ -735,7 +734,7 @@ func (la *launcher) launch(ctx context.Context, srv *server, l link, play *launc
 	}
 	g, err := la.start(exe, line, la.plutonium)
 	if err != nil {
-		return nil, fmt.Errorf("Plutonium could not be started: %v\n\n%s", err, la.plutoniumHint())
+		return nil, fmt.Errorf("Plutonium couldn't be started: %v\n\n%s", err, la.plutoniumHint())
 	}
 	la.started(g)
 	la.launched = true

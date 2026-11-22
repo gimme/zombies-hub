@@ -719,13 +719,13 @@ func TestTrust(t *testing.T) {
 	}
 	tl = newTestLauncher(t, "")
 	if code := tl.run(context.Background(), []string{"zombies-launcher://8.8.8.8:3075/play?key=0123456789abcdef&tls=0"}); code == 0 ||
-		!strings.Contains(tl.out.String(), "no secure page") || isFile(tl.configFile()) {
+		!strings.Contains(tl.out.String(), "isn't a secure (https) address") || isFile(tl.configFile()) {
 		t.Errorf("a server on plain HTTP that is not of the PC's network: %d\n%s", code, tl.out)
 	}
 	// a key the server doesn't know
 	tl = newTestLauncher(t, "")
 	if code := tl.run(context.Background(), []string{strings.Replace(l.link(), l.key, "ffffffffffffffff", 1)}); code == 0 ||
-		!strings.Contains(tl.out.String(), "doesn't know you") || len(tl.started) != 0 {
+		!strings.Contains(tl.out.String(), "no longer recognises this link") || len(tl.started) != 0 {
 		t.Errorf("a key the server doesn't know: %d\n%s", code, tl.out)
 	}
 	// no link of the launcher's
@@ -777,7 +777,7 @@ func TestSyncResumes(t *testing.T) {
 	l.mu.Unlock()
 	write(t, filepath.Join(dir, filepath.FromSlash(path)+launcherapi.PartSuffix), big[:1000])
 	write(t, filepath.Join(dir, launcherapi.StateFile), `{"files": {}, "parts": {"`+path+`": "`+hashOf(big)+`"}}`)
-	if code := tl.run(context.Background(), []string{l.link()}); code == 0 || !strings.Contains(tl.out.String(), "The download of "+path+" failed") {
+	if code := tl.run(context.Background(), []string{l.link()}); code == 0 || !strings.Contains(tl.out.String(), "Downloading "+path+" failed") {
 		t.Fatalf("a download that brings nothing: %d\n%s", code, tl.out)
 	}
 	l.mu.Lock()
@@ -818,7 +818,7 @@ func TestSyncTakesOnlyTheListsFiles(t *testing.T) {
 	l.files = map[string]string{"binkw32.dll": "bink", "zone/all/patch_zm.ff": "the patch"}
 	l.listed["zone/all/patch_zm.ff"] = "another patch"
 	tl := newTestLauncher(t, "\n")
-	if code := tl.run(context.Background(), []string{l.link()}); code == 0 || !strings.Contains(tl.out.String(), "not the file the server's list says") {
+	if code := tl.run(context.Background(), []string{l.link()}); code == 0 || !strings.Contains(tl.out.String(), "doesn't match the server's list") {
 		t.Fatalf("a file that isn't the list's: %d\n%s", code, tl.out)
 	}
 	dir := filepath.Join(tl.home, "t6")
@@ -846,7 +846,7 @@ func TestSyncTakesOnlyTheListsFiles(t *testing.T) {
 		l.listed, l.extra = map[string]string{}, []launcherapi.File{f}
 		l.mu.Unlock()
 		tl := newTestLauncher(t, "\n")
-		if code := tl.run(context.Background(), []string{l.link()}); code == 0 || !strings.Contains(tl.out.String(), "doesn't take") {
+		if code := tl.run(context.Background(), []string{l.link()}); code == 0 || !strings.Contains(tl.out.String(), "launcher won't") {
 			t.Errorf("a list with %+v: %d\n%s", f, code, tl.out)
 		}
 		if isFile(filepath.Join(tl.home, "outside.dll")) || isFile(filepath.Join(filepath.Dir(tl.home), "outside.dll")) ||
@@ -921,7 +921,7 @@ func TestGameFilesFolder(t *testing.T) {
 	for _, answers := range []string{"y\n\n", "y\n" + filepath.Join(own, "zone") + "\n"} {
 		tl = newTestLauncher(t, answers)
 		if code := tl.run(context.Background(), []string{l.link()}); code == 0 || len(tl.started) != 0 ||
-			!strings.Contains(tl.out.String(), "has to be on this PC first") {
+			!strings.Contains(tl.out.String(), "Couldn't find Black Ops II on this PC") {
 			t.Errorf("no copy, and no files from the server, answered %q: %d\n%s", answers, code, tl.out)
 		}
 	}
@@ -940,8 +940,8 @@ func TestGameFilesWithoutAWindow(t *testing.T) {
 	d.confirms = []bool{false, false}
 	files := filepath.Join(tl.home, "t6")
 	if code := tl.run(context.Background(), []string{l.link()}); code == 0 || len(tl.started) != 0 || len(d.asked) != 2 ||
-		!strings.Contains(d.asked[0], "Choose Yes to show the launcher its folder") ||
-		!strings.Contains(d.asked[1], "Download its game files from") || !strings.Contains(d.asked[1], files) ||
+		!strings.Contains(d.asked[0], "Yes: choose its folder.") ||
+		!strings.Contains(d.asked[1], "Download the game files (") || !strings.Contains(d.asked[1], files) ||
 		len(d.titles) != 0 || isFile(filepath.Join(files, "binkw32.dll")) || !strings.Contains(tl.out.String(), "Nothing was downloaded.") {
 		t.Fatalf("answered No, No: %d, started %+v, asked %q\n%s", code, tl.started, d.asked, tl.out)
 	}
@@ -966,7 +966,7 @@ func TestGameFilesWithoutAWindow(t *testing.T) {
 	d = answer(tl, false)
 	d.confirms = []bool{false}
 	if code := tl.run(context.Background(), []string{l.link()}); code == 0 || len(tl.started) != 0 || len(d.asked) != 1 ||
-		strings.Contains(tl.out.String(), "type its folder") || !strings.Contains(tl.out.String(), "has to be on this PC first") {
+		strings.Contains(tl.out.String(), "type its folder") || !strings.Contains(tl.out.String(), "Couldn't find Black Ops II on this PC") {
 		t.Errorf("no copy, no files from the server, and answered No: %d, asked %q\n%s", code, d.asked, tl.out)
 	}
 	tl.again("")
@@ -1161,7 +1161,7 @@ func TestWatchTriesAgain(t *testing.T) {
 	if _, err := s.current(ctx); err != nil {
 		t.Fatalf("the first answer: %v", err)
 	}
-	s.fail(ctx, "Black Ops II has to be on this PC first.")
+	s.fail(ctx, "Black Ops II isn't on this PC.")
 	failures := func() int {
 		l.mu.Lock()
 		defer l.mu.Unlock()

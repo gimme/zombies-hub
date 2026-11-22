@@ -97,7 +97,7 @@ func plainFolder(dir string) string {
 
 // notPlain says why the game can't use a folder that the player chose: its path has a letter that the game can't
 // read (plain).
-const notPlain = "Its path has a letter other than A to Z (such as é or я), and the game can't read its files under such a path."
+const notPlain = "The path has a character other than A to Z (such as é or я), which the game can't read."
 
 // folder returns a folder that a player typed or pasted, without the quotes that Explorer's "Copy as path" puts
 // around it.
@@ -148,7 +148,7 @@ func (la *launcher) gameFiles(ctx context.Context, srv *server, l link, play *la
 		} else if own, _, err := la.askFiles(l.host, nil, dir); err != nil || own != "" {
 			return own, err
 		}
-		return "", errors.New("Black Ops II has to be on this PC first, with its Zombies: Steam has it. Then join from the room's page again.")
+		return "", errors.New("Couldn't find Black Ops II on this PC. Install it from Steam, then join from the room's page again.")
 	}
 	list, err := srv.files(ctx)
 	if err != nil {
@@ -163,7 +163,7 @@ func (la *launcher) gameFiles(ctx context.Context, srv *server, l link, play *la
 			case err != nil || own != "":
 				return own, err
 			case to == "":
-				return "", errors.New("Nothing was downloaded. To play, join from the room's page again: choose the folder of your Black Ops II, or download its game files.")
+				return "", errors.New("Nothing was downloaded.")
 			}
 			dir = to
 		} else {
@@ -172,7 +172,7 @@ func (la *launcher) gameFiles(ctx context.Context, srv *server, l link, play *la
 			case hasT6(answer) && !isFile(filepath.Join(answer, launcherapi.StateFile)):
 				return answer, la.change(func(c *config) { c.T6 = answer })
 			case !filepath.IsAbs(answer):
-				return "", errors.New("That is no folder's full path (as in D:\\Games\\Zombies): nothing was downloaded.")
+				return "", errors.New("That isn't a full folder path (like D:\\Games\\Zombies). Nothing was downloaded.")
 			default:
 				dir = answer
 				if err := la.change(func(c *config) { c.T6Files = answer }); err != nil {
@@ -206,22 +206,13 @@ func (la *launcher) gameFiles(ctx context.Context, srv *server, l link, play *la
 // The question is a task dialog, whose buttons say what they do (choose). A build without one asks two yes-or-no
 // questions instead (confirm), and then downloads only into dir.
 func (la *launcher) askFiles(host string, list *launcherapi.Files, dir string) (own, to string, err error) {
-	question := "The launcher found no Black Ops II on this PC.\n\n"
-	var answers []string
-	yes := "Choose Yes to show the launcher its folder."
-	if list == nil {
-		question += fmt.Sprintf("%s sends no game files, so the game has to be on this PC, with its Zombies. If it is, "+
-			"choose its folder: the one with t6zm.exe in it.", host)
-		answers = []string{"Choose folder…"}
-	} else {
-		size := megabytes(list.Bytes)
-		question += fmt.Sprintf("If it is on this PC, choose its folder. Or download its game files from %s.", host)
-		answers = []string{
-			"Choose folder…\nBlack Ops II is on this PC: show the launcher the folder with t6zm.exe in it.",
-			fmt.Sprintf("Download\n%s of game files, into %s", size, dir),
-			fmt.Sprintf("Download into another folder…\nChoose where the %s of game files go.", size),
-		}
-		yes = "Choose Yes to show the launcher its folder, or No to download its game files instead."
+	// The dialog says what its buttons don't: that the launcher found no copy. Each button says the rest.
+	const question = "Couldn't find Black Ops II on this PC."
+	answers := []string{"Choose folder…\nThe one with t6zm.exe in it."}
+	yes := "Choose its folder?"
+	if list != nil {
+		answers = append(answers, fmt.Sprintf("Download\n%s, to %s", megabytes(list.Bytes), dir), "Download to another folder…")
+		yes = "Yes: choose its folder.\nNo: download the game files."
 	}
 	answer := -1
 	switch {
@@ -229,8 +220,7 @@ func (la *launcher) askFiles(host string, list *launcherapi.Files, dir string) (
 		answer = la.choose(question, answers)
 	case la.confirm(question + "\n\n" + yes):
 		answer = 0
-	case list != nil && la.confirm(fmt.Sprintf("The launcher found no Black Ops II on this PC.\n\n"+
-		"Download its game files from %s (%s) into this folder?\n\n%s", host, megabytes(list.Bytes), dir)):
+	case list != nil && la.confirm(fmt.Sprintf("Download the game files (%s) to this folder?\n\n%s", megabytes(list.Bytes), dir)):
 		answer = 1
 	}
 	switch answer {
@@ -262,9 +252,9 @@ func (la *launcher) askFiles(host string, list *launcherapi.Files, dir string) (
 // nothing to the run's log.
 func (la *launcher) pickOwn() (string, error) {
 	for {
-		dir, err := la.pick("Choose the folder of Black Ops II: the one with t6zm.exe in it")
+		dir, err := la.pick("Choose your Black Ops II folder (the one with t6zm.exe in it)")
 		if err != nil {
-			return "", fmt.Errorf("Windows' folder picker didn't open: %v", err)
+			return "", fmt.Errorf("Windows' folder picker couldn't be opened: %v", err)
 		}
 		if dir == "" {
 			return "", nil
@@ -273,11 +263,10 @@ func (la *launcher) pickOwn() (string, error) {
 		problem := ""
 		switch {
 		case own == "":
-			problem = fmt.Sprintf("That folder has no Black Ops II in it.\n\n%s\n\nChoose the game's own folder: the one with "+
-				"t6zm.exe and the zone folder in it.", dir)
+			problem = fmt.Sprintf("Black Ops II isn't in that folder.\n\n%s\n\nPick the folder with t6zm.exe in it.", dir)
 		case !plain(own):
-			problem = fmt.Sprintf("Black Ops II can't start from that folder.\n\n%s\n\n%s Move the game's folder to one such as "+
-				"D:\\Games\\Black Ops II, and choose it there.", own, notPlain)
+			problem = fmt.Sprintf("Black Ops II can't run from that folder.\n\n%s\n\n%s Move the game somewhere like "+
+				"D:\\Games\\Black Ops II.", own, notPlain)
 		default:
 			return own, nil
 		}
@@ -292,9 +281,9 @@ func (la *launcher) pickOwn() (string, error) {
 // Otherwise it returns the folder for the files as to (into). It returns neither when the player cancelled.
 func (la *launcher) pickDownloads(bytes int64) (own, to string, err error) {
 	for {
-		dir, err := la.pick(fmt.Sprintf("Choose a folder for Black Ops II's game files (%s)", megabytes(bytes)))
+		dir, err := la.pick(fmt.Sprintf("Choose where to download Black Ops II (%s)", megabytes(bytes)))
 		if err != nil {
-			return "", "", fmt.Errorf("Windows' folder picker didn't open: %v", err)
+			return "", "", fmt.Errorf("Windows' folder picker couldn't be opened: %v", err)
 		}
 		if dir == "" {
 			return "", "", nil
@@ -304,9 +293,9 @@ func (la *launcher) pickDownloads(bytes int64) (own, to string, err error) {
 		case own != "" && plain(own):
 			return own, "", nil
 		case !filepath.IsAbs(dir):
-			problem = "That is no folder's full path (as in D:\\Games\\Zombies)."
+			problem = "That isn't a full folder path (like D:\\Games\\Zombies)."
 		case !plain(dir):
-			problem = fmt.Sprintf("The game can't use that folder.\n\n%s\n\n%s Choose another one, such as D:\\Games.", dir, notPlain)
+			problem = fmt.Sprintf("The game can't run from that folder.\n\n%s\n\n%s", dir, notPlain)
 		default:
 			return "", into(dir), nil
 		}

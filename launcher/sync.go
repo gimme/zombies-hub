@@ -88,13 +88,13 @@ func (la *launcher) sync(ctx context.Context, srv *server, dir string, list *lau
 	for _, f := range list.Files {
 		if !launcherapi.LocalPath(f.Path) || !syncHash.MatchString(f.Hash) || f.Size < 0 || seen[strings.ToLower(f.Path)] ||
 			strings.EqualFold(f.Path, syncFile) || strings.HasSuffix(strings.ToLower(f.Path), launcherapi.PartSuffix) {
-			return false, fmt.Errorf("The server's list of game files names one the launcher doesn't take: %q.", f.Path)
+			return false, fmt.Errorf("The server's list of game files has a name the launcher won't accept: %q.", f.Path)
 		}
 		seen[strings.ToLower(f.Path)] = true
 		// The launcher accepts a program from a server only when it is one of the game's own (programs.go).
 		if isProgram(f.Path) && la.programs[strings.ToLower(f.Path)] != f.Hash {
-			return false, fmt.Errorf("The server's game files have a program that is not Black Ops II's own, which the "+
-				"launcher doesn't take from a server: %q. With the game from Steam on this PC, it needs none.", f.Path)
+			return false, fmt.Errorf("The server's game files include a program that isn't part of Black Ops II, which the "+
+				"launcher won't download: %q. With the game installed from Steam, nothing needs downloading.", f.Path)
 		}
 	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -150,7 +150,7 @@ func (la *launcher) sync(ctx context.Context, srv *server, dir string, list *lau
 		s.need += f.Size
 	}
 	if free, ok := freeBytes(dir); ok && uint64(s.need) > free {
-		return false, fmt.Errorf("The game files need %.1f GB, and the disk of %s has %.1f GB free.", float64(s.need)/1e9,
+		return false, fmt.Errorf("The game files need %.1f GB, but the drive of %s has only %.1f GB free.", float64(s.need)/1e9,
 			dir, float64(free)/1e9)
 	}
 	la.say("Downloading %d of the game's %d files: %s.", len(todo), len(list.Files), megabytes(s.need))
@@ -317,13 +317,13 @@ func (s *syncer) fetch(ctx context.Context, f launcherapi.File) error {
 			// Download the whole file once more, in case the start it had was bad. A file that has other contents
 			// twice is not the file in the list.
 			if others++; others >= 2 {
-				return fmt.Errorf("The download of %s failed: it is not the file the server's list says.", f.Path)
+				return fmt.Errorf("Downloading %s failed: it doesn't match the server's list.", f.Path)
 			}
 		case s.received > before:
 			failures = 0
 		default:
 			if failures++; failures >= 5 {
-				return fmt.Errorf("The download of %s failed: %v", f.Path, err)
+				return fmt.Errorf("Downloading %s failed: %v", f.Path, err)
 			}
 		}
 		select {
@@ -439,7 +439,7 @@ func (s *syncer) request(ctx context.Context, f launcherapi.File, part string, h
 		flags |= os.O_TRUNC
 	case rsp.StatusCode == http.StatusUnauthorized || rsp.StatusCode == http.StatusForbidden ||
 		rsp.StatusCode == http.StatusNotFound || rsp.StatusCode == http.StatusConflict:
-		return fatalError{fmt.Errorf("The download of %s failed: %v", f.Path, failed(rsp))}
+		return fatalError{fmt.Errorf("Downloading %s failed: %v", f.Path, failed(rsp))}
 	default:
 		return failed(rsp)
 	}

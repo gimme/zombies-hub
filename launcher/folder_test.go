@@ -195,7 +195,7 @@ func TestChooseOwnFolder(t *testing.T) {
 			t.Fatalf("chose %s: %d, started %+v\n%s", picked, code, tl.started, tl.out)
 		}
 		if len(d.answers) != 1 || len(d.answers[0]) != 3 || !strings.HasPrefix(d.answers[0][0], "Choose folder…") ||
-			!strings.HasPrefix(d.answers[0][1], "Download\n") || !strings.HasPrefix(d.answers[0][2], "Download into another folder…") {
+			!strings.HasPrefix(d.answers[0][1], "Download\n") || !strings.HasPrefix(d.answers[0][2], "Download to another folder…") {
 			t.Errorf("chose %s: the question's answers were %q", picked, d.answers)
 		}
 		if c := configOf(tl); c.T6 != own || isFile(filepath.Join(tl.home, "t6", "binkw32.dll")) {
@@ -216,7 +216,7 @@ func TestChooseOwnFolder(t *testing.T) {
 	d.choices, d.picks = []int{0}, []string{own}
 	if code := tl.run(context.Background(), []string{l.link()}); code != 0 || len(tl.started) != 1 ||
 		!strings.Contains(tl.started[0].line, `t6zm "`+own+`" -lan`) || len(d.answers) != 1 ||
-		!slices.Equal(d.answers[0], []string{"Choose folder…"}) {
+		len(d.answers[0]) != 1 || !strings.HasPrefix(d.answers[0][0], "Choose folder…\n") {
 		t.Errorf("a server that sends no files: %d, started %+v, answers %q\n%s", code, tl.started, d.answers, tl.out)
 	}
 }
@@ -237,7 +237,7 @@ func TestChooseWrongFolder(t *testing.T) {
 		!strings.Contains(tl.out.String(), "Nothing was downloaded") {
 		t.Fatalf("a wrong folder, then Cancel: %d, started %+v\n%s", code, tl.started, tl.out)
 	}
-	if len(d.asked) != 2 || !strings.HasPrefix(d.asked[1], "That folder has no Black Ops II in it.\n\n"+wrong) ||
+	if len(d.asked) != 2 || !strings.HasPrefix(d.asked[1], "Black Ops II isn't in that folder.\n\n"+wrong) ||
 		!strings.Contains(d.asked[1], "t6zm.exe") || !slices.Equal(d.answers[1], []string{"Choose another folder…"}) {
 		t.Errorf("a wrong folder: asked %q, %q", d.asked, d.answers)
 	}
@@ -257,8 +257,8 @@ func TestChooseWrongFolder(t *testing.T) {
 		!strings.Contains(tl.started[0].line, `t6zm "`+own+`" -lan`) {
 		t.Fatalf("chose again: %d, started %+v\n%s", code, tl.started, tl.out)
 	}
-	if len(d.asked) != 3 || !strings.Contains(d.asked[1], "can't start from that folder") || !strings.Contains(d.asked[1], "A to Z") ||
-		!strings.Contains(d.asked[2], "no Black Ops II") || configOf(tl).T6 != own {
+	if len(d.asked) != 3 || !strings.Contains(d.asked[1], "can't run from that folder") || !strings.Contains(d.asked[1], "A to Z") ||
+		!strings.Contains(d.asked[2], "isn't in that folder") || configOf(tl).T6 != own {
 		t.Errorf("chose again: asked %q, config %+v", d.asked, configOf(tl))
 	}
 }
@@ -303,7 +303,7 @@ func TestDownloadAsChosen(t *testing.T) {
 			want = own
 		}
 		if code := tl.run(context.Background(), []string{l.link()}); code != 0 || len(tl.started) != 1 ||
-			!strings.Contains(tl.started[0].line, `t6zm "`+want+`" -lan`) || len(d.titles) != 1 || !strings.Contains(d.titles[0], "game files") {
+			!strings.Contains(tl.started[0].line, `t6zm "`+want+`" -lan`) || len(d.titles) != 1 || !strings.Contains(d.titles[0], "where to download") {
 			t.Fatalf("Download into %s: %d, started %+v, pickers %q\n%s", c.picked, code, tl.started, d.titles, tl.out)
 		}
 		cfg := configOf(tl)
@@ -364,7 +364,7 @@ func TestMenuChoosesTheFolder(t *testing.T) {
 	d.picks = []string{filepath.Dir(own)}
 	d.mu.Unlock()
 	item(t, menu, "Choose Black Ops II folder…").do()
-	if told := d.lastTold(); !strings.Contains(told, "from its next start") || !strings.Contains(told, own) {
+	if told := d.lastTold(); !strings.Contains(told, "next time") || !strings.Contains(told, own) {
 		t.Errorf("the menu said: %q", told)
 	}
 	if c := configOf(tl); c.T6 != own {
@@ -421,11 +421,11 @@ func TestMenuDeletesTheDownload(t *testing.T) {
 	g.stays.Store(false)
 	g.closeAll()
 	del.do()
-	if asked, _, _ := d.seen(); asked != 2 || !strings.Contains(d.asked[1], "Delete the Black Ops II game files") ||
-		!strings.Contains(d.asked[1], files) || !strings.Contains(d.asked[1], "asks again") {
+	if asked, _, _ := d.seen(); asked != 2 || !strings.Contains(d.asked[1], "Delete the downloaded Black Ops II files") ||
+		!strings.Contains(d.asked[1], files) || !strings.Contains(d.asked[1], "will ask where the game is") {
 		t.Errorf("with the game closed, the menu asked %q", d.asked)
 	}
-	if _, err := os.Stat(files); err == nil || !strings.Contains(d.lastTold(), "deleted") {
+	if _, err := os.Stat(files); err == nil || !strings.Contains(d.lastTold(), "Deleted") {
 		t.Errorf("the files downloaded are still there, or the menu said %q", d.lastTold())
 	}
 	if hasItem(menu, "Delete downloaded Black Ops II files") || item(t, menu, "Black Ops II: ").text != "Black Ops II: no game files yet" {
@@ -452,7 +452,7 @@ func TestMenuDeletesWhileTheLauncherWaits(t *testing.T) {
 	d.confirms = []bool{true}
 	d.mu.Unlock()
 	item(t, menu, "Delete downloaded Black Ops II files (").do()
-	if told := d.lastTold(); !strings.Contains(told, "deleted") {
+	if told := d.lastTold(); !strings.Contains(told, "Deleted") {
 		t.Fatalf("the menu said %q", told)
 	}
 	l.mu.Lock()

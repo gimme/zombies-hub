@@ -245,7 +245,7 @@ func TestTooOldForTheServer(t *testing.T) {
 	tl.again("")
 	setup := launcherapi.LatestFile(releases.url(), launcherapi.Setup)
 	if code := tl.run(context.Background(), []string{l.link()}); code != 1 || len(tl.started) != 0 ||
-		!strings.Contains(tl.out.String(), "This launcher is too old for this server. Install the new one, and join "+
+		!strings.Contains(tl.out.String(), "This launcher is too old for this server. Install the new one, then join "+
 			"from the room's page again: "+setup) {
 		t.Errorf("too old: %d, started %+v\n%s", code, tl.started, tl.out)
 	}
@@ -294,7 +294,7 @@ func TestTooOldForTheServer(t *testing.T) {
 	tl.version = 0
 	tl.again("")
 	if code := tl.run(context.Background(), []string{l.link()}); code != 1 || !strings.Contains(tl.out.String(),
-		"This launcher is a dev build, and this server takes only the launcher's releases") {
+		"This launcher is a dev build, and this server only accepts released launchers") {
 		t.Errorf("a dev build: %d\n%s", code, tl.out)
 	}
 }

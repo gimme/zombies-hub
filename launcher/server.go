@@ -91,7 +91,7 @@ func (s *server) request(ctx context.Context, method, path string, body io.Reade
 // the server doesn't take: it is too old for the server's code (launcherapi.MinVersion), or a dev build on a server
 // that is not a dev server. The server answers neither launcher again, so the launcher stops calling it (ends).
 var (
-	errUnknown = errors.New("The server doesn't know you by this link any more: open its page, and join from the room there again.")
+	errUnknown = errors.New("The server no longer recognises this link. Open its page, and join from the room there again.")
 	errOld     = errors.New("This launcher is too old for this server.")
 )
 

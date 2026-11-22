@@ -59,7 +59,7 @@ func (la *launcher) place(from string) error {
 // it to the PC's installed apps, where the player uninstalls it. It shows nothing until it is done.
 func (la *launcher) install() error {
 	if la.exe == "" {
-		return errors.New("The launcher can't tell where its own file is, to install it.")
+		return errors.New("The launcher couldn't find its own file, so it can't install itself.")
 	}
 	to := la.installed()
 	if !sameFile(la.exe, to) {
@@ -71,11 +71,11 @@ func (la *launcher) install() error {
 			err = la.place(to + ".new")
 		}
 		if err != nil {
-			return fmt.Errorf("The launcher could not be put in its folder, %s: %v", la.home, err)
+			return fmt.Errorf("The launcher couldn't be copied to its folder, %s: %v", la.home, err)
 		}
 	}
 	if err := la.register(to); err != nil {
-		return fmt.Errorf("Windows didn't take the launcher's links: %v", err)
+		return fmt.Errorf("Windows wouldn't register the launcher's links: %v", err)
 	}
 	la.notify(appName+" successfully installed.", false)
 	return nil
@@ -89,15 +89,14 @@ func (la *launcher) install() error {
 // something is left to report.
 func (la *launcher) uninstall() error {
 	if launchers() {
-		return errors.New(appName + " is running: quit it from its icon in the tray, close the game it started, then uninstall it again.")
+		return errors.New(appName + " is running. Quit it from the tray, close the game, then uninstall again.")
 	}
 	la.loadConfig()
 	files := la.downloads()
 	state, bytes, downloaded := synced(files)
-	wipe := downloaded && la.confirm(fmt.Sprintf("Also delete the Black Ops II game files that %s downloaded (%s)?\n\n%s",
-		appName, megabytes(bytes), files))
+	wipe := downloaded && la.confirm(fmt.Sprintf("Also delete the downloaded Black Ops II files (%s)?\n\n%s", megabytes(bytes), files))
 	if err := la.unregister(); err != nil {
-		return fmt.Errorf("Windows kept the launcher's entries: %v", err)
+		return fmt.Errorf("Windows wouldn't remove the launcher's entries: %v", err)
 	}
 	left := false
 	if wipe {
@@ -115,7 +114,7 @@ func (la *launcher) uninstall() error {
 	if err := os.Remove(exe); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		// Windows deletes no running program. This program is deleted once it has ended.
 		if !sameFile(la.exe, exe) {
-			return fmt.Errorf("The launcher's program could not be deleted, %s: %v", exe, err)
+			return fmt.Errorf("The launcher's program couldn't be deleted, %s: %v", exe, err)
 		}
 		la.atExit = func() { la.later(exe, la.home) }
 	} else {
@@ -123,8 +122,8 @@ func (la *launcher) uninstall() error {
 	}
 	la.say("%s is uninstalled.", appName)
 	if left {
-		la.notify(fmt.Sprintf("%s is uninstalled, but some of the game files could not be deleted (is the game open?). "+
-			"Their folder:\n\n%s", appName, files), false)
+		la.notify(fmt.Sprintf("%s is uninstalled, but couldn't delete some of the game files (is the game open?).\n\n%s",
+			appName, files), false)
 	}
 	return nil
 }
@@ -226,10 +225,10 @@ func (la *launcher) download(ctx context.Context, url string, wait time.Duration
 func (la *launcher) tooOld() error {
 	setup := launcherapi.LatestFile(la.releases, launcherapi.Setup)
 	if la.version <= 0 {
-		return oldError("This launcher is a dev build, and this server takes only the launcher's releases. Install the " +
-			"latest release, and join from the room's page again: " + setup)
+		return oldError("This launcher is a dev build, and this server only accepts released launchers. Install the " +
+			"latest release, then join from the room's page again: " + setup)
 	}
-	return oldError(errOld.Error() + " Install the new one, and join from the room's page again: " + setup)
+	return oldError(errOld.Error() + " Install the new one, then join from the room's page again: " + setup)
 }
 
 // oldError is errOld, with what the player can do about it.

@@ -32,7 +32,7 @@ var (
 	linkKey  = regexp.MustCompile(`^[0-9a-f]{8,64}$`)
 )
 
-var errLink = errors.New("This is no link of a Zombies server's page that the launcher knows: join from the room's page again.")
+var errLink = errors.New("The launcher doesn't recognise this link. Join from the room's page again.")
 
 // parseLink parses a link strictly, because what the link names goes into the addresses that the launcher calls and
 // onto the game's command line. Any page can have a link of the launcher's scheme, and Windows passes the launcher
