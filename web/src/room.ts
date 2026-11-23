@@ -16,6 +16,9 @@
 //
 // The game of a room on a Black Ops II map is played on the player's own PC (windows.ts). The room's button then
 // opens the launcher, and a box has the rest: how to install the launcher, and how to join by hand (showT6).
+//
+// While the room's game runs, its maps, and its host's pick of its game, stay as they were, and can't be picked: the
+// room looks the same, and nothing under them moves.
 import type { Member, Mod, Room, View } from './api';
 import { avatar } from './avatar';
 import {
@@ -437,7 +440,7 @@ function pickRoomMap(name: string): unknown {
 // keeps the focus as it is picked.
 function showRoomTitle(v: View, room: Room, open: boolean): void {
   const box = $('titlepick');
-  box.classList.toggle('hidden', v.titles.length < 2 || !room.host || !open);
+  box.classList.toggle('hidden', v.titles.length < 2 || !room.host);
   const key = JSON.stringify(v.titles);
   if (box.dataset.key !== key) {
     box.dataset.key = key;
@@ -445,20 +448,18 @@ function showRoomTitle(v: View, room: Room, open: boolean): void {
     const options = { name: "The room's game", options: v.titles.map((t) => ({ value: t.id, label: t.name })) };
     box.append(optionButtons(options, (title) => ({ title })));
   }
+  for (const b of box.querySelectorAll('button')) b.disabled = !open;
   optionShow(box.firstElementChild!, room.of);
 }
 
 /**
  * Draws the room's grid of maps: those of the room's game. Each has the pictures of the players who suggest it on
- * it.
+ * it. While the room's game runs, none can be picked.
  */
 export function showRoomMaps(v: View, room: Room): void {
   const grid = $('mapgrid');
-  const open = room.state === 'open';
-  grid.classList.toggle('hidden', !open);
-  if (!open) return;
   const maps = mapsOf(v.maps, room.of);
-  showMaps(grid, maps, room.map, pickRoomMap, !onWindows());
+  showMaps(grid, maps, room.map, pickRoomMap, !onWindows(), room.state !== 'open');
   maps.forEach((m, i) => {
     const b = grid.children[i];
     b.querySelector('.marks')?.remove();

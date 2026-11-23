@@ -75,6 +75,12 @@ test('a room plays its game to game over, and its round and easter egg are on th
   await expect(ann.locator('#ready')).toHaveText('Join by hand');
   const games = await Promise.all([plutonium(server.port, 'Ann'), plutonium(server.port, 'Bob')]);
   for (const page of [ann, bob]) await expect(page.locator('#ready')).toHaveText('In game');
+  // the room's maps, and its host's pick of its game, stay as they were while the game runs, and can't be picked
+  for (const page of [ann, bob]) {
+    await expect(page.locator('#mapgrid button[aria-checked=true]')).toHaveText('Die Rise');
+    await expect(page.locator('#mapgrid button[aria-checked=true]')).toBeDisabled();
+  }
+  await expect(ann.locator('#titlepick button[aria-checked=true]')).toBeDisabled();
 
   server.command(`${code} round 3`);
   server.command(`${code} egg`); // the main quest done, with both players in the game

@@ -254,6 +254,9 @@ ul.rooms { gap: 12px; }
 .mapgrid button[aria-checked=true]:hover:not(:disabled) { border-color: var(--accent-over); }
 .mapgrid button:disabled { background: rgba(255, 255, 255, 0.02); color: #7f796f; }
 .mapgrid button:disabled img { filter: grayscale(1) brightness(0.45); }
+/* while the room's game runs (showRoomMaps): no map can be picked, and the room's own keeps its colours */
+.mapgrid.locked button[aria-checked=true] { background: rgba(200, 16, 46, 0.14); color: var(--fg); }
+.mapgrid.locked button[aria-checked=true] img { filter: none; }
 /* a room's game, which its host picks first (showRoomTitle): over the maps of it, under the line that was theirs,
    and as the leaderboards' kinds of board are */
 .titlepick { display: flex; padding-top: 22px; border-top: 1px solid rgba(255, 255, 255, 0.08); }
