@@ -124,7 +124,7 @@ func TestPictures(t *testing.T) {
 		t.Helper()
 		rsp, body := get(t, srv.URL+"/pictures/"+id+".png")
 		img, err := png.Decode(bytes.NewReader([]byte(body)))
-		if err != nil || rsp.Header.Get("Content-Type") != "image/png" || rsp.Header.Get("Cache-Control") != "max-age=86400" ||
+		if err != nil || rsp.Header.Get("Content-Type") != "image/png" || rsp.Header.Get("Cache-Control") != "no-cache" ||
 			rsp.Header.Get("Cross-Origin-Resource-Policy") != "same-origin" || img.Bounds() != image.Rect(0, 0, 128, 128) {
 			t.Fatalf("the picture %s: %s %s, %v %v", id, rsp.Status, rsp.Header, err, img)
 		}
@@ -813,7 +813,7 @@ func TestPicturesWithDiscord(t *testing.T) {
 		t.Errorf("GET /pictures/juggernog.png, not signed in: %s", rsp.Status)
 	}
 	if rsp := getAt(h, "/pictures/juggernog.png", annCookie); rsp.StatusCode != http.StatusOK ||
-		rsp.Header.Get("Cache-Control") != "private, max-age=86400" {
+		rsp.Header.Get("Cache-Control") != "private, no-cache" {
 		t.Errorf("GET /pictures/juggernog.png, signed in: %s, Cache-Control %q", rsp.Status, rsp.Header.Get("Cache-Control"))
 	}
 	if rsp := getAt(h, "/pictures/revive.png", annCookie); rsp.StatusCode != http.StatusNotFound {

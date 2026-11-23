@@ -226,6 +226,14 @@ func TestT6MapArt(t *testing.T) {
 			t.Errorf("TranZit's picture at %v: %v, want blue", at, c)
 		}
 	}
+	// the browser keeps it, and asks for it again before each use: a 304 while its copy is current, by the ETag
+	etag := rsp.Header.Get("ETag")
+	if rsp.Header.Get("Cache-Control") != "no-cache" || len(etag) != 34 {
+		t.Errorf("TranZit's picture: Cache-Control %q, ETag %q", rsp.Header.Get("Cache-Control"), etag)
+	}
+	if again, _ := get(t, srv.URL+"/maps/zm_classic_transit/preview", "If-None-Match", etag); again.StatusCode != http.StatusNotModified {
+		t.Errorf("TranZit's picture, asked for again: %s, want 304", again.Status)
+	}
 	// the card: the picture across its top 222 rows, and the frame's band at its foot
 	rsp, body = get(t, srv.URL+"/maps/zm_classic_transit/card")
 	if img, err = jpeg.Decode(bytes.NewReader([]byte(body))); err != nil || rsp.Header.Get("Content-Type") != "image/jpeg" ||

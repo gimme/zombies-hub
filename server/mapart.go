@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"compress/zlib"
+	"crypto/sha256"
 	"encoding/binary"
 	"encoding/json"
 	"errors"
@@ -87,17 +88,22 @@ func (h *web) kept(key, name string, from func() (mapPicture, error)) (mapPictur
 	return pic, pic.data != nil
 }
 
-// serveKept sends something that kept made (a picture, the music). A browser may cache it for a day. When players
-// sign in with Discord and the path is only for players who are signed in (gated), only the player's own browser may
-// cache it (private). A cache between the browser and the server, such as a CDN's, caches a .png unasked and would
-// otherwise serve it to anyone.
+// serveKept sends something that kept made (a picture, the music). A browser keeps it, but asks for it again before
+// each use (no-cache): its ETag is the hash of the contents, so the browser gets a 304 while its copy is current. It
+// gets the new contents as soon as they change: when a new server makes the picture otherwise, or the game files
+// change. (Kept for a day without asking, a map's picture that a new server made otherwise showed as it was before,
+// in a shape that the page no longer gave it.) When players sign in with Discord and the path is only for players
+// who are signed in (gated), only the player's own browser may keep it (private). A cache between the browser and the
+// server, such as a CDN's, caches a .png unasked and would otherwise serve it to anyone.
 func (h *web) serveKept(w http.ResponseWriter, r *http.Request, pic mapPicture) {
-	cache := "max-age=86400"
+	cache := "no-cache"
 	if gated(r.URL.Path) && h.lobby != nil && h.lobby.discord != nil {
 		cache = "private, " + cache
 	}
+	sum := sha256.Sum256(pic.data)
 	w.Header().Set("Content-Type", pic.contentType)
 	w.Header().Set("Cache-Control", cache)
+	w.Header().Set("ETag", `"`+contentHash(sum[:])+`"`)
 	http.ServeContent(w, r, "", time.Time{}, bytes.NewReader(pic.data))
 }
 
