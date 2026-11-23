@@ -6,7 +6,7 @@
 // game's console (t6Console).
 import type { Room } from './api';
 import { canRun } from './engine';
-import { me, view } from './lobby';
+import { me, page, view } from './lobby';
 import { served } from './server';
 import { store } from './storage';
 
@@ -40,7 +40,9 @@ export const t6Console = (room: Room): string =>
 // what it does, from what the server says of it (api.ts: You.launcher and the fields after it).
 //
 // The browser asks the player whether the link may open the launcher. On a PC without the launcher, the browser does
-// nothing with the link, and tells the page nothing either way.
+// nothing with the link, and tells the page nothing either way. So the page watches what follows a click (openLauncher):
+// the browser's question takes the focus from the page, and a launcher that starts calls the server. When neither
+// happens within LAUNCHER_WAIT, the PC has no launcher, as far as the page can tell (launcherMissed).
 //
 // The launcher's releases are on GitHub. The server says where the latest release's setup is (server/web.go: GET
 // /server), and the page links to it. GitHub sends the file as a download, so the page stays.
@@ -63,13 +65,51 @@ export const launcherSetup = (): string => served.launcher || '';
  */
 export let launcherHere = store.get('zombies-launcher') === '1';
 
+/**
+ * Whether the player's last click that opened the launcher started none (openLauncher), until a launcher of theirs
+ * runs. The room then shows the line that installs it, as it does in a browser that has never seen one.
+ */
+export let launcherMissed = false;
+
 /** Notes that the player's launcher runs, as the server says. */
 export function launcherSeen(): void {
+  launcherMissed = false;
   if (launcherHere) return;
   launcherHere = true;
   store.set('zombies-launcher', '1');
 }
 
-/** Opens the launcher. tls=0 is for a page on plain HTTP, which the launcher takes from a server on its own network. */
-export const openLauncher = (): void => location.assign('zombies-launcher://' + location.host + '/play?key=' +
-  (me.key || '') + (location.protocol === 'https:' ? '' : '&tls=0'));
+// How long a click waits for a sign of the launcher. A launcher that starts tells the server so at once, before it
+// looks for a later release of itself (internal/launcherapi: POST /launcher/started), which a program that Windows
+// starts does in well under a second. A launcher of a release before that call says it only after its look at GitHub,
+// a second or so later. A sign that comes late still takes the line that installs the launcher away (launcherSeen).
+const LAUNCHER_WAIT = 1500;
+let stopWatching = (): void => {};
+
+/**
+ * Opens the launcher. tls=0 is for a page on plain HTTP, which the launcher takes from a server on its own network.
+ * Where nothing follows the click, the room shows the line that installs the launcher (launcherMissed).
+ */
+export function openLauncher(): void {
+  stopWatching();
+  let asked = false; // the browser asked whether to open the launcher, or another window took the focus
+  const away = () => {
+    asked = true;
+  };
+  const timer = window.setTimeout(() => {
+    stopWatching();
+    if (asked || (view && view.you.launcher) || launcherMissed) return;
+    console.log('lobby: no launcher started: the room shows where to install it');
+    launcherMissed = true;
+    page.redraw();
+  }, LAUNCHER_WAIT);
+  stopWatching = () => {
+    clearTimeout(timer);
+    removeEventListener('blur', away);
+    document.removeEventListener('visibilitychange', away);
+  };
+  addEventListener('blur', away);
+  document.addEventListener('visibilitychange', away);
+  location.assign('zombies-launcher://' + location.host + '/play?key=' + (me.key || '') +
+    (location.protocol === 'https:' ? '' : '&tls=0'));
+}

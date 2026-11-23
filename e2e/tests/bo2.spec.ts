@@ -1,9 +1,9 @@
 // A Black Ops II room: its host picks the game, then a map of it; its players join by hand and get ready, their own
 // Plutonium joins its game through the relay, and they see its report and the game's own leaderboards, with the map's
 // easter egg that they finished. The room's
-// button opens the launcher, and the room links to the launcher's latest release. A launcher too old for the server is
-// turned away, and the room says so. A player whose copy of the game lacks the room's map is not ready, and where the
-// server sends game files, the room's button offers them.
+// button opens the launcher, and the room links to the launcher's latest release, again after a press that started no
+// launcher. A launcher too old for the server is turned away, and the room says so. A player whose copy of the game
+// lacks the room's map is not ready, and where the server sends game files, the room's button offers them.
 import type { Page } from '@playwright/test';
 import { createSocket, type Socket } from 'node:dgram';
 import { expect, test } from '../fixtures';
@@ -111,6 +111,9 @@ test("a launcher too old for the server is turned away, and the room links to th
     await expect(ann.locator('#ready')).toHaveText('Connect');
     await expect(ann.locator('#t6get')).toHaveText('First time? Install Zombies Launcher.');
     await expect(ann.locator('#t6setup')).toHaveAttribute('href', setup);
+    // the button, which starts no launcher on this PC: the line says so
+    await ann.locator('#ready').click();
+    await expect(ann.locator('#t6get')).toHaveText('Nothing happened? Install Zombies Launcher.');
 
     // calls of Ann's launcher, by her key, which the line of the Windows client in her profile has
     await expect(ann.locator('#playbat')).toHaveText(/ [0-9a-f]{16}$/);

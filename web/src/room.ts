@@ -35,7 +35,7 @@ import { bo1Settings } from './settings';
 import { store } from './storage';
 import { mapsOf, titleName } from './titles';
 import {
-  launcherDownloads, launcherHere, launcherOn, launcherSeen, launcherSetup, onWindows, t6Console,
+  launcherDownloads, launcherHere, launcherMissed, launcherOn, launcherSeen, launcherSetup, onWindows, t6Console,
 } from './windows';
 
 // A gamepad, on a player whose page reads one: its two grips, its d-pad and two of its buttons.
@@ -260,8 +260,9 @@ function gameButton(v: View, room: Room): RoomButton {
 /**
  * Draws the box of a room on a Black Ops II map. Nothing opens the launcher but the room's button. The box has the
  * line that installs the launcher, and the line that joins by hand. The line that installs the launcher is there in a
- * browser that has never seen a launcher of the player's run, and when the server refused the player's launcher as
- * too old. That launcher can't say so itself, because the server takes no report from it.
+ * browser that has never seen a launcher of the player's run, after a click of the room's button that started no
+ * launcher (windows.ts: launcherMissed), and when the server refused the player's launcher as too old. That launcher
+ * can't say so itself, because the server takes no report from it.
  */
 export function showT6(v: View, room: Room): void {
   const box = $('t6box');
@@ -277,8 +278,9 @@ export function showT6(v: View, room: Room): void {
   $('t6handline').classList.toggle('hidden', !byHand);
   $('t6console').textContent = t6Console(room);
   const old = !!v.you.launcherOld;
-  $('t6get').classList.toggle('hidden', byHand || (launcherHere && !old));
-  $('t6why').textContent = old ? 'Your Zombies Launcher is too old for this server.' : 'First time?';
+  $('t6get').classList.toggle('hidden', byHand || (launcherHere && !old && !launcherMissed));
+  $('t6why').textContent = old ? 'Your Zombies Launcher is too old for this server.'
+    : launcherMissed ? 'Nothing happened?' : 'First time?';
   $('t6setup').textContent = old ? 'Install the new one' : 'Install Zombies Launcher';
   $('t6then').textContent = old ? ', then connect again.' : '.';
   $<HTMLAnchorElement>('t6setup').href = launcherSetup();
