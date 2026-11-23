@@ -6,9 +6,9 @@
 // starts closes them, so that the page comes back to the room (closeBoardsForGame).
 //
 // Each game that the server hosts has boards of its own. The player picks first the game, on a server of two, then
-// the kind of board that the game has (Rounds, Easter eggs), then a map, or all of them (titles.ts: pickBoard). Until
-// they pick a game, the boards show the game of their room, or outside a room the game they last picked for one
-// (maps.ts: lastTitle).
+// the kind of board that the game has (Rounds, Easter eggs), which stays as they pick another game, then a map, or all
+// of them (titles.ts: pickBoard). Until they pick a game, the boards show the game of their room, or outside a room the
+// game they last picked for one (maps.ts: lastTitle).
 //
 // show draws the views (show.ts). It shows the leaderboards while boardsOpen is set, or the report
 // of one game in their place while boardReport is set, and it calls loadBoards.
@@ -23,7 +23,7 @@ import { params } from './params';
 import { ranks } from './rank';
 import { menuSound } from './sounds';
 import { store } from './storage';
-import { ALL_MAPS, type Kind, kindsOf, pickBoard } from './titles';
+import { ALL_MAPS, type Kind, kindsOf, type Picked, pickBoard } from './titles';
 
 /** Whether the leaderboards show. */
 export let boardsOpen = params.get('boards') === '1';
@@ -39,9 +39,9 @@ let boardsAsked = false; // the page is reading them
 const KIND_NAMES: Record<Kind, string> = { rounds: 'Rounds', eggs: 'Easter eggs' };
 // the rounds from which a map's tile has a frame, and the frame
 const MILESTONES: [number, string][] = [[20, 'silver'], [30, 'gold']];
-// What the player picked: the game, and of each game the kind, and of each game's kind the map (pickBoard). It is kept
-// while the page is open.
-const boardPicked: Record<string, string> = {};
+// What the player picked: the game, the kind, and of each game's kind the map (pickBoard). It is kept while the page
+// is open.
+const boardPicked: Picked = { maps: {} };
 
 /** Opens or closes the leaderboards, as the player asks, with the sound of a large menu. */
 export function openBoards(open: boolean): void {
@@ -205,12 +205,12 @@ function showBoards(): void {
   // The game, where the server hosts two. Under it, the kinds of board that the game has, then its maps.
   $('boardtitles').classList.toggle('hidden', boards.titles.length < 2);
   picker($('boardtitles'), boards.titles.map((t): [string, string] => [t.id, t.name]), shown?.title.id, (id) => {
-    boardPicked[''] = id;
+    boardPicked.title = id;
   });
   if (!shown) return;
   const { title, kind } = shown;
   picker($('boardtabs'), kindsOf(title).map((k): [string, string] => [k, KIND_NAMES[k]]), kind, (k) => {
-    boardPicked[title.id] = k;
+    boardPicked.kind = k as Kind;
   });
   const list = shown.boards.maps;
   const rounds = kind === 'rounds';
@@ -221,7 +221,7 @@ function showBoards(): void {
   picker($('boardpicks'), list.length ? [[ALL_MAPS, rounds ? 'All maps' : 'All eggs'],
     ...list.map((m): [string, string] => [m.map, mapInfo(m.map).title])] : [], shown.map,
   (map) => {
-    boardPicked[title.id + ':' + kind] = map;
+    boardPicked.maps[title.id + ':' + kind] = map;
   });
   tables.classList.toggle('all', all);
   if (all && list.length) return showAllBoard(tables, list.map((m) => m.map), rounds, shown.boards.all, boards);

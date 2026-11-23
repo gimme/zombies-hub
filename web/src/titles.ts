@@ -30,17 +30,27 @@ export interface Board {
 }
 
 /**
- * The board to show, of the boards that the server sent, by what the player picked. picked has the title they picked
- * under '', the kind they picked of each title under its id, and the map they picked of each title's kind under
- * '<id>:<kind>'. Where they have picked nothing, or the boards lack their pick, it is the title prefer (their room's)
- * or else the first, its rounds, and its board of all the maps. null where the server hosts no title.
+ * What the player picked on the leaderboards: a title, a kind, and of each title's kind a map, under '<id>:<kind>'.
+ * The kind is one for all the titles: it stays as the player picks another title.
  */
-export function pickBoard(boards: Leaderboards, picked: Record<string, string>, prefer = ''): Board | null {
-  const title = [picked[''], prefer].map((id) => boards.titles.find((t) => t.id === id)).find(Boolean)
+export interface Picked {
+  title?: string;
+  kind?: Kind;
+  maps: Record<string, string>;
+}
+
+/**
+ * The board to show, of the boards that the server sent, by what the player picked. Where they have picked nothing,
+ * or the boards lack their pick, it is the title prefer (their room's) or else the first, its rounds, and its board
+ * of all the maps. A title without easter eggs shows its rounds where they picked the easter eggs. null where the
+ * server hosts no title.
+ */
+export function pickBoard(boards: Leaderboards, picked: Picked, prefer = ''): Board | null {
+  const title = [picked.title, prefer].map((id) => boards.titles.find((t) => t.id === id)).find(Boolean)
     || boards.titles[0];
   if (!title) return null;
-  const kind: Kind = picked[title.id] === 'eggs' && title.eggs ? 'eggs' : 'rounds';
+  const kind: Kind = picked.kind === 'eggs' && title.eggs ? 'eggs' : 'rounds';
   const of = kind === 'eggs' && title.eggs ? title.eggs : title.rounds;
-  const map = picked[title.id + ':' + kind];
+  const map = picked.maps[title.id + ':' + kind];
   return { title, kind, boards: of, map: of.maps.some((m) => m.map === map) ? map : ALL_MAPS };
 }

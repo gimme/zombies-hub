@@ -20,20 +20,19 @@ test('the leaderboards are by game: first the game, then its kinds of board, the
   await expect(kim.locator('#boardpicks button')).toHaveText(['All eggs', 'Ascension', 'Call of the Dead',
     'Shangri-La', 'Moon']);
 
-  // Black Ops II: its rounds of its maps, and the easter eggs of the maps that have a main quest
+  // Black Ops II, at the kind picked: the easter eggs of the maps that have a main quest, then its rounds of its maps
   await kim.locator('#boardtitles').getByRole('radio', { name: 'Black Ops II' }).click();
   await expect(kim.locator('#boardtabs button')).toHaveText(['Rounds', 'Easter eggs']);
-  await expect(picked('boardtabs')).toHaveText('Rounds');
-  await expect(picked('boardpicks')).toHaveText('All maps');
-  await expect(kim.locator('#boardpicks button')).toHaveCount(10);
-  await expect(kim.locator('#boardtables .tile .name').first()).toHaveText('TranZit');
-  await kim.locator('#boardtabs').getByRole('radio', { name: 'Easter eggs' }).click();
+  await expect(picked('boardtabs')).toHaveText('Easter eggs');
   await expect(kim.locator('#boardpicks button')).toHaveText(['All eggs', 'TranZit', 'Die Rise', 'Mob of the Dead',
     'Buried', 'Origins']);
   await kim.locator('#boardtabs').getByRole('radio', { name: 'Rounds' }).click();
-  // back to Black Ops, at the kind picked of it
+  await expect(picked('boardpicks')).toHaveText('All maps');
+  await expect(kim.locator('#boardpicks button')).toHaveCount(10);
+  await expect(kim.locator('#boardtables .tile .name').first()).toHaveText('TranZit');
+  // back to Black Ops, at the kind picked last
   await kim.locator('#boardtitles').getByRole('radio', { name: 'Black Ops', exact: true }).click();
-  await expect(picked('boardtabs')).toHaveText('Easter eggs');
+  await expect(picked('boardtabs')).toHaveText('Rounds');
 });
 
 test("the leaderboards list a game's players, and open its report", async ({ server, player }) => {
