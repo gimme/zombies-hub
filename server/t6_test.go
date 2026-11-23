@@ -1116,7 +1116,8 @@ func TestT6NeedsItsGameFiles(t *testing.T) {
 	for _, name := range []string{"binkw32.dll", "zone/all/patch_zm.ff", "zone/all/zm_transit.ff", "zone/all/zm_tomb.ff"} {
 		os.WriteFile(filepath.Join(dir, filepath.FromSlash(name)), nil, 0o644)
 	}
-	want := []string{"zm_classic_transit", "zm_standard_transit", "zm_standard_town", "zm_standard_farm", "zm_classic_tomb"}
+	// in the page's order: the main maps, then those of the survival mode alone
+	want := []string{"zm_classic_transit", "zm_classic_tomb", "zm_standard_transit", "zm_standard_town", "zm_standard_farm"}
 	if maps := t6Installed(dir); !slices.Equal(maps, want) {
 		t.Errorf("the T6 maps: %v", maps)
 	}

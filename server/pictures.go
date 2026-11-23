@@ -371,12 +371,13 @@ func (p picture) of(part image.Rectangle) picture {
 	return p
 }
 
-// mapPictures returns the pictures of the maps that the page lists. A map's name is the id of its picture, and the
-// map's title is the picture's name.
+// mapPictures returns the pictures of Black Ops' maps, in the order the page lists them. A map's name is the id of
+// its picture, and the map's title is the picture's name. (A Black Ops II map's preview is not framed like Black Ops'
+// in its texture, and the set reads only Black Ops' archives.)
 func mapPictures() []picture {
 	var set []picture
 	for _, m := range mapTitles {
-		if m.preview != "" { // the server reads no pictures of T6's maps
+		if m.of == t5 {
 			set = append(set, picture{id: m.name, name: m.title, image: m.preview, kind: "map"})
 		}
 	}

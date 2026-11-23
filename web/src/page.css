@@ -205,8 +205,11 @@ ul.rooms, ul.members { list-style: none; margin: 0; padding: 0; display: flex; f
 ul.rooms { gap: 12px; }
 .rooms li { display: flex; align-items: center; gap: 18px; padding: 12px 16px 12px 12px; }
 .rooms li.none { padding: 18px 20px; color: var(--muted); }
-/* a map's picture (mapPicture) is 4:3, as the game draws it */
+/* a map's picture (mapPicture) is 4:3, as the game draws it; a Black Ops II map's is its picture on its card in the
+   game's lobby, 480x222 (server/mapart.go: t6Picture), which shows whole: as wide as a Black Ops map's in a list or a
+   grid */
 .thumb { width: 96px; height: 72px; flex: none; border-radius: 9px; object-fit: cover; background: rgba(255, 255, 255, 0.06); }
+.thumb[data-of=t6] { height: auto; aspect-ratio: 480 / 222; }
 .rooms .title { font: 500 22px var(--display); text-transform: uppercase; letter-spacing: 0.02em;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rooms .sub { font-size: 14px; color: var(--muted); }
@@ -231,7 +234,19 @@ ul.rooms { gap: 12px; }
 .main { flex: 999 1 600px; min-width: 0; display: flex; flex-direction: column; gap: 20px; }
 .mapcard { display: flex; flex-direction: column; gap: 22px; padding: 24px; }
 .mapinfo { display: flex; flex-wrap: wrap; gap: 24px; }
-#mapimg, #soloimg { width: 224px; height: 168px; flex: none; border-radius: 12px; object-fit: cover; background: rgba(255, 255, 255, 0.06); }
+#soloimg { width: 224px; height: 168px; flex: none; border-radius: 12px; object-fit: cover; background: rgba(255, 255, 255, 0.06); }
+/* a map's picture with words over it (mapShot), as high whichever map it shows (--h): a Black Ops II map's card is
+   wider, and has the map's place over its name in the band at its foot, where the lobby writes them, in the lobby's
+   white capitals (cqh: hundredths of the card's height) */
+.shot { --h: 168px; position: relative; flex: none; width: calc(var(--h) * 4 / 3); height: var(--h);
+  container-type: size; }
+.shot[data-of=t6] { width: calc(var(--h) * 48 / 29); }
+.shot img { display: block; width: 100%; height: 100%; border-radius: 12px; object-fit: cover;
+  background: rgba(255, 255, 255, 0.06); }
+.shot .words { position: absolute; right: 6.6cqw; bottom: 7cqh; margin: 0; display: flex; flex-direction: column;
+  align-items: flex-end; font: 400 7cqh/1.08 var(--display); letter-spacing: 0.04em; text-transform: uppercase;
+  color: #fff; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7); pointer-events: none; }
+.shot .words b { font-size: 9.4cqh; font-weight: 400; }
 /* the map's title and text, as tall as its picture whichever map it shows, of either game, so that what is under the
    card stays put as the map changes; a longer text scrolls (showDesc) */
 .mapinfo .text { flex: 1 1 280px; min-width: 0; height: 168px; display: flex; flex-direction: column; gap: 10px; }
@@ -250,6 +265,7 @@ ul.rooms { gap: 12px; }
   box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.6); }
 .mapgrid button img { display: block; width: 100%; aspect-ratio: 4 / 3; border-radius: 7px; object-fit: cover;
   background: rgba(255, 255, 255, 0.06); }
+.mapgrid button img[data-of=t6] { aspect-ratio: 480 / 222; }
 .mapgrid button[aria-checked=true] { border-color: var(--accent-hi); background: rgba(200, 16, 46, 0.14); color: var(--fg); }
 .mapgrid button[aria-checked=true]:hover:not(:disabled) { border-color: var(--accent-over); }
 .mapgrid button:disabled { background: rgba(255, 255, 255, 0.02); color: #7f796f; }
@@ -388,8 +404,6 @@ ul.members { gap: 8px; }
    scoreboard */
 #results { max-width: 920px; width: 100%; margin: 0 auto; display: flex; flex-direction: column; gap: 20px; }
 .resulthead { display: flex; flex-wrap: wrap; align-items: center; gap: 22px 28px; padding: 24px; }
-#resultimg { width: 224px; height: 168px; flex: none; border-radius: 12px; object-fit: cover;
-  background: rgba(255, 255, 255, 0.06); }
 .resultmain { flex: 1 1 300px; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
 #resultkicker { letter-spacing: 0.16em; color: #cfc8bd; }
 /* on one line, the round's number in the game's red */
@@ -504,6 +518,7 @@ tr.mine td:first-child { box-shadow: inset 3px 0 0 var(--accent-hi); }
 .tile .photo { position: relative; display: block; }
 .tile img { display: block; width: 100%; aspect-ratio: 4 / 3; border-radius: 7px; object-fit: cover;
   background: rgba(255, 255, 255, 0.06); filter: grayscale(1) brightness(0.45); }
+.tile img[data-of=t6] { aspect-ratio: 480 / 222; }
 .tile.lit img { filter: none; }
 /* the player's best there, over the picture's foot */
 .tile .score { position: absolute; left: 0; right: 0; bottom: 0; display: flex; align-items: baseline; gap: 7px;
@@ -539,7 +554,7 @@ tr.mine td:first-child { box-shadow: inset 3px 0 0 var(--accent-hi); }
   .shell { padding: 20px 16px 32px; }
   .start h1, .about h1 { font-size: 34px; }
   .resulthead { padding: 18px; }
-  #resultimg { width: 160px; height: 120px; }
+  #resultshot { --h: 120px; }
   /* without the lines between them, which would end a row where the totals wrap */
   .totals { gap: 12px 24px; }
   .totals div { padding-right: 0; margin-right: 0; border-right: none; }

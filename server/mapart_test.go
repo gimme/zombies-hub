@@ -97,9 +97,18 @@ func TestDecodeIWI(t *testing.T) {
 		img.NRGBAAt(0, 0) != (color.NRGBA{200, 200, 200, 0}) || img.NRGBAAt(1, 0) != (color.NRGBA{254, 254, 254, 77}) {
 		t.Errorf("luminance and alpha: %v, %v", img, err)
 	}
+	// Black Ops II's version, whose header is longer
+	block = binary.LittleEndian.AppendUint16(nil, 0xF800)
+	block = append(block, 0, 0, 0, 0, 0, 0)
+	if img, err = decodeIWI(t6IWI(iwi(iwiDXT1, 4, 4, block))); err != nil || img.NRGBAAt(3, 3) != (color.NRGBA{255, 0, 0, 255}) {
+		t.Errorf("Black Ops II's DXT1: %v, %v", img, err)
+	}
 	for name, data := range map[string][]byte{"not an IWI": []byte("PNG..."), "a short one": iwi(iwiDXT1, 8, 8, nil),
 		"a short one of luminance and alpha": iwi(iwiLA16, 2, 2, make([]byte, 7)),
-		"another format":                     iwi(0x7F, 4, 4, make([]byte, 64))} {
+		"another format":                     iwi(0x7F, 4, 4, make([]byte, 64)),
+		"Black Ops II's of another format":   t6IWI(iwi(iwiLA16, 2, 1, make([]byte, 4))),
+		"a short one of Black Ops II's":      t6IWI(iwi(iwiDXT1, 8, 8, make([]byte, 24))),
+		"another version":                    append([]byte("IWi\x0e"), iwi(iwiDXT1, 4, 4, make([]byte, 8))[4:]...)} {
 		if _, err := decodeIWI(data); err == nil {
 			t.Errorf("%s decoded", name)
 		}
@@ -177,7 +186,8 @@ func TestMapArt(t *testing.T) {
 	if rsp, _ = get(t, srv2.URL+"/maps/zombie_moon/preview"); rsp.Header.Get("Content-Type") != "image/jpeg" {
 		t.Errorf("Moon's preview, with no picture of its own: %s %s", rsp.Status, rsp.Header.Get("Content-Type"))
 	}
-	for _, p := range []string{"/maps/zombie_moon/preview", "/maps/zombie_theater/icon", "/maps/mp_nuked/preview",
+	for _, p := range []string{"/maps/zombie_moon/preview", "/maps/zombie_theater/icon", "/maps/zombie_theater/card",
+		"/maps/mp_nuked/preview",
 		"/maps/../main/iw_04.iwd", "/maps/zombie_theater/../preview"} {
 		if rsp, _ = get(t, srv.URL+p); rsp.StatusCode != http.StatusNotFound {
 			t.Errorf("%s: %s, want 404", p, rsp.Status)

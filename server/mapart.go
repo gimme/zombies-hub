@@ -25,18 +25,25 @@ import (
 
 // What the page shows of each Zombies map, from the game files (title.go: mapTitles names the maps):
 //
-//	GET /maps/<map>/preview     the map's picture in the game's map select, as a PNG: images/<map>.iwi (Ascension's
-//	                            is images/zombie_cosmo.iwi, the name in the map select's table in patch.ff), or for
-//	                            World at War's maps images/loadscreen_zombie_<map>_mini.iwi. It is a 4:3 picture (the
-//	                            game's lobby menu, xboxlive_lobby.menu, draws it at 183x135) that the game stores
-//	                            square (256x256, rounded corners). It is served at 4:3 again. For a map without one,
-//	                            the map's loading screen is served instead.
-//	GET /maps/<map>/loadscreen  the map's loading screen, as a JPEG: images/loadscreen_zombie_<map>.iwi, a 16:9
-//	                            picture that the game stores square (1024x1024). It is served at 16:9 again.
+//	GET /maps/<map>/preview     the map's picture in the game's menus, as a PNG. For a map without one, the map's
+//	                            loading screen is served instead. A Black Ops map's is its picture in the game's map
+//	                            select: images/<map>.iwi (Ascension's is images/zombie_cosmo.iwi, the name in the map
+//	                            select's table in patch.ff), or for World at War's maps
+//	                            images/loadscreen_zombie_<map>_mini.iwi. It is a 4:3 picture (the game's lobby menu,
+//	                            xboxlive_lobby.menu, draws it at 183x135) that the game stores square (256x256, rounded
+//	                            corners). It is served at 4:3 again. A Black Ops II map's is its picture on its card
+//	                            in the game's lobby, as a JPEG, without the card's frame (t6Picture).
+//	GET /maps/<map>/card        a Black Ops II map's card in the game's lobby, as a JPEG: its picture under the lobby's
+//	                            frame, which has a band at its foot for the card's words (t6Card). For a map without a
+//	                            picture, the map's loading screen is served instead.
+//	GET /maps/<map>/loadscreen  the map's loading screen, as a JPEG: a 16:9 picture that the game stores square
+//	                            (1024x1024), except Origins' (1920x1080). It is served at 16:9 again. A Black Ops map's
+//	                            is images/loadscreen_zombie_<map>.iwi.
 //
-// The pictures are textures in the .iwd archives in main/ (zip files). The game searches the archives in reverse
-// order of their names, so a later archive (iw_25.iwd) overrides an earlier one. Each picture is decoded once and
-// kept.
+// A Black Ops map's pictures are textures in the .iwd archives in main/ (zip files). The game searches the archives
+// in reverse order of their names, so a later archive (iw_25.iwd) overrides an earlier one. A Black Ops II map's are
+// textures in that game's image packs (ipak.go), under the names that the map's entry gives (t6.go: t6MapList). Each
+// picture is decoded once and kept.
 //
 // A map's description is its text in the game's map select (for example MENU_ZOMBIE_THEATER_DESC). It comes from the
 // localized strings in zone/<language>/<lang>_code_post_gfx.ff and <lang>_patch.ff, in English when the game files
@@ -49,8 +56,8 @@ import (
 //	            sound/mus/menu/zmb/mus_zmb_main_l.wav in the archives: MS-ADPCM in the game's own container, which
 //	            FFmpeg calls "boa" (boaToWAV). The answer is a 404 when the game files lack it.
 
-// mapArtKinds are the kinds of picture that GET /maps/<map>/<kind> serves.
-var mapArtKinds = map[string]bool{"preview": true, "loadscreen": true}
+// mapArtKinds are the kinds of picture that GET /maps/<map>/<kind> serves. A card is a Black Ops II map's alone.
+var mapArtKinds = map[string]bool{"preview": true, "loadscreen": true, "card": true}
 
 type mapPicture struct {
 	data        []byte
@@ -109,7 +116,7 @@ func pngOf(img image.Image) (mapPicture, error) {
 // The lobby's view of the maps doesn't wait for one either: the descriptions it needs have their own lock (h.locs).
 func (h *web) mapArt(mapName, kind string) (mapPicture, bool) {
 	m, ok := mapByName(mapName)
-	if _, known := mapArtKinds[kind]; !ok || !known || m.preview == "" { // the server reads no pictures of T6's maps
+	if _, known := mapArtKinds[kind]; !ok || !known || kind == "card" && m.of != t6 {
 		return mapPicture{}, false
 	}
 	h.art.Lock()
@@ -129,28 +136,89 @@ func (h *web) mapArt(mapName, kind string) (mapPicture, bool) {
 	return pic, pic.data != nil
 }
 
-// encodeMapArt reads a map's picture from the game files and encodes it. The preview becomes a PNG, because its
-// corners are transparent. The loading screen becomes a JPEG. The caller holds h.art.
+// encodeMapArt reads a map's picture from the game files and encodes it. A Black Ops map's preview becomes a PNG,
+// because its corners are transparent. A loading screen, and a Black Ops II map's picture and card, become a JPEG.
+// The caller holds h.art.
 func (h *web) encodeMapArt(m mapEntry, kind string) (mapPicture, error) {
-	if kind == "preview" {
-		if img, err := h.iwdImage(m.preview); err == nil {
+	texture := h.iwdImage
+	if m.of == t6 {
+		texture = h.t6Image
+	}
+	if kind == "preview" || kind == "card" {
+		if img, err := texture(m.preview); err == nil && kind == "card" {
+			frame, err := h.t6Image(t6CardFrame)
+			if err != nil && !errors.Is(err, os.ErrNotExist) {
+				return mapPicture{}, err
+			}
+			return jpegOf(t6Card(img, frame))
+		} else if err == nil && m.of == t6 {
+			return jpegOf(t6Picture(img))
+		} else if err == nil {
 			// the game draws it at 4:3 and stores it square
 			return pngOf(resize(img, img.Bounds().Dy()*4/3, img.Bounds().Dy()))
 		} else if !errors.Is(err, os.ErrNotExist) {
 			return mapPicture{}, err
 		}
 	}
-	img, err := h.iwdImage(m.loadscreen)
+	img, err := texture(m.loadscreen)
 	if err != nil {
 		return mapPicture{}, err
 	}
 	// the game draws it over the whole screen, so it is a 16:9 picture
-	img = resize(img, img.Bounds().Dx(), img.Bounds().Dx()*9/16)
+	return jpegOf(resize(img, img.Bounds().Dx(), img.Bounds().Dx()*9/16))
+}
+
+// jpegOf encodes the image as a JPEG.
+func jpegOf(img image.Image) (mapPicture, error) {
 	var out bytes.Buffer
 	if err := jpeg.Encode(&out, img, &jpeg.Options{Quality: 85}); err != nil {
 		return mapPicture{}, err
 	}
 	return mapPicture{out.Bytes(), "image/jpeg"}, nil
+}
+
+// A Black Ops II map's card in the game's lobby (t6Card): its size, and the height of its picture at its top.
+// t6CardFrame is the texture of the lobby's frame, which the game draws over each card.
+const (
+	t6CardWidth, t6CardHeight, t6CardTile = 480, 290, 222
+	t6CardFrame                           = "menu_zm_map_frame"
+)
+
+// t6Picture returns a Black Ops II map's picture as the game draws it on the map's card in its lobby, which is the
+// map's preview (above). The picture is the map's tile, a texture of 256x256, which the game draws across the card's
+// width, from its top (t6Card). The game draws it opaque, though its texture has a frame of its own in its alpha,
+// which fades out (the leaderboards draw that).
+func t6Picture(tile *image.NRGBA) *image.NRGBA {
+	opaque := image.NewNRGBA(tile.Bounds())
+	copy(opaque.Pix, tile.Pix)
+	for i := 3; i < len(opaque.Pix); i += 4 {
+		opaque.Pix[i] = 255
+	}
+	return scaled(opaque, opaque.Bounds(), t6CardWidth, t6CardTile)
+}
+
+// t6Card returns a Black Ops II map's card in the game's lobby (above): the map's picture (t6Picture), and the
+// lobby's frame over the whole card, a texture of 256x256. The frame is a metal border, grime and the cracks of a
+// bullet hole, and a dark band at the card's foot, under the picture. The lobby writes the map's place and name in the
+// band, and so does the page (web/src/maps.ts: mapShot). They are drawn as in a screenshot of the lobby, where the
+// card is 480x290 and the picture 480x222. Without a frame (frame is nil), the card has the picture alone, on black.
+func t6Card(tile, frame *image.NRGBA) *image.NRGBA {
+	card := image.NewNRGBA(image.Rect(0, 0, t6CardWidth, t6CardHeight))
+	for i := 3; i < len(card.Pix); i += 4 {
+		card.Pix[i] = 255 // black
+	}
+	copy(card.Pix, t6Picture(tile).Pix)
+	if frame == nil {
+		return card
+	}
+	over := scaled(frame, frame.Bounds(), t6CardWidth, t6CardHeight)
+	for i := 0; i < len(card.Pix); i += 4 {
+		a := int(over.Pix[i+3])
+		for c := 0; c < 3; c++ {
+			card.Pix[i+c] = uint8((int(over.Pix[i+c])*a + int(card.Pix[i+c])*(255-a) + 127) / 255)
+		}
+	}
+	return card
 }
 
 // iwdImage returns the decoded texture images/<name>.iwi from the last .iwd in main/ that has it. It returns
@@ -230,15 +298,15 @@ func (h *web) iwdEntry(want string) ([]byte, error) {
 	return nil, fmt.Errorf("%s: %w", want, os.ErrNotExist)
 }
 
-// findEntries finds the entries that the server reads in the .iwd archives in main/: the maps' pictures, the menus'
-// pictures, the players' pictures (pictures.go), the menu's music, and the menus' sounds that the game streams. For
-// the sounds it takes all of menuSoundDir, because only the zone names the ones the page plays (sounds.go). It
-// returns a map from each entry's lowercase path in its archive to the last archive by name that has the entry. It
-// is called once.
+// findEntries finds the entries that the server reads in the .iwd archives in main/: the pictures of Black Ops' maps,
+// the menus' pictures, the players' pictures (pictures.go), the menu's music, and the menus' sounds that the game
+// streams. For the sounds it takes all of menuSoundDir, because only the zone names the ones the page plays
+// (sounds.go). It returns a map from each entry's lowercase path in its archive to the last archive by name that has
+// the entry. It is called once.
 func (h *web) findEntries() map[string]string {
 	wanted := map[string]bool{menuMusic: true}
 	for _, m := range mapTitles {
-		if m.preview != "" {
+		if m.of == t5 {
 			wanted["images/"+m.preview+".iwi"], wanted["images/"+m.loadscreen+".iwi"] = true, true
 		}
 	}
@@ -348,7 +416,8 @@ func (h *web) serveMusic(w http.ResponseWriter, r *http.Request) {
 	h.serveKept(w, r, pic)
 }
 
-// The IWI formats, with the numbers they have in Black Ops' version of the file format (13).
+// The IWI formats, with the numbers they have in Black Ops' version of the file format (13). The DXT formats have the
+// same numbers in Black Ops II's version (27).
 const (
 	iwiARGB32 = 0x01
 	iwiLA16   = 0x03
@@ -357,16 +426,24 @@ const (
 	iwiDXT5   = 0x0D
 )
 
-// decodeIWI decodes the largest level of an IWI, the game's texture file. The file is a header of 48 bytes ("IWi",
-// the version, the format, flags, width, height, depth, the levels' offsets) and then its levels, the smallest first,
-// so the largest level is at the end. decodeIWI reads the formats that the server's pictures use: DXT1, DXT3, DXT5,
-// 32-bit BGRA, and luminance and alpha with a byte each (the rounds' tally marks, which the game tints: pictures.go).
+// decodeIWI decodes the largest level of an IWI, the game's texture file. The file is a header ("IWi", the version,
+// the format, flags, width, height, depth, and more) and then its levels, the smallest first, so the largest level is
+// at the end. The header has 48 bytes in Black Ops' version of the format (13) and 64 in Black Ops II's (27).
+// decodeIWI reads the formats that the server's pictures use: DXT1, DXT3, DXT5, and in Black Ops' version also 32-bit
+// BGRA, and luminance and alpha with a byte each (the rounds' tally marks, which the game tints: pictures.go).
 func decodeIWI(data []byte) (*image.NRGBA, error) {
 	if len(data) < 48 || string(data[:3]) != "IWi" {
 		return nil, errors.New("not an IWI")
 	}
-	if data[3] != 13 {
-		return nil, fmt.Errorf("IWI version %d, not Black Ops' (13)", data[3])
+	header := 48
+	switch data[3] {
+	case 13:
+	case 27:
+		if header = 64; len(data) < header || data[4] != iwiDXT1 && data[4] != iwiDXT3 && data[4] != iwiDXT5 {
+			return nil, fmt.Errorf("a Black Ops II IWI of format %#x", data[4])
+		}
+	default:
+		return nil, fmt.Errorf("IWI version %d, not Black Ops' (13) or Black Ops II's (27)", data[3])
 	}
 	format := data[4]
 	w, h := int(binary.LittleEndian.Uint16(data[6:])), int(binary.LittleEndian.Uint16(data[8:]))
@@ -387,7 +464,7 @@ func decodeIWI(data []byte) (*image.NRGBA, error) {
 	default:
 		return nil, fmt.Errorf("IWI format %#x", format)
 	}
-	if len(data)-48 < size {
+	if len(data)-header < size {
 		return nil, errors.New("a short IWI")
 	}
 	pixels := data[len(data)-size:]

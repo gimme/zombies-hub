@@ -592,6 +592,10 @@ type mapView struct {
 	Have  bool   `json:"have,omitempty"` // the game files have it, so a room may play it
 	List  bool   `json:"list,omitempty"` // the server has the list of files it reads (files.go), so a browser may play it
 	Desc  string `json:"desc,omitempty"` // its description in the game's map select
+	// Place is where a Black Ops II map is, which the page writes over the map's name on its card, and Mode is the mode
+	// that the card writes after the name, if any (mapEntry).
+	Place string `json:"place,omitempty"`
+	Mode  string `json:"mode,omitempty"`
 }
 
 // pictureView is a picture of the set (pictures.go): its id (the page loads GET /pictures/<id>.png), its name, and
@@ -770,7 +774,7 @@ func (l *lobby) view(p *player) view {
 	have := l.maps()
 	for _, m := range mapTitles {
 		mv := mapView{Name: m.name, Title: m.title, Of: m.of, Have: slices.Contains(have, m.name),
-			List: l.files != nil && l.files.reads[m.name] != nil}
+			List: l.files != nil && l.files.reads[m.name] != nil, Place: m.place, Mode: m.mode}
 		if l.mapDesc != nil {
 			mv.Desc = l.mapDesc(m.name)
 		}

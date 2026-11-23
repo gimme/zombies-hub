@@ -4,7 +4,7 @@
 // (server/mapart.go: GET /maps/<map>/loadscreen). In the lobby, the map is that of the result that shows, else that
 // of the room, else the map that the player picked to play offline (show.ts: show). A page that plays a map alone
 // shows that map (main.ts: startPage). A new picture fades in once it has loaded. Without a picture, the atmosphere
-// is on black: the server has no game files, the page is not served by a lobby, or the map is one of Black Ops II.
+// is on black: the server has no game files, or the page is not served by a lobby.
 //
 // The atmosphere goes over the picture (atmosphereStart), and each map has its own (atmospheres). It is smoke that
 // rises and curls, or fog that lies low, lit from under in the colour of the map. With it comes what suits the map:
@@ -25,7 +25,6 @@
 // which a frame of the atmosphere takes so long that drawing each one would take most of a CPU, and the page would
 // lag. A browser without WebGL shows the picture alone, and still.
 import { $ } from './dom';
-import { isT6 } from './maps';
 import { overlay } from './screen';
 
 // The map whose loading screen is the background, or '' before the first.
@@ -44,13 +43,6 @@ export function setBackdrop(name: string): void {
   atmosphereWake();
   const img = $<HTMLImageElement>('backdropimg');
   img.classList.remove('shown');
-  if (isT6(name)) {
-    // The lobby has no loading screen of a Black Ops II map. The picture of the map before may still be loading,
-    // and it must not show once it has loaded.
-    img.onload = img.onerror = null;
-    img.removeAttribute('src');
-    return;
-  }
   img.onload = () => img.classList.add('shown');
   img.onerror = () => img.classList.remove('shown');
   img.src = '/maps/' + encodeURIComponent(name) + '/loadscreen';
@@ -112,6 +104,24 @@ const atmospheres: Record<string, Atmosphere> = {
   zombie_cod5_sumpf: { glow: '#4a8a1a', spark: '#d6ff6a', fog: 1, damp: 1, rain: 1, flies: 1 },
   // Der Riese: smoke, lit now and then by the flashes of the teleporters.
   zombie_cod5_factory: { glow: '#2459c8', spark: '#9ad4ff', smoke: 1, embers: 0.4, flashes: 1 },
+  // Black Ops II's maps. TranZit and Bus Depot, whose loading screen is the same postcard: the deadly fog that lies
+  // between the stops, and embers from the lava in the cracks of the road.
+  zm_classic_transit: { glow: '#b8461c', spark: '#ff8a3d', fog: 1, embers: 0.6 },
+  zm_standard_transit: { glow: '#b8461c', spark: '#ff8a3d', fog: 1, embers: 0.6 },
+  // Town: smoke and embers from its fires and the lava under its streets.
+  zm_standard_town: { glow: '#c2561a', spark: '#ffa040', smoke: 1, embers: 1 },
+  // Farm: ground fog round the barn at night, and fireflies.
+  zm_standard_farm: { glow: '#a8641e', spark: '#ffd27a', fog: 1, flies: 0.7 },
+  // Nuketown: smoke and embers, and lightning now and then, as in its comic of what falls from the sky.
+  zm_standard_nuked: { glow: '#2f6fd0', spark: '#ffd84a', smoke: 0.7, embers: 0.5, flashes: 1 },
+  // Die Rise: smoke and dust among the broken skyscrapers, in the purple of its comic's energy.
+  zm_classic_rooftop: { glow: '#7a2fbf', spark: '#c58bff', smoke: 0.8, dust: 0.6, embers: 0.3 },
+  // Mob of the Dead: fog off the bay at night, embers, and lightning now and then over Alcatraz.
+  zm_classic_prison: { glow: '#b0201a', spark: '#ff6a3d', fog: 1, embers: 0.6, flashes: 0.6 },
+  // Buried: dust in the cave, embers, and the lanterns of its town, which falter.
+  zm_classic_processing: { glow: '#a8551c', spark: '#ffb15c', dust: 1, embers: 0.5, faltering: 0.6 },
+  // Origins: smoke and embers over the trenches, and a light rain, in the gold of its loading screen.
+  zm_classic_tomb: { glow: '#c98a1a', spark: '#ffd27a', smoke: 0.7, embers: 0.8, rain: 0.5 },
 };
 // Smoke and embers in the colours of Kino der Toten.
 const plainAtmosphere: Atmosphere = { glow: '#bf1a0f', spark: '#ff6b1f', smoke: 1, embers: 1 };

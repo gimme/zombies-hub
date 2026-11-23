@@ -58,6 +58,10 @@ export interface MapInfo {
   /** The server has the list of files it reads, so a browser may play it. */
   list?: boolean;
   desc?: string;
+  /** Where a Black Ops II map is (Green Run), which its card in the game's lobby has over its name (maps.ts: mapShot). */
+  place?: string;
+  /** The mode that a Black Ops II map has alone, which its card has after its name (Survival). */
+  mode?: string;
 }
 
 /** A picture a player may pick (server/rooms.go: pictureView). The page loads GET /pictures/<id>.png. */

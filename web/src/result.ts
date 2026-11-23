@@ -8,7 +8,7 @@ import { avatar } from './avatar';
 import { $, el } from './dom';
 import { clock } from './format';
 import { me } from './lobby';
-import { mapInfo, mapPicture } from './maps';
+import { mapInfo, mapShot } from './maps';
 import { scoreboard, statOf } from './scoreboard';
 import { store } from './storage';
 
@@ -35,7 +35,7 @@ export function showResult(result: GameResult): void {
       result.players.length + (result.players.length === 1 ? ' player' : ' players'));
   }
   const map = mapInfo(result.map);
-  mapPicture($<HTMLImageElement>('resultimg'), result.map);
+  mapShot($('resultshot'), result.map);
   $('resultkicker').textContent = 'Game over · ' + map.title;
   const n = (x: number) => x.toLocaleString('en-US');
   $('resulttitle').textContent = result.round ? 'Round ' : 'Game over';

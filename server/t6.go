@@ -75,17 +75,35 @@ const t6 = "t6"
 const plutoniumPort = 3074
 
 var t6MapList = []mapEntry{
-	// The T6 maps are named after their game settings files in Plutonium's server configs (t6Maps). The page has no
-	// picture or description of them, because T6 keeps its pictures in archives that the server doesn't read.
-	{of: t6, name: "zm_classic_transit", title: "TranZit"},
-	{of: t6, name: "zm_standard_transit", title: "Bus Depot"},
-	{of: t6, name: "zm_standard_town", title: "Town"},
-	{of: t6, name: "zm_standard_farm", title: "Farm"},
-	{of: t6, name: "zm_standard_nuked", title: "Nuketown Zombies"},
-	{of: t6, name: "zm_classic_rooftop", title: "Die Rise"},
-	{of: t6, name: "zm_classic_prison", title: "Mob of the Dead"},
-	{of: t6, name: "zm_classic_processing", title: "Buried"},
-	{of: t6, name: "zm_classic_tomb", title: "Origins"},
+	// The T6 maps are named after their game settings files in Plutonium's server configs (t6Maps). The main maps come
+	// first, in the order of their release, then the maps that have the survival mode alone: three parts of TranZit's
+	// map, and Nuketown. Their pictures are textures in T6's image packs (ipak.go), by the names of the textures that
+	// their materials draw. The preview is the map's tile on its card in the game's lobby, which its leaderboards show
+	// too: the material menu_zm_<map>_<mode>_<location> (in patch_ui_zm.ff, and ui_zm.ff for TranZit's maps). The
+	// loading screen is the material loadscreen_<map>_<mode>_<location> (in code_post_gfx_zm.ff, or the map pack's
+	// dlc<n>_load_zm.ff). Bus Depot's is the same picture as TranZit's.
+	//
+	// The place is the card's words over the map's name, the localized string ZMUI_<MAP>_CAPS (in en_patch_zm.ff), and
+	// the mode, after the name, is ZMUI_SURVIVAL_CAPS, as the page writes them. The page has no description of the T6
+	// maps, because T6 keeps its localized strings in zones that the server doesn't read.
+	{of: t6, name: "zm_classic_transit", title: "TranZit", place: "Green Run",
+		preview: "menu_zm_transit_zclassic_transit", loadscreen: "loadscreen_transit_classic"},
+	{of: t6, name: "zm_classic_rooftop", title: "Die Rise", place: "Great Leap Forward",
+		preview: "menu_zm_highrise_zclassic_rooftop", loadscreen: "loadscreen_dierise"},
+	{of: t6, name: "zm_classic_prison", title: "Mob of the Dead", place: "Alcatraz Island",
+		preview: "menu_zm_prison_select_mob", loadscreen: "loadscreen_zm_hellcatraz"},
+	{of: t6, name: "zm_classic_processing", title: "Buried", place: "Resolution 1295",
+		preview: "menu_zm_buried_zclassic_processing", loadscreen: "loadscreen_buried_zclassic_processing"},
+	{of: t6, name: "zm_classic_tomb", title: "Origins", place: "Excavation Site 64",
+		preview: "menu_zm_tomb_zclassic_tomb", loadscreen: "loadscreen_zombie_le_tombeau"},
+	{of: t6, name: "zm_standard_transit", title: "Bus Depot", place: "Green Run", mode: "Survival",
+		preview: "menu_zm_transit_zsurvival_transit", loadscreen: "loadscreen_transit_standard_busdepot"},
+	{of: t6, name: "zm_standard_town", title: "Town", place: "Green Run", mode: "Survival",
+		preview: "menu_zm_transit_zsurvival_town", loadscreen: "loadscreen_transit_standard_town"},
+	{of: t6, name: "zm_standard_farm", title: "Farm", place: "Green Run", mode: "Survival",
+		preview: "menu_zm_transit_zsurvival_farm", loadscreen: "loadscreen_transit_standard_farm"},
+	{of: t6, name: "zm_standard_nuked", title: "Nuketown", place: "Nevada, U.S.A.", mode: "Survival",
+		preview: "menu_zm_nuketown_select", loadscreen: "loadscreen_zm_nuketown"},
 }
 
 // t6Title is the title (title.go) for Black Ops II.

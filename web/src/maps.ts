@@ -7,9 +7,6 @@ import { store } from './storage';
 export const mapInfo = (name: string): MapInfo =>
   (view && view.maps.find((m) => m.name === name)) || { name, title: name };
 
-/** Whether a map is one of Black Ops II's. */
-export const isT6 = (name: string): boolean => mapInfo(name).of === 't6';
-
 /** The maps a page plays in the engine: Black Ops' own. A Black Ops II map is played in Plutonium. */
 export const t5Maps = (maps: MapInfo[]): MapInfo[] => maps.filter((m) => m.of !== 't6');
 
@@ -42,22 +39,31 @@ export const lastTitle = {
 };
 
 /**
- * The picture of a Black Ops II map. The server reads none from that game's files, so the page draws the title's
- * name.
- */
-export const T6_PICTURE = 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" ' +
-  'viewBox="0 0 400 300"><rect width="400" height="300" fill="#191412"/><text x="200" y="142" text-anchor="middle" ' +
-  'font-family="Oswald, Arial Narrow, sans-serif" font-weight="600" font-size="40" letter-spacing="5" fill="#6b635a">' +
-  'BLACK OPS</text><text x="200" y="200" text-anchor="middle" font-family="Oswald, Arial Narrow, sans-serif" ' +
-  'font-weight="600" font-size="52" letter-spacing="8" fill="#8a2a33">II</text></svg>');
-
-/**
  * Sets an <img> to a map's picture: its preview, or the picture of another kind, such as its loading screen
- * (server/mapart.go). The picture is set only when it changes.
+ * (server/mapart.go). The picture is set only when it changes. The <img> says the map's game (data-of): a Black Ops
+ * II map's preview is its picture on its card in the game's lobby, which keeps its own shape (page.css).
  */
 export function mapPicture(img: HTMLImageElement, name: string, kind?: string): HTMLImageElement {
-  const src = isT6(name) ? T6_PICTURE : '/maps/' + encodeURIComponent(name) + '/' + (kind || 'preview');
+  const map = mapInfo(name);
+  const src = '/maps/' + encodeURIComponent(name) + '/' + (kind || 'preview');
   if (img.getAttribute('src') !== src) img.src = src;
-  img.alt = mapInfo(name).title;
+  img.alt = map.title;
+  img.dataset.of = map.of || '';
   return img;
+}
+
+/**
+ * Shows a map in a shot (index.html: .shot), a picture with words over it. A Black Ops map's is its preview, with no
+ * words. A Black Ops II map's is its card in the game's lobby, which has a band at its foot. The lobby writes the
+ * map's place in the band, over the map's name and its mode, if it has one alone, and so does the shot.
+ */
+export function mapShot(shot: HTMLElement, name: string): void {
+  const map = mapInfo(name);
+  const t6 = map.of === 't6';
+  mapPicture(shot.querySelector('img')!, name, t6 ? 'card' : undefined);
+  shot.dataset.of = map.of || '';
+  const words = shot.querySelector('.words')!;
+  words.classList.toggle('hidden', !t6 || !map.place);
+  words.children[0].textContent = (t6 && map.place) || '';
+  words.children[1].textContent = t6 && map.place ? map.title + (map.mode ? ' / ' + map.mode : '') : '';
 }

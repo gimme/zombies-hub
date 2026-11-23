@@ -31,7 +31,7 @@ import { knowMap, type MapButton, mapButton, showNote } from './files';
 import { checkLock, endNote, forgetOtherTab, lastEnd, lockElsewhere, otherTab } from './game';
 import { act, ask, me, offline, view } from './lobby';
 import { showDesc, showMaps } from './mapgrid';
-import { lastTitle, mapInfo, mapPicture } from './maps';
+import { lastTitle, mapInfo, mapShot } from './maps';
 import { modNames, modOn, modValue } from './mods';
 import { mayLeaveGame } from './question';
 import { bo1Settings } from './settings';
@@ -68,7 +68,7 @@ export function showRoom(v: View, room: Room): void {
   const open = room.state === 'open';
 
   const map = mapInfo(room.map);
-  mapPicture($<HTMLImageElement>('mapimg'), room.map);
+  mapShot($('mapshot'), room.map);
   // Over the map's name, its game, on a server of two. That is where the others see the room's game.
   $('mapkicker').textContent = (v.titles.length > 1 && titleName(v.titles, room.of)) || 'Map';
   $('maptitle').textContent = map.title;

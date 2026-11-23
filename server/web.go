@@ -136,6 +136,8 @@ type web struct {
 	// pictures.go, sounds.go).
 	art    sync.Mutex
 	images map[string]string // the archive with each picture, the music and each menu sound, by the entry's path in it
+	// packs has where each of Black Ops II's images is in its image packs, by the hash of its name (ipak.go).
+	packs map[uint32]packEntry
 	// pictures is keyed by "<map>/<kind>", "image/<name>", "picture/<id>", "music" and "sounds". An entry has no data
 	// when the game files lack the file.
 	pictures map[string]mapPicture

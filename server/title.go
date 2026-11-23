@@ -92,9 +92,13 @@ func (l *lobby) titleMap(r *room, of string) string {
 }
 
 // mapEntry is a Zombies map: the id of its title (of), its name in the game, its name on the page (title), and where
-// its pictures and description are in the game files (mapart.go). Those are its picture in the game's map select
-// (images/<preview>.iwi), its loading screen (images/<loadscreen>.iwi), and the localized string of its description.
-type mapEntry struct{ of, name, title, preview, loadscreen, description string }
+// its pictures and description are in the game files (mapart.go). Those are the names of the textures of its picture
+// in the game's menus (preview) and of its loading screen, and the localized string of its description. A Black Ops
+// map's textures are images/<name>.iwi in the archives, and a Black Ops II map's are in that game's image packs
+// (ipak.go). A Black Ops II map's card in that game's lobby has two lines of words (t6.go: t6MapList): where the map
+// is (place), over the map's name. The name is followed by the map's mode when the map has a mode alone that is not
+// the story (mode).
+type mapEntry struct{ of, name, title, preview, loadscreen, description, place, mode string }
 
 // mapTitles is the Zombies maps, in the order the page lists them.
 var mapTitles = slices.Concat(t5MapList, t6MapList)

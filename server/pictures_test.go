@@ -261,7 +261,7 @@ func TestPictureSet(t *testing.T) {
 	i := 0
 	for _, m := range mapTitles {
 		if m.of != t5 {
-			continue // T6's maps have no picture the server reads
+			continue // the set has Black Ops' maps alone
 		}
 		if p := pictureSet[i]; p != (picture{group: "Maps", id: m.name, name: m.title, image: m.preview, kind: "map"}) {
 			t.Errorf("picture %d: %+v, want %s's", i, p, m.name)

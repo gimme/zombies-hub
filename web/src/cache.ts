@@ -33,6 +33,7 @@ export function cacheArt(maps: MapInfo[]): void {
     for (const m of maps) {
       const at = '/maps/' + encodeURIComponent(m.name) + '/';
       urls.push(at + 'preview', at + 'loadscreen');
+      if (m.of === 't6') urls.push(at + 'card'); // the room's shot of it (maps.ts: mapShot)
       if (m.have) urls.push(at + 'files', at + 'pipelines');
     }
     return urls;
