@@ -74,7 +74,7 @@ import {
   outroStarted, playAlone, playHere, playMapAlone, reloadOnClick,
 } from './game';
 import { act, ask, me, offline, page, view } from './lobby';
-import { soloMapName } from './maps';
+import { lastTitle, soloMapName } from './maps';
 import { musicInit } from './music';
 import { dedicated, lobbyMode, map, params } from './params';
 import { perfTour, perfTourRun, showPerf, showPerfView, tourSaid } from './perf';
@@ -242,7 +242,11 @@ function startLobbyPage(): void {
     setFolderNote('');
     forgetFolder();
   };
-  $('make').onclick = () => act('create', {});
+  // A new room is of the game that the player last picked for one, where the server hosts it (maps.ts: lastTitle).
+  $('make').onclick = () => {
+    const title = lastTitle.get();
+    act('create', view && view.titles.some((t) => t.id === title) ? { title } : {});
+  };
   $('soloopen').onclick = () => openSolo(true);
   $('soloback').onclick = () => openSolo(false);
   $('boardsopen').onclick = boardsButton;

@@ -399,6 +399,22 @@ func TestRoomTitles(t *testing.T) {
 		t.Errorf("the room's map after the refusals: %s", r.Map)
 	}
 
+	// a new room of the game that its maker last picked, which their page remembers: on a map of it, unless they name
+	// a map; a game that the server doesn't host leaves the room on the server's default map
+	for _, c := range []struct{ title, mapName, want string }{{t6, "", town}, {t6, theater, theater}, {"t7", "", theater}} {
+		args := []string{"title", c.title}
+		if c.mapName != "" {
+			args = append(args, "map", c.mapName)
+		}
+		if err := do(l, cy, "create", args...); err != "" {
+			t.Fatalf("create %v: %s", args, err)
+		}
+		if r := l.viewOf(cy).Room; r.Map != c.want {
+			t.Errorf("create %v: a room on %s, want %s", args, r.Map, c.want)
+		}
+	}
+	do(l, cy, "leave")
+
 	// a new room goes to the server's default map when that is of the title it picks
 	l.mu.Lock()
 	l.defaultMap = tomb

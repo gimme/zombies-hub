@@ -86,7 +86,7 @@ func startRelay(t *testing.T, setup ...func(*relay)) *testServer {
 	// a room whose game is the stand-in, which has begun, with a seat for its host
 	host := l.hello("", "Host")
 	l.mu.Lock()
-	l.create(l.playerOf(host.Token), "", false)
+	l.create(l.playerOf(host.Token), "", "", false)
 	room := l.playerOf(host.Token).room
 	local := r.acquire()
 	local.Port = seatPort
@@ -462,7 +462,7 @@ func TestRelayTellsWindowsPlayersWhyTheyDontJoin(t *testing.T) {
 	l := ts.lobby
 	host, other, nowhere := l.hello("", "C"), l.hello("", "C2"), l.hello("", "D")
 	l.mu.Lock()
-	l.create(l.playerOf(host.Token), "", true)
+	l.create(l.playerOf(host.Token), "", "", true)
 	idle := l.playerOf(host.Token).room.code
 	l.join(l.playerOf(other.Token), idle)
 	l.mu.Unlock()

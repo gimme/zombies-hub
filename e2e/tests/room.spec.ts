@@ -59,6 +59,16 @@ test("the host picks the room's game, and the room's maps are that game's; the o
     await expect(bob.locator('#mapgrid button')).toHaveCount(10);
     await expect(bob.locator('#mapgrid .marks')).toHaveCount(0);
     await expect(cy.locator('#rooms li .sub')).toHaveText(/^Black Ops · Ann's room/);
+
+    // the room that Ann makes next is of the game she picked last, which her browser remembers
+    await ann.locator('#titlepick').getByRole('radio', { name: 'Black Ops II', exact: true }).click();
+    await expect(ann.locator('#mapkicker')).toHaveText('Black Ops II');
+    await ann.locator('#leave').click();
+    await expect(ann.locator('#outside')).toBeVisible();
+    await ann.locator('#make').click();
+    await expect(ann.locator('#roomcode')).not.toHaveText(code);
+    await expect(ann.locator('#mapkicker')).toHaveText('Black Ops II');
+    await expect(ann.locator('#maptitle')).toHaveText('TranZit');
   });
 
 test.describe('a server of Black Ops alone', () => {

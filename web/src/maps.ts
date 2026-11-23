@@ -32,6 +32,16 @@ export function soloMapName(v: View): string {
 }
 
 /**
+ * The game that the player last picked as a room's host (room.ts: showRoomTitle), by its title's id, which the
+ * browser's storage keeps: the room they make next is of it (main.ts), and the leaderboards show it outside a room
+ * (boards.ts). '' until they pick one.
+ */
+export const lastTitle = {
+  get: (): string => store.get('zombies-title'),
+  set: (of: string): void => store.set('zombies-title', of),
+};
+
+/**
  * The picture of a Black Ops II map. The server reads none from that game's files, so the page draws the title's
  * name.
  */

@@ -95,8 +95,10 @@ const defaultRoomSize = 4
 //	                    pictures a player may pick, the rooms, and the player's own room, with how its last game
 //	                    went when that game ended at game over (gameResult)
 //	GET  /lobby/leaderboards  the leaderboards of the players the server knows (leaderboards.go)
-//	POST /lobby/create {"map", "private"}: makes a room for the player, who leaves any other room first. The room
-//	                    is on the server's default map unless "map" names another.
+//	POST /lobby/create {"title", "map", "private"}: makes a room for the player, who leaves any other room first.
+//	                    The room is on the server's default map unless "map" names another, or "title" names the
+//	                    game that the player last picked for a room, which the page remembers: the room then goes to
+//	                    a map of that game (titleMap).
 //	POST /lobby/join    {"room"}: joins a room by its code
 //	POST /lobby/leave   {}
 //	POST /lobby/room    {"title", "map", "private", "mods", "size"}: the host picks the room's game by its title ("t6"),
@@ -888,7 +890,7 @@ func (l *lobby) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	case p == nil:
 		err = l.unknown()
 	case action == "create":
-		err = l.create(p, in.Map, in.Private != nil && *in.Private)
+		err = l.create(p, in.Title, in.Map, in.Private != nil && *in.Private)
 	case action == "join":
 		err = l.join(p, strings.ToUpper(strings.TrimSpace(in.Room)))
 	case action == "leave":
@@ -1090,10 +1092,15 @@ func (l *lobby) events(w http.ResponseWriter, req *http.Request) {
 
 // ---- what players do, with l.mu held ----
 
-func (l *lobby) create(p *player, mapName string, private bool) error {
+// create makes a room for p, on mapName, or else on a map of the title of (titleMap), or else on the default map.
+func (l *lobby) create(p *player, of, mapName string, private bool) error {
 	l.leave(p)
-	r := &room{code: l.newCode(), members: []*player{p}, mapName: l.mapName(mapName), private: private,
-		size: l.newRoomSize(), made: time.Now(), password: randomHex(4)}
+	r := &room{code: l.newCode(), members: []*player{p}, private: private, size: l.newRoomSize(), made: time.Now(),
+		password: randomHex(4)}
+	if mapName == "" && of != "" {
+		mapName = l.titleMap(r, of)
+	}
+	r.mapName = l.mapName(mapName)
 	l.rooms[r.code] = r
 	p.room = r
 	log.Printf("server: %s made room %s (%s%s)", p.name, r.code, r.mapName, map[bool]string{true: ", private"}[private])

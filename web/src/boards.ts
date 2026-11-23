@@ -7,7 +7,8 @@
 //
 // Each game that the server hosts has boards of its own. The player picks first the game, on a server of two, then
 // the kind of board that the game has (Rounds, Easter eggs), then a map, or all of them (titles.ts: pickBoard). Until
-// they pick a game, the boards show the game of their room.
+// they pick a game, the boards show the game of their room, or outside a room the game they last picked for one
+// (maps.ts: lastTitle).
 //
 // show draws the views (show.ts). It shows the leaderboards while boardsOpen is set, or the report
 // of one game in their place while boardReport is set, and it calls loadBoards.
@@ -16,7 +17,7 @@ import { avatar } from './avatar';
 import { $, el, placeTip } from './dom';
 import { clock } from './format';
 import { auth, me, page, view } from './lobby';
-import { mapInfo, mapPicture } from './maps';
+import { lastTitle, mapInfo, mapPicture } from './maps';
 import { showRefusal } from './notice';
 import { params } from './params';
 import { ranks } from './rank';
@@ -200,7 +201,7 @@ function showBoards(): void {
   };
   const tables = $('boardtables');
   tables.textContent = '';
-  const shown = pickBoard(boards, boardPicked, view && view.room ? view.room.of : '');
+  const shown = pickBoard(boards, boardPicked, view && view.room ? view.room.of : lastTitle.get());
   // The game, where the server hosts two. Under it, the kinds of board that the game has, then its maps.
   $('boardtitles').classList.toggle('hidden', boards.titles.length < 2);
   picker($('boardtitles'), boards.titles.map((t): [string, string] => [t.id, t.name]), shown?.title.id, (id) => {

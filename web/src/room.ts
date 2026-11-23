@@ -31,7 +31,7 @@ import { knowMap, type MapButton, mapButton, showNote } from './files';
 import { checkLock, endNote, forgetOtherTab, lastEnd, lockElsewhere, otherTab } from './game';
 import { act, ask, me, offline, view } from './lobby';
 import { showDesc, showMaps } from './mapgrid';
-import { mapInfo, mapPicture } from './maps';
+import { lastTitle, mapInfo, mapPicture } from './maps';
 import { modNames, modOn, modValue } from './mods';
 import { mayLeaveGame } from './question';
 import { bo1Settings } from './settings';
@@ -436,8 +436,9 @@ function pickRoomMap(name: string): unknown {
 
 // The room's game, over its maps, on a server that hosts two (View.titles). The host picks it while the room has no
 // game, and the room goes to a map of it (server/rooms.go: setRoom), which the grid then shows the maps of. The
-// others see the game over the map's name. The options are made again only when the games change, so that an option
-// keeps the focus as it is picked.
+// browser remembers the pick: the next room the player makes is of that game (maps.ts: lastTitle). The others see the
+// game over the map's name. The options are made again only when the games change, so that an option keeps the focus
+// as it is picked.
 function showRoomTitle(v: View, room: Room, open: boolean): void {
   const box = $('titlepick');
   box.classList.toggle('hidden', v.titles.length < 2 || !room.host);
@@ -446,7 +447,10 @@ function showRoomTitle(v: View, room: Room, open: boolean): void {
     box.dataset.key = key;
     box.textContent = '';
     const options = { name: "The room's game", options: v.titles.map((t) => ({ value: t.id, label: t.name })) };
-    box.append(optionButtons(options, (title) => ({ title })));
+    box.append(optionButtons(options, (title) => {
+      lastTitle.set(title);
+      return { title };
+    }));
   }
   for (const b of box.querySelectorAll('button')) b.disabled = !open;
   optionShow(box.firstElementChild!, room.of);
