@@ -740,6 +740,27 @@ func TestT6RoomWaitsOnlySoLongForAPlayersGame(t *testing.T) {
 	}
 }
 
+// A game that asks to connect no more is not let in when its turn comes: its connect, which waited, is dropped, and
+// the room's game takes in no client that is not there. When the game asks again, it joins.
+func TestT6RoomDropsTheConnectOfAGameThatAsksNoMore(t *testing.T) {
+	l, _, games := t6Up(t, "Ann", "Bob")
+	l.mu.Lock()
+	l.joinWait = time.Second
+	l.mu.Unlock()
+	l.relay.mu.Lock()
+	l.relay.asks = 300 * time.Millisecond
+	l.relay.mu.Unlock()
+	t6Ask(games[1], "Bob")
+	// Ann's game doesn't come, and the wait for it ends: Bob's game, which sent one connect and no more, is not let in
+	if slot := t6Slot(games[1], 3*time.Second); slot >= 0 {
+		t.Fatalf("the connect of Bob's game, which asked no more, was passed on: slot %d", slot)
+	}
+	t6Ask(games[1], "Bob")
+	if slot := t6Slot(games[1], 5*time.Second); slot != 0 {
+		t.Errorf("Bob's game, asking again, the wait for Ann's being over: slot %d", slot)
+	}
+}
+
 // No one waits for a player whose launcher still gets their PC ready, which can take any time.
 func TestT6RoomWaitsForNoPlayerWhoseLauncherIsAtWork(t *testing.T) {
 	l, tokens, games := t6Up(t, "Ann", "Bob")

@@ -81,6 +81,9 @@ type relay struct {
 	closed chan struct{}
 	// wake tells sweep that a T6 client whose connect waits for its turn may have it now (wakeUp, letIn).
 	wake chan struct{}
+	// asks is how long after a T6 client's connect the client still counts as asking to connect. A client sends its
+	// connect every 3 seconds until the game answers, so this is two of them and a second.
+	asks time.Duration
 }
 
 // seatSession is a browser player's session, which goes from their seat's address to their room's game.
@@ -118,7 +121,7 @@ type route struct {
 
 func newRelay(l *lobby, certs *certificates) *relay {
 	r := &relay{lobby: l, inUse: map[uint16]bool{}, routes: map[netip.AddrPort]*route{}, seats: map[string]*seatSession{},
-		closed: make(chan struct{}), wake: make(chan struct{}, 1), routeIdle: keepCharacter,
+		closed: make(chan struct{}), wake: make(chan struct{}, 1), asks: 7 * time.Second, routeIdle: keepCharacter,
 		newRouteIdle: 10 * time.Second, windowsQuiet: time.Minute}
 	r.server = &webtransport.Server{
 		H3: &http3.Server{
@@ -446,12 +449,15 @@ func (r *relay) holds(rt *route, packet []byte) bool {
 	r.mu.Lock()
 	rt.asked = now
 	r.mu.Unlock()
-	turn := r.lobby.t6Turn(rt.local, name) // takes the lobby's lock, which is taken before the relay's
+	turn, who := r.lobby.t6Turn(rt.local, name) // takes the lobby's lock, which is taken before the relay's
+	if who == "" {
+		who = rt.who
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if turn {
 		if rt.held != nil {
-			log.Printf("relay: %s (%s) joins, in their turn", rt.player, rt.who)
+			log.Printf("relay: %s (%s) joins, in their turn", rt.player, who)
 		}
 		if rt.held = nil; rt.passed.IsZero() {
 			rt.passed = now
@@ -459,7 +465,7 @@ func (r *relay) holds(rt *route, packet []byte) bool {
 		return false
 	}
 	if rt.held == nil {
-		log.Printf("relay: %s (%s) waits to join until the players before them in their room have", rt.player, rt.who)
+		log.Printf("relay: %s (%s) waits to join until the players before them in their room have", rt.player, who)
 	}
 	rt.held = slices.Clone(packet) // the reader's buffer takes the next packet
 	return true
@@ -467,6 +473,10 @@ func (r *relay) holds(rt *route, packet []byte) bool {
 
 // letIn passes on the connect of each T6 client that waited for its turn to join and has it now (holds). sweep calls
 // it each second, and at once when a player before one of them has joined (wakeUp).
+//
+// A connect whose client has sent no other for asks is dropped, and not passed on. The client has stopped asking:
+// it went back to its menu, or its packets no longer reach the server. The game would take the connect for a client
+// all the same, and keep a slot for it until it timed out, a minute later.
 func (r *relay) letIn() {
 	r.mu.Lock()
 	var waiting []*route
@@ -479,9 +489,21 @@ func (r *relay) letIn() {
 	for _, rt := range waiting {
 		r.mu.Lock()
 		name, _ := t6Connect(rt.held)
+		gone := rt.held != nil && time.Since(rt.asked) >= r.asks
+		if gone {
+			rt.held = nil
+		}
 		r.mu.Unlock()
-		if !r.lobby.t6Turn(rt.local, name) {
+		if gone {
+			log.Printf("relay: %s (%s) asks to join no more: the connect that waited for their turn is dropped", rt.player, rt.who)
 			continue
+		}
+		turn, who := r.lobby.t6Turn(rt.local, name)
+		if !turn {
+			continue
+		}
+		if who == "" {
+			who = rt.who
 		}
 		r.mu.Lock()
 		packet := rt.held // nil when the client's next connect came meanwhile, and went on
@@ -490,7 +512,7 @@ func (r *relay) letIn() {
 		}
 		r.mu.Unlock()
 		if packet != nil {
-			log.Printf("relay: %s (%s) joins, in their turn", rt.player, rt.who)
+			log.Printf("relay: %s (%s) joins, in their turn", rt.player, who)
 			rt.sending.Lock()
 			rt.toGame.put(packet, r.oneWay())
 			rt.sending.Unlock()
@@ -506,16 +528,19 @@ func (r *relay) wakeUp() {
 	}
 }
 
-// door reports how the T6 client of the seat at local stands at its game's door: when it last asked to connect, when
-// the relay first passed a connect of its on, and whether the game has accepted it (route.taken). The times are zero
-// for a seat with no route, and for a client that has not asked or was not passed on.
-func (r *relay) door(local *net.UDPAddr) (asked, passed time.Time, taken bool) {
+// door reports how the T6 client of the seat at local stands at its game's door. taken: the game has accepted it
+// (route.taken). asking: it asks to connect, which is that it sent a connect within asks. coming: it asks, and it
+// waits for its own turn, or the relay passed its connect on within asks, and the game is about to take it. All are
+// false for a seat with no route.
+func (r *relay) door(local *net.UDPAddr) (taken, asking, coming bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if rt := r.routeAt(local.String()); rt != nil {
-		return rt.asked, rt.passed, rt.taken.Load()
+	rt := r.routeAt(local.String())
+	if rt == nil {
+		return false, false, false
 	}
-	return asked, passed, false
+	asking = time.Since(rt.asked) < r.asks
+	return rt.taken.Load(), asking, asking && (rt.passed.IsZero() || time.Since(rt.passed) < r.asks)
 }
 
 // newRoute returns the route for the player at from, who sent a getchallenge (args). The getchallenge carries the

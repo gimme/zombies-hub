@@ -47,18 +47,21 @@ import (
 // in the colour their place has in the room (web/src/page.css: .avatar[data-place]). The game's HUD colours a
 // player's points by their position among the players in the game, the first white, then blue, yellow and green
 // (ui_mp/t6/zombie/hudcompetitivescoreboardzombie.lua in the game's files). Plutonium's server picks each client's
-// slot itself: nothing tells it a player's place, as the server tells a T5 game (t5.go: placesOf). The game is taken
-// to order its players by their slots, and to give a new client the first free slot, as a T5 game does
-// (bo1-zombies/src/client_mp/sv_client_mp.cpp: SV_DirectConnect). T6 has no source code to read either from. So a
-// player has their room's colour while everyone before them in the room is in the game. While one of those is yet to
-// join, or once one has left, everyone after them is a colour up.
+// slot itself: nothing tells it a player's place, as the server tells a T5 game (t5.go: placesOf), and setting
+// sv_privateClients on a running game does not move its next client to a later slot. It gives a new client the first
+// free slot, as a T5 game does (bo1-zombies/src/client_mp/sv_client_mp.cpp: SV_DirectConnect), and the HUD orders the
+// players by their slots. Two games that joined a room's game in the order of their places had slots 0 and 1, and
+// the second showed the first's points in white and its own in blue. So a player has their room's colour while
+// everyone before them in the room is in the game. While one of those is yet to join, or once one has left, everyone
+// after them is a colour up.
 //
 // A client joins in steps. Plutonium's server logs the first three, and https://github.com/Alextechgamer/bo2-ios
 // sends them all (ios/PlutoniumLAN.cpp): Plutonium's own connectReq, connectGTSReq and moddl_list, then the game's
 // getchallenge and connect. The connect takes the slot, so it is the packet that waits for the client's turn
-// (relay.holds). A T5 client sends its connect again every 3 seconds, and gives up when the game has sent it nothing
-// for cl_connectTimeout, 200 seconds (bo1-zombies/src/client_mp/cl_main_mp.cpp: CL_CheckForResend, CL_CheckTimeout).
-// T6 has the same setting, and a turn comes far sooner (lobby.joinWait).
+// (relay.holds). A client sends its connect again every 3 seconds for as long as the game does not answer: one that
+// was left to wait still sent it after three and a half minutes. A T5 client does the same, and gives up when the
+// game has sent it nothing for 200 seconds (bo1-zombies/src/client_mp/cl_main_mp.cpp: CL_CheckForResend,
+// CL_CheckTimeout). A turn comes far sooner (lobby.joinWait).
 
 const t6 = "t6"
 
@@ -939,13 +942,14 @@ const t6Requiet = 3 * time.Second
 // t6Turn reports whether the T6 client at a seat's address may join its room's game now. The relay asks for each
 // connect of a client that the game has not accepted, and again while the connect waits (relay.holds, relay.letIn).
 // name is the name the client plays under, from its connect, or "". The client's seat is its player's by that name,
-// when several players are behind one address (t6Whose).
+// when several players are behind one address (t6Whose). who is that player and their room, for the log, or "" when
+// the address is no seat's.
 //
 // The players join in the order of their places in the room, which is the order of the game's seats, so that each
 // has their room's colour in the game (the comment at the top). A client may join once no player before its own is
 // awaited (t6Awaited). Once round 1 has begun, a client joins at once: the game has given its slots, and a player
 // who comes back to it is not kept out of it for a player who may not come back.
-func (l *lobby) t6Turn(local *net.UDPAddr, name string) bool {
+func (l *lobby) t6Turn(local *net.UDPAddr, name string) (turn bool, who string) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	at := local.String()
@@ -959,25 +963,26 @@ func (l *lobby) t6Turn(local *net.UDPAddr, name string) bool {
 			continue
 		}
 		if rg.started || rg.ending != "" {
-			return true
+			return true, fmt.Sprintf("%s, room %s", rg.seats[i].player.name, r.code)
 		}
 		whose := rg.t6Whose(r.code, rg.seats[i], name)
 		if whose != rg.seats[i] {
 			l.change() // the two seats' players are in the game or out of it as each other were
 		}
+		who = fmt.Sprintf("%s, room %s", whose.player.name, r.code)
 		if whose.left || whose.slot >= 0 {
-			return true // the relay lets a player who left in no more, and the game has this client already
+			return true, who // the relay lets a player who left in no more, and the game has this client already
 		}
 		for _, s := range rg.seats {
 			if s == whose {
-				return true
+				return true, who
 			}
 			if l.t6Awaited(s) {
-				return false
+				return false, who
 			}
 		}
 	}
-	return true // the seat's game has ended
+	return true, "" // the seat's game has ended
 }
 
 // t6Awaited reports whether the players after s in the room wait to join their T6 game until s has joined it. They
@@ -985,20 +990,20 @@ func (l *lobby) t6Turn(local *net.UDPAddr, name string) bool {
 // getting their PC ready, which can take any time (preparing).
 //
 // For anyone else, it depends on where their game is (relay.door):
-//   - It has not asked to connect in the last t6Asks. It is yet to come, and the others wait for it for joinWait,
-//     from when the first of them began to wait. A game on a slower PC, or one that its player joins by hand, comes
-//     within that time or the others go first.
+//   - It does not ask to connect (relay.asks). It is yet to come, and the others wait for it for joinWait, from when
+//     the first of them began to wait. A game on a slower PC, or one that its player joins by hand, comes within
+//     that time or the others go first.
 //   - It asks to connect, and waits for its own turn. The others wait for as long as it does. Its turn comes, because
 //     the players it waits for are before it too.
-//   - It asks, and the relay has passed its connect on. The game takes it within a moment, or else within t6Asks it
-//     does not take it at all (a wrong password), and the others wait no longer.
+//   - It asks, and the relay has passed its connect on. The game takes it within a moment, or else does not take it
+//     at all (a wrong password), and the others then wait no longer.
 //
 // The caller holds l.mu.
 func (l *lobby) t6Awaited(s *seat) bool {
 	if s.left || s.slot >= 0 || l.preparing(s.player) {
 		return false
 	}
-	asked, passed, taken := l.relay.door(s.local)
+	taken, asking, coming := l.relay.door(s.local)
 	if taken {
 		return false
 	}
@@ -1006,19 +1011,11 @@ func (l *lobby) t6Awaited(s *seat) bool {
 	if s.awaited.IsZero() {
 		s.awaited = now
 	}
-	switch {
-	case now.Sub(asked) >= t6Asks:
+	if !asking {
 		return now.Sub(s.awaited) < l.joinWait
-	case passed.IsZero():
-		return true
-	default:
-		return now.Sub(passed) < t6Asks
 	}
+	return coming
 }
-
-// t6Asks is how long after a T6 client's connect the client still counts as asking to connect. A client sends its
-// connect every 3 seconds until the game answers, so this is two of them and a second.
-const t6Asks = 7 * time.Second
 
 // t6Late calls off a T6 room's game that has waited loadTimeout for its players, when not everyone with a seat is
 // in, as for a T5 game. The wait counts from when the game was up. It starts again at the last moment that the
