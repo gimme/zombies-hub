@@ -51,7 +51,14 @@ game=${ZOMBIES_GAME_DIR:-$root/game}
 svhome=${ZOMBIES_SERVER_HOME:-$root/build/server}
 image=${ZOMBIES_SERVER_IMAGE:-zombies-hub-server}
 name=${ZOMBIES_SERVER_NAME:-zombies-hub-server}
-net=${ZOMBIES_NET:--p 3075:3075/udp -p 3075:3075/tcp}
+# On Windows the UDP port is published at the IPv4 address and at the IPv6 one, each by name, so that Docker Desktop
+# holds it at both. Published with no address, Docker Desktop holds it at the IPv6 address alone, for both kinds of
+# packet, and a Black Ops II game on this PC can then take it at the IPv4 address. A game opens UDP port 3074 or the
+# next one that is free, and a second game on the PC so opens 3075. Every game's packets to localhost:3075 then
+# reached that game and not the server, and no game on the PC could join.
+udp="-p 3075:3075/udp"
+[ -z "${MSYSTEM:-}" ] || udp="-p 0.0.0.0:3075:3075/udp -p [::]:3075:3075/udp"
+net=${ZOMBIES_NET:-$udp -p 3075:3075/tcp}
 map=zombie_theater
 if [ $# -gt 0 ] && [ "${1#+}" = "$1" ]; then map=$1; shift; fi
 
