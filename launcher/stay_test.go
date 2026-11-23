@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -86,6 +87,13 @@ func TestLauncherStaysForTheNextGame(t *testing.T) {
 	})
 	if code := quit(); code != 0 || starts.Load() != 3 {
 		t.Errorf("quit: %d, after %d starts", code, starts.Load())
+	}
+	// it told the server that it was quit, as the last thing it said
+	l.mu.Lock()
+	said := slices.Clone(l.asked)
+	l.mu.Unlock()
+	if len(said) == 0 || said[len(said)-1] != "POST /launcher/stopped" {
+		t.Errorf("the launcher's last calls as it was quit: %q", said[max(0, len(said)-3):])
 	}
 }
 

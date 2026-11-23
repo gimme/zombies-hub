@@ -50,9 +50,10 @@ import (
 // The launcher's calls also carry its version. The server takes only the versions that its code works with
 // (launcherapi.MinVersion), and a dev build (version 0) only on a dev server (-dev). It refuses any other launcher's
 // calls (launcherFits), and notes on the player that their launcher is too old. Their room then says so, with the
-// link to the launcher's latest release: the launcher that was refused can't report it. It takes one call of any
+// link to the launcher's latest release: the launcher that was refused can't report it. It takes two calls of any
 // version: the one that says the launcher started (POST /launcher/started), which comes before the launcher looks for
-// a later release of itself (serveLauncherStarted).
+// a later release of itself (serveLauncherStarted), and the one that says its player quit it (POST
+// /launcher/stopped, serveLauncherStopped).
 //
 // The server does not hand out the launcher. Its releases are on GitHub (launcherapi.Releases), and the room's page
 // links to the latest one (GET /server: "launcher"). An installed launcher updates itself from there.
@@ -177,6 +178,10 @@ func (h *web) serveLauncherCall(w http.ResponseWriter, r *http.Request) {
 		h.serveLauncherStarted(w, r)
 		return
 	}
+	if r.URL.Path == "/launcher/stopped" && r.Method == http.MethodPost { // of any version
+		h.serveLauncherStopped(w, r)
+		return
+	}
 	if !h.launcherFits(w, r) {
 		return
 	}
@@ -236,6 +241,26 @@ func (h *web) serveLauncherStarted(w http.ResponseWriter, r *http.Request) {
 	p := l.launcherOf(r)
 	if p != nil {
 		l.launcherStarted(p, r.Header.Get(launcherapi.VersionHeader))
+	}
+	l.mu.Unlock()
+	if p == nil {
+		launcherUnknown(w)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Write([]byte("{}\n"))
+}
+
+// serveLauncherStopped answers POST /launcher/stopped, which a launcher sends as it ends because its player quit it.
+// The player's room then says at once that no launcher runs, and its button opens one again. A launcher that ends
+// without the call, as one that was killed does, counts as running for launcherQuiet more. Like the call that says a
+// launcher started, the server takes this one from a launcher of any version.
+func (h *web) serveLauncherStopped(w http.ResponseWriter, r *http.Request) {
+	l := h.lobby
+	l.mu.Lock()
+	p := l.launcherOf(r)
+	if p != nil {
+		l.launcherQuit(p)
 	}
 	l.mu.Unlock()
 	if p == nil {
@@ -310,7 +335,11 @@ func (h *web) serveLauncherPlay(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		p.launcher.held--
-		p.launcher.seen = time.Now() // the launcher counts as running for launcherQuiet more, in which it asks again
+		if p.launcher.quit && p.launcher.held == 0 {
+			l.launcherGone(p) // the launcher said that it was quit, and this was the call it had open (launcherQuit)
+		} else {
+			p.launcher.seen = time.Now() // the launcher counts as running for launcherQuiet more, in which it asks again
+		}
 	}
 	l.mu.Unlock()
 	switch {
@@ -402,6 +431,9 @@ type launcherReport struct {
 	// old is set when the server refused a call of the player's launcher for its version (launcherFits), until a
 	// launcher of theirs that the server takes calls.
 	old bool
+	// quit is set when the launcher said that its player quit it while the server still held a call of it
+	// (launcherQuit), until that call ends, or a launcher of theirs calls again.
+	quit bool
 	// copied is set once the launcher has said which of the maps' zones the player's game folder has (launcherHas),
 	// and has are those zones. A room on a map in another zone shows the player as missing the map (t6Title.lacks).
 	copied bool
@@ -493,7 +525,7 @@ func (l *lobby) launcherOpen(p *player) bool {
 func (l *lobby) launcherStarted(p *player, version string) {
 	log.Printf("server: %s's launcher started (version %q)", p.asked, version)
 	was := l.launcherOpen(p)
-	p.launcher.seen = time.Now()
+	p.launcher.seen, p.launcher.quit = time.Now(), false
 	if !was || p.launcher.Failed != "" {
 		p.launcher.Failed = ""
 		l.change()
@@ -504,7 +536,7 @@ func (l *lobby) launcherStarted(p *player, version string) {
 // /launcher/play, it also records whether the PC has what the game needs (ready). The caller holds l.mu.
 func (l *lobby) launcherCalled(p *player, play, ready bool) {
 	was, wasReady, wasOld := l.launcherOpen(p), p.launcher.ready, p.launcher.old
-	p.launcher.seen, p.launcher.old = time.Now(), false
+	p.launcher.seen, p.launcher.old, p.launcher.quit = time.Now(), false, false
 	if play {
 		p.launcher.ready = ready
 	}
@@ -572,6 +604,28 @@ func (l *lobby) launcherStopped(p *player, last launcherapi.Report) {
 	}
 }
 
+// launcherQuit records that p's launcher ended because its player quit it (serveLauncherStopped). It no longer counts
+// as running, where a launcher that only makes no more calls does for launcherQuiet more. The launcher may still be
+// closing the call that the server holds of it: it then counts as running until that call ends (serveLauncherPlay).
+// The caller holds l.mu.
+func (l *lobby) launcherQuit(p *player) {
+	log.Printf("server: %s's launcher was quit", p.asked)
+	if p.launcher.held > 0 {
+		p.launcher.quit = true
+		return
+	}
+	l.launcherGone(p)
+}
+
+// launcherGone forgets what p's launcher said of the player's PC, once the launcher has stopped. The player's room
+// then no longer shows that their launcher runs, their download, or what their game folder has. The caller holds
+// l.mu.
+func (l *lobby) launcherGone(p *player) {
+	p.launcher.seen, p.launcher.ready, p.launcher.Failed, p.launcher.Doing = time.Time{}, false, "", ""
+	p.launcher.copied, p.launcher.has, p.launcher.quit = false, nil, false
+	l.change()
+}
+
 // launcherSweep handles a launcher that has had no call open, and made none, for launcherQuiet. The launcher has
 // stopped: it was closed, or its PC is gone. The player's room then no longer shows their download, or what their
 // game folder has. launcherSweep also wakes the call of a launcher that waited for another player's game and no
@@ -584,9 +638,7 @@ func (l *lobby) launcherSweep(p *player) {
 		}
 	}
 	if p.launcher.held == 0 && !p.launcher.seen.IsZero() && time.Since(p.launcher.seen) >= launcherQuiet {
-		p.launcher.seen, p.launcher.ready, p.launcher.Failed, p.launcher.Doing = time.Time{}, false, "", ""
-		p.launcher.copied, p.launcher.has = false, nil
-		l.change()
+		l.launcherGone(p)
 	}
 	if !p.launcher.Running || time.Since(p.launcher.at) < launcherQuiet {
 		return

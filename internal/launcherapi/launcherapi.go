@@ -9,7 +9,7 @@
 // <key>", and not in the URL, because a proxy in front of the server would log the URL. Every call also carries the
 // launcher's version, in the header Zombies-Launcher-Version (VersionHeader). The server answers a launcher older than
 // MinVersion, or one that sends no version, with 426 Upgrade Required and a sentence for the player, at every call
-// but the first below.
+// but the first two below.
 //
 //	POST /launcher/started          the launcher started a try, as the player pressed the room's button. It sends this
 //	                                first, before it looks for a later release of itself (launcher/update.go), and
@@ -29,6 +29,9 @@
 //	                                change at once without asking on a timer. A launcher whose player has been in no
 //	                                Black Ops II room for five minutes closes the call, until the player presses a
 //	                                room's button again
+//	POST /launcher/stopped          the launcher ends because its player quit it. The player's room then shows at once
+//	                                that no launcher runs, where the server otherwise waits a while for a launcher's
+//	                                next call. The server takes it from a launcher of any version, as it does the first
 //	POST /launcher/files            Report: how the launcher is doing, such as how far its download of the game files
 //	                                is. The room shows it
 //	GET  /launcher/t6/files         Files: Black Ops II's game files, as the server has them, when it sends game files

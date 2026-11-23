@@ -366,6 +366,26 @@ func (s *server) hello(ctx context.Context) {
 	}
 }
 
+// bye tells the server that the launcher ends because its player quit it (launcherapi: POST /launcher/stopped), for
+// the player's room to show at once that no launcher runs. The call that the launcher had open is closed by then.
+// The answer doesn't matter: a server that has no such call, or can't be reached now, takes the launcher as stopped
+// once it has heard no more of it for a while. A launcher that the server never heard of says nothing.
+func (s *server) bye() {
+	if !s.started.Load() {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	req, err := s.request(ctx, http.MethodPost, "/launcher/stopped", nil)
+	if err != nil {
+		return
+	}
+	if rsp, err := s.client.Do(req); err == nil {
+		io.Copy(io.Discard, io.LimitReader(rsp.Body, 4096))
+		rsp.Body.Close()
+	}
+}
+
 // report tells the server how the launcher is doing, for the player's room to show. A report that is lost does not
 // matter, because the next one has more.
 func (s *server) report(ctx context.Context, r launcherapi.Report) {

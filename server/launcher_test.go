@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -250,6 +251,67 @@ func TestLauncherStarted(t *testing.T) {
 	}
 	if rsp, _ := asLauncher(h, http.MethodPost, "/launcher/started", "0123456789abcdef", ""); rsp.StatusCode != http.StatusUnauthorized {
 		t.Errorf("the launcher of a key the server doesn't know, started: %s", rsp.Status)
+	}
+}
+
+// A launcher that its player quits says so, whatever its version, and then no longer counts as running: at once when
+// the server holds no call of it, and else as soon as the call it had open ends. One that starts again runs again.
+func TestLauncherStopped(t *testing.T) {
+	l, _ := t6Lobby(t)
+	h := &web{lobby: l, publicPort: 4000}
+	ann := l.hello("", "Ann")
+	running := func() bool { return l.viewOf(ann.Token).You.Launcher }
+	stopped := func() {
+		t.Helper()
+		rsp, _ := asLauncher(h, http.MethodPost, "/launcher/stopped", ann.Key, "", launcherapi.VersionHeader, "")
+		if rsp.StatusCode != http.StatusOK {
+			t.Fatalf("a launcher of no version, stopped: %s", rsp.Status)
+		}
+	}
+	first := playOf(t, h, ann.Key)
+	if !running() {
+		t.Fatal("a launcher that called does not count as running")
+	}
+	stopped()
+	if running() {
+		t.Error("a launcher that said its player quit it still counts as running")
+	}
+	// while the server holds its call, it runs until the call ends
+	first = playOf(t, h, ann.Key)
+	req := httptest.NewRequest(http.MethodGet, "/launcher/play?seen="+first.Version, nil)
+	ctx, cancel := context.WithCancel(req.Context())
+	defer cancel()
+	req = req.WithContext(ctx)
+	req.Header.Set("Authorization", launcherapi.Key+ann.Key)
+	req.Header.Set(launcherapi.VersionHeader, strconv.Itoa(launcherapi.MinVersion))
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		h.ServeHTTP(httptest.NewRecorder(), req)
+	}()
+	waitFor(t, "the server holds the call", func() bool {
+		l.mu.Lock()
+		defer l.mu.Unlock()
+		return l.playerOf(ann.Token).launcher.held == 1
+	})
+	stopped()
+	if !running() {
+		t.Error("a launcher that was quit does not count as running while the server still holds its call")
+	}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the server held the call of a launcher that closed it")
+	}
+	if running() {
+		t.Error("a launcher that was quit counts as running after its call ended")
+	}
+	if rsp, _ := asLauncher(h, http.MethodPost, "/launcher/started", ann.Key, ""); rsp.StatusCode != http.StatusOK || !running() {
+		t.Errorf("a launcher that started again: %s, running %v", rsp.Status, running())
+	}
+	if rsp, _ := asLauncher(h, http.MethodPost, "/launcher/stopped", "0123456789abcdef", ""); rsp.StatusCode != http.StatusUnauthorized {
+		t.Errorf("the launcher of a key the server doesn't know, stopped: %s", rsp.Status)
 	}
 }
 

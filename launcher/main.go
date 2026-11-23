@@ -380,7 +380,8 @@ func (la *launcher) open(ctx context.Context, l link) (srv *server, stop func())
 // which shows it in the player's page (launcherapi.Report). It ends when the player quits it from the tray, when
 // another build replaces it, when the server no longer knows the player (they signed out, and their page starts the
 // launcher again), or when the server doesn't take this launcher's version. The next link then starts the installed
-// launcher, which may be a newer one.
+// launcher, which may be a newer one. When the player quits it, it tells the server so (server.bye), and the room's
+// button opens a launcher again at once.
 //
 // While its player is in a Black Ops II room, it has one call open to the server (open). While nothing changes for
 // its player, it does nothing else: it makes no call on a timer, to the server or to Plutonium. Once its player has
@@ -393,7 +394,13 @@ func (la *launcher) serve(ctx context.Context, url string) int {
 		return 1
 	}
 	srv, stop := la.open(ctx, l)
-	defer stop()
+	// A launcher that its player quits tells the server so, once its call to the server is closed (stop).
+	defer func() {
+		stop()
+		if ctx.Err() != nil && !la.handed {
+			srv.bye()
+		}
+	}()
 	if la.tray != nil {
 		stop := la.tray(l.host, la.menu(l.host, func() { openPage(l.base) }))
 		defer stop()
