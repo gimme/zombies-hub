@@ -92,7 +92,7 @@ Players install the launcher for Black Ops II from the [releases of zombies-hub]
 
 Each time an installed launcher goes to play, it first looks for a later release of itself. It replaces itself with that release when it is a later version, signed with the key whose public half is `launcher/release.pub`. The player sees nothing of it. Only the project's maintainer and its release workflow have the private half, so neither your server nor GitHub can put another program in the launcher's place.
 
-The server takes only launchers of the versions its code works with. A launcher updates itself before it calls the server, so the server turns away only a launcher that could not: one that can't reach GitHub. That player's room then says that the launcher is too old, with the link to the latest one.
+The server takes only launchers of the versions its code works with. A launcher updates itself before it asks the server anything, so the server turns away only a launcher that could not: one that can't reach GitHub. That player's room then says that the launcher is too old, with the link to the latest one.
 
 How the launcher is released is in [Development](development.md#releasing-the-launcher).
 

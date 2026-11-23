@@ -83,7 +83,7 @@ The tests use the pinned engine build. Set `ZOMBIES_ENGINE_FILE` to test another
 
 The launcher's releases are among the [releases of this repository](https://github.com/gimme/zombies-hub/releases). Each has a tag `launcher-v<N>` and two files: the launcher, `zombies-launcher-setup.exe`, and `zombies-launcher.sig`, its version and hash signed with the maker's key. N is the launcher's version, a whole number.
 
-One more release, tagged `launcher`, always has the files of the latest version. The room's page links to the launcher there. An installed launcher reads the statement there each time it goes to play, before it calls the server, and replaces itself when the statement has a later version and the maker's signature (`launcher/update.go`). Neither goes by the release that GitHub marks as the latest, so the repository can have releases of other things too.
+One more release, tagged `launcher`, always has the files of the latest version. The room's page links to the launcher there. An installed launcher reads the statement there each time it goes to play, before it asks the server anything, and replaces itself when the statement has a later version and the maker's signature (`launcher/update.go`). Neither goes by the release that GitHub marks as the latest, so the repository can have releases of other things too.
 
 To release the launcher, tag the commit with the next version and push the tag:
 
@@ -96,7 +96,7 @@ The workflow `.github/workflows/launcher.yml` then checks the tag, vets and test
 
 `LAUNCHER_KEY` is the one line of the private half of the maker's key, `zombies-release-private:...`. `make launcher-key` made the key once (`docker/launcher-key.sh`), and the public half is `launcher/release.pub`. To set the secret, `gh secret set LAUNCHER_KEY < ~/.zombies-hub/launcher.key`. Keep a copy of the private half somewhere safe and offline, and no copy on any other machine. Whoever has it can sign a program that every installed launcher takes. If it is lost, a new key needs a new `release.pub`, and players then install the next release by hand.
 
-The server takes launchers from a lowest version on: `MinVersion` in `internal/launcherapi/launcherapi.go`. A dev server also takes dev builds, of version 0. Raise `MinVersion` when the server needs something that older launchers don't do, and only once a release that does it is out. A launcher updates itself before it calls the server, so a server with the new code hears only of the launchers that found no later release they could take. It turns those away, and the player's room then says that the launcher is too old, with the link to the latest one.
+The server takes launchers from a lowest version on: `MinVersion` in `internal/launcherapi/launcherapi.go`. A dev server also takes dev builds, of version 0. Raise `MinVersion` when the server needs something that older launchers don't do, and only once a release that does it is out. A launcher updates itself before it asks the server anything, so a server with the new code turns away only the launchers that found no later release they could take. The one call a launcher makes first, which says that it started (`POST /launcher/started`), the server takes from any version. It turns the others away, and the player's room then says that the launcher is too old, with the link to the latest one.
 
 ## Commits
 

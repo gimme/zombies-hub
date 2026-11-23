@@ -147,9 +147,9 @@ func (la *launcher) uninstall() error {
 // docker/launcher.sh), never replaces itself and asks GitHub nothing. update returns true when the later build is in
 // place, for the caller to start it instead of this one (renew).
 //
-// A run looks for a later release before it calls the server (play), so the look is one small download with a short
-// limit (checkLimit). turn takes the turn to change what the PC's launchers share (filesTurn). update calls it only
-// once there is a later release to take, so a launcher that has none waits for no other launcher.
+// A run looks for a later release before it asks the server anything (play), so the look is one small download with a
+// short limit (checkLimit). turn takes the turn to change what the PC's launchers share (filesTurn). update calls it
+// only once there is a later release to take, so a launcher that has none waits for no other launcher.
 func (la *launcher) update(ctx context.Context, turn func()) (bool, error) {
 	to := la.installed()
 	os.Remove(to + ".old") // left by an earlier update

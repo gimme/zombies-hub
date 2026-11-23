@@ -17,11 +17,13 @@
 //   - asks the player whether this PC plays on the link's server, the first time a link names that server
 //     (config.Servers). It does not ask for the first server the PC plays on (trust). The server sends the launcher
 //     what the game runs, so it has to be a server of someone the player trusts.
+//   - tells the server that it started (launcherapi: POST /launcher/started), which the player's room shows at once.
+//     The server takes that call from a launcher of any version.
 //   - replaces itself with the latest release of the launcher on GitHub, when that is a later build signed by the
-//     launcher's maker (update.go). It looks once each time it goes to play, before it calls the server. A server
-//     that takes only later versions (launcherapi.MinVersion) so never hears of the older one, and the player's room
-//     has nothing to say of it. When the server doesn't take the launcher and there is no later release, the launcher
-//     ends, and says where the latest release is.
+//     launcher's maker (update.go). It looks once each time it goes to play, before it asks the server anything. A
+//     server that takes only later versions (launcherapi.MinVersion) so turns none of the older one's calls away, and
+//     the player's room has nothing to say of it. When the server doesn't take the launcher and there is no later
+//     release, the launcher ends, and says where the latest release is.
 //   - asks the server what to play (launcherapi: GET /launcher/play), with the player's key and its own version. It
 //     keeps one such call open while the player is in a Black Ops II room, and the server answers when something
 //     changes for the player (server.go: watch). The launcher makes no call on a timer.
@@ -568,9 +570,11 @@ func (la *launcher) play(ctx context.Context, url string, srv *server, failed fu
 			turn() // the launcher that replaces this one takes the turn
 		}
 	}
-	// The launcher looks for a later release of itself before it calls the server, and hands the link to that one.
-	// A server that takes only later versions than this one's then never hears of this one, and the player's room
-	// has nothing to say of it.
+	// The launcher tells the server that it started, which the player's room shows at once (hello). It then looks for
+	// a later release of itself before it asks the server anything, and hands the link to that one. A server that
+	// takes only later versions than this one's then turns none of this one's calls away, and the player's room has
+	// nothing to say of it: the server takes the call that says the launcher started from a launcher of any version.
+	srv.hello(ctx)
 	if again, err := la.renew(ctx, url, files, giveUp); again || err != nil {
 		return err
 	}

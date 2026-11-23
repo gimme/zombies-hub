@@ -8,8 +8,14 @@
 // The launcher sends the key with every call, to identify its player. The key goes in a header, "Authorization: Key
 // <key>", and not in the URL, because a proxy in front of the server would log the URL. Every call also carries the
 // launcher's version, in the header Zombies-Launcher-Version (VersionHeader). The server answers a launcher older than
-// MinVersion, or one that sends no version, with 426 Upgrade Required and a sentence for the player.
+// MinVersion, or one that sends no version, with 426 Upgrade Required and a sentence for the player, at every call
+// but the first below.
 //
+//	POST /launcher/started          the launcher started a try, as the player pressed the room's button. It sends this
+//	                                first, before it looks for a later release of itself (launcher/update.go), and
+//	                                the server takes it from a launcher of any version. The player's room then shows
+//	                                at once that the launcher starts, where its next call may come only after the
+//	                                launcher has updated itself
 //	GET  /launcher/play[?ready=1][&has=<zones>][&seen=<version>]
 //	                                Play: what the player's PC is to play now. The launcher sends ready=1 once the
 //	                                PC has what the game needs (Plutonium, the game files) and it waits for the

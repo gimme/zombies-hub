@@ -107,7 +107,15 @@ test("a launcher too old for the server is turned away, and the room links to th
     const call = (version?: string) => fetch(server.url + '/launcher/play', {
       headers: { Authorization: 'Key ' + key, ...(version !== undefined && { 'Zombies-Launcher-Version': version }) },
     });
-    // a launcher that sends no version
+    // a launcher of any version says that it started, before it looks for a later release of itself: the room waits
+    // for it, and no longer shows where to install it
+    const started = await fetch(server.url + '/launcher/started', {
+      method: 'POST', headers: { Authorization: 'Key ' + key },
+    });
+    expect(started.status).toBe(200);
+    await expect(ann.locator('#ready')).toHaveText('Starting...');
+    await expect(ann.locator('#t6get')).toBeHidden();
+    // its next call has no version: the server turns it away
     let rsp = await call();
     expect(rsp.status).toBe(426);
     expect(await rsp.text()).toContain('This launcher is too old for this server');

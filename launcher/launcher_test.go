@@ -73,13 +73,13 @@ func (l *fakeServer) port() int {
 	return n
 }
 
-// calls is what the launcher asked for since the last call, but what to play and its reports.
+// calls is what the launcher asked for since the last call, but what to play, its reports, and that it started.
 func (l *fakeServer) calls() []string {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	var calls []string
 	for _, c := range l.asked {
-		if c != "GET /launcher/play" && c != "POST /launcher/files" {
+		if c != "GET /launcher/play" && c != "POST /launcher/files" && c != "POST /launcher/started" {
 			calls = append(calls, c)
 		}
 	}
@@ -126,6 +126,8 @@ func (l *fakeServer) serve(w http.ResponseWriter, r *http.Request) {
 			l.plays(n, &l.play)
 		}
 		json.NewEncoder(w).Encode(l.play)
+	case r.URL.Path == "/launcher/started" && r.Method == http.MethodPost:
+		w.Write([]byte("{}"))
 	case r.URL.Path == "/launcher/files" && r.Method == http.MethodPost:
 		var rep launcherapi.Report
 		json.NewDecoder(r.Body).Decode(&rep)

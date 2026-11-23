@@ -50,7 +50,9 @@ import (
 // The launcher's calls also carry its version. The server takes only the versions that its code works with
 // (launcherapi.MinVersion), and a dev build (version 0) only on a dev server (-dev). It refuses any other launcher's
 // calls (launcherFits), and notes on the player that their launcher is too old. Their room then says so, with the
-// link to the launcher's latest release: the launcher that was refused can't report it.
+// link to the launcher's latest release: the launcher that was refused can't report it. It takes one call of any
+// version: the one that says the launcher started (POST /launcher/started), which comes before the launcher looks for
+// a later release of itself (serveLauncherStarted).
 //
 // The server does not hand out the launcher. Its releases are on GitHub (launcherapi.Releases), and the room's page
 // links to the latest one (GET /server: "launcher"). An installed launcher updates itself from there.
@@ -135,8 +137,9 @@ func (h *web) sendsT6() bool { return h.downloads && h.t6Dir != "" }
 // launcherFits reports whether the server takes the calls of the launcher that made the call: one of a version that
 // the server's code works with (launcherapi.MinVersion), or a dev build on a dev server. When it does not, it answers
 // the call with 426 Upgrade Required, and notes on the call's player that their launcher is too old
-// (launcherReport.old). A launcher looks for a later release before its first call, so the server refuses only one
-// that found none it could take.
+// (launcherReport.old). A launcher looks for a later release before its first call but the one that says it started
+// (serveLauncherStarted), so the server refuses only one that found none it could take. That launcher no longer counts
+// as running.
 func (h *web) launcherFits(w http.ResponseWriter, r *http.Request) bool {
 	sent := r.Header.Get(launcherapi.VersionHeader)
 	version, err := strconv.ParseInt(sent, 10, 64)
@@ -145,11 +148,17 @@ func (h *web) launcherFits(w http.ResponseWriter, r *http.Request) bool {
 	}
 	l := h.lobby
 	l.mu.Lock()
-	if p := l.launcherOf(r); p != nil && !p.launcher.old {
-		p.launcher.old = true
-		l.change()
-		log.Printf("server: %s's launcher is too old for this server (version %q): their room links to its latest release",
-			p.asked, sent)
+	if p := l.launcherOf(r); p != nil {
+		if p.launcher.held == 0 && !p.launcher.seen.IsZero() {
+			p.launcher.seen = time.Time{}
+			l.change()
+		}
+		if !p.launcher.old {
+			p.launcher.old = true
+			l.change()
+			log.Printf("server: %s's launcher is too old for this server (version %q): their room links to its latest release",
+				p.asked, sent)
+		}
 	}
 	l.mu.Unlock()
 	said := "This launcher is too old for this server: install the new one from the room's page."
@@ -164,6 +173,10 @@ func (h *web) launcherFits(w http.ResponseWriter, r *http.Request) bool {
 // doesn't know, and refuses a launcher whose version it doesn't take (launcherFits).
 func (h *web) serveLauncherCall(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
+	if r.URL.Path == "/launcher/started" && r.Method == http.MethodPost { // of any version
+		h.serveLauncherStarted(w, r)
+		return
+	}
 	if !h.launcherFits(w, r) {
 		return
 	}
@@ -209,6 +222,28 @@ func (h *web) serveLauncherCall(w http.ResponseWriter, r *http.Request) {
 	default:
 		http.NotFound(w, r)
 	}
+}
+
+// serveLauncherStarted answers POST /launcher/started, which a launcher sends as it starts a try, before it looks for
+// a later release of itself (launcher/update.go). Its first call that asks what to play may come a second or more
+// later, after a download of the release. The player's page hears of the launcher at once instead: their room's
+// button says that it starts, and their page knows that the click started a launcher (web/src/windows.ts:
+// openLauncher). The server takes this call from a launcher of any version, because it is all the call does: the
+// launcher's next calls show whether the server takes it (launcherFits).
+func (h *web) serveLauncherStarted(w http.ResponseWriter, r *http.Request) {
+	l := h.lobby
+	l.mu.Lock()
+	p := l.launcherOf(r)
+	if p != nil {
+		l.launcherStarted(p, r.Header.Get(launcherapi.VersionHeader))
+	}
+	l.mu.Unlock()
+	if p == nil {
+		launcherUnknown(w)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Write([]byte("{}\n"))
 }
 
 // launcherUnknown answers a launcher's call that carries a key the server doesn't know.
@@ -447,6 +482,19 @@ func (l *lobby) launcherPlay(p *player) launcherapi.Play {
 // launcherQuiet ago. The caller holds l.mu.
 func (l *lobby) launcherOpen(p *player) bool {
 	return p.launcher.held > 0 || !p.launcher.seen.IsZero() && time.Since(p.launcher.seen) < launcherQuiet
+}
+
+// launcherStarted records that p's launcher started a try (serveLauncherStarted), of the version it says. It counts as
+// running from then on, for launcherQuiet, in which its next call comes unless a download of a later release takes
+// longer. The last try's failure goes, as the launcher takes it back once it calls again. The caller holds l.mu.
+func (l *lobby) launcherStarted(p *player, version string) {
+	log.Printf("server: %s's launcher started (version %q)", p.asked, version)
+	was := l.launcherOpen(p)
+	p.launcher.seen = time.Now()
+	if !was || p.launcher.Failed != "" {
+		p.launcher.Failed = ""
+		l.change()
+	}
 }
 
 // launcherCalled records a call from p's launcher, which shows that the launcher is running. For a call to

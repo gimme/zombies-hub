@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -272,23 +273,24 @@ func TestTooOldForTheServer(t *testing.T) {
 	if more != 0 {
 		t.Errorf("the launcher called a server that doesn't take it %d more times", more)
 	}
-	// the release that the server needs is out: the launcher takes it before it calls the server, which so never
-	// hears of the launcher it doesn't take, and has nothing to tell the player's room
+	// the release that the server needs is out: the launcher says that it started, which the server takes from any
+	// launcher, then takes the release before it asks the server anything, so the server turns none of its calls away,
+	// and has nothing to tell the player's room
 	tl.stays = false
 	releases.publish(t, key, 8, "the launcher, build 8")
 	tl.again("")
 	l.mu.Lock()
-	l.versions = nil
+	l.asked = nil
 	l.mu.Unlock()
 	if code := tl.run(context.Background(), []string{l.link()}); code != 0 || !tl.handed ||
 		read(t, installed) != "the launcher, build 8" {
 		t.Errorf("too old, with a later release: %d, handed on %v, is %q\n%s", code, tl.handed, read(t, installed), tl.out)
 	}
 	l.mu.Lock()
-	heard := l.versions
+	heard := l.asked
 	l.mu.Unlock()
-	if len(heard) != 0 {
-		t.Errorf("the server heard of a launcher that had a later release to take: %q", heard)
+	if !slices.Equal(heard, []string{"POST /launcher/started"}) {
+		t.Errorf("what the server heard of a launcher that had a later release to take: %q", heard)
 	}
 	// a dev build says what it is
 	tl.version = 0

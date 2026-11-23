@@ -349,6 +349,23 @@ func (s *server) files(ctx context.Context) (*launcherapi.Files, error) {
 	return &files, nil
 }
 
+// hello tells the server that the launcher started a try (launcherapi: POST /launcher/started), for the player's room
+// to show at once. The launcher sends it before it looks for a later release of itself, and the server takes it from
+// a launcher of any version. Its answer doesn't matter: a server that has no such call, or can't be reached now,
+// hears of the launcher at its next call.
+func (s *server) hello(ctx context.Context) {
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	req, err := s.request(ctx, http.MethodPost, "/launcher/started", nil)
+	if err != nil {
+		return
+	}
+	if rsp, err := s.client.Do(req); err == nil {
+		io.Copy(io.Discard, io.LimitReader(rsp.Body, 4096))
+		rsp.Body.Close()
+	}
+}
+
 // report tells the server how the launcher is doing, for the player's room to show. A report that is lost does not
 // matter, because the next one has more.
 func (s *server) report(ctx context.Context, r launcherapi.Report) {

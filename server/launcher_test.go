@@ -217,6 +217,32 @@ func TestLauncherPlay(t *testing.T) {
 	}
 }
 
+// A launcher says that it started before it looks for a later release of itself, whatever its version: it counts as
+// running from then on, and its last failure goes, until a call of it that the server doesn't take.
+func TestLauncherStarted(t *testing.T) {
+	l := testLobby(t)
+	h := &web{lobby: l}
+	ann := l.hello("", "Ann")
+	l.mu.Lock()
+	l.playerOf(ann.Token).launcher.Failed = "The last try failed."
+	l.mu.Unlock()
+	if rsp, _ := asLauncher(h, http.MethodPost, "/launcher/started", ann.Key, "", launcherapi.VersionHeader, ""); rsp.StatusCode != http.StatusOK {
+		t.Fatalf("a launcher of no version, started: %s", rsp.Status)
+	}
+	if you := l.viewOf(ann.Token).You; !you.Launcher || you.LauncherFailed != "" || you.LauncherOld {
+		t.Errorf("a launcher that started: %+v", you)
+	}
+	if rsp, _ := asLauncher(h, http.MethodGet, "/launcher/play", ann.Key, "", launcherapi.VersionHeader, ""); rsp.StatusCode != http.StatusUpgradeRequired {
+		t.Fatalf("its next call: %s", rsp.Status)
+	}
+	if you := l.viewOf(ann.Token).You; you.Launcher || !you.LauncherOld {
+		t.Errorf("a launcher that the server doesn't take, once it called: %+v", you)
+	}
+	if rsp, _ := asLauncher(h, http.MethodPost, "/launcher/started", "0123456789abcdef", ""); rsp.StatusCode != http.StatusUnauthorized {
+		t.Errorf("the launcher of a key the server doesn't know, started: %s", rsp.Status)
+	}
+}
+
 // Where players sign in with Discord, a key is good while its player has a session.
 func TestLauncherNeedsASession(t *testing.T) {
 	d := newFakeDiscord(t)
