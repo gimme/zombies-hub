@@ -36,8 +36,8 @@
 # ZOMBIES_HANG_TIMEOUT   Passed through when set. How long a game may run no frame before it ends (default 1m, 0 for
 #                        never).
 # ZOMBIES_CHEATS         Passed through when set. ZOMBIES_CHEATS=1 runs the rooms' games with cheats (devmap).
-# ZOMBIES_MIN_PLAYERS    Passed through when set. The players a room needs to start a game (default 2). 1 lets a
-#                        player start a game alone.
+# ZOMBIES_MIN_PLAYERS    The players a room needs to start a game (default 1 here, so that one player can try a game
+#                        alone; 2 is the server's own default).
 # ZOMBIES_DOWNLOAD_RATE  The most bits a second of game files that the server sends to browsers (40M), unlimited (the
 #                        default), or off.
 # WINEDEBUG              Passed through when set. For example, WINEDEBUG=+loaddll shows which DLLs load (native or
@@ -97,7 +97,7 @@ docker run --rm $tty --name "$name" $net --cap-add NET_ADMIN \
     ${WINEDEBUG:+-e WINEDEBUG="$WINEDEBUG"} \
     ${ZOMBIES_HANG_TIMEOUT:+-e ZOMBIES_HANG_TIMEOUT="$ZOMBIES_HANG_TIMEOUT"} \
     ${ZOMBIES_CHEATS:+-e ZOMBIES_CHEATS="$ZOMBIES_CHEATS"} \
-    ${ZOMBIES_MIN_PLAYERS:+-e ZOMBIES_MIN_PLAYERS="$ZOMBIES_MIN_PLAYERS"} \
+    -e ZOMBIES_MIN_PLAYERS="${ZOMBIES_MIN_PLAYERS:-1}" \
     -v "$gamedir:/game:ro" -v "$(abs "$svhome"):/config" -v "$root/web/dist:/web:ro" \
     "${engine[@]}" "${pluto[@]}" \
     "$image" -map "$map" -- "$@"
