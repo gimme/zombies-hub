@@ -37,6 +37,7 @@ var (
 	setForegroundWindow = user32.NewProc("SetForegroundWindow")
 	loadImage           = user32.NewProc("LoadImageW")
 	loadIcon            = user32.NewProc("LoadIconW")
+	getSystemMetrics    = user32.NewProc("GetSystemMetrics")
 	registerMessage     = user32.NewProc("RegisterWindowMessageW")
 )
 
@@ -52,9 +53,12 @@ const (
 	mfString, mfGrayed, mfSep   = 0x0, 0x1, 0x800
 	tpmRightButton, tpmBottom   = 0x2, 0x20
 	tpmNoNotify, tpmReturnCmd   = 0x80, 0x100
-	imageIcon, lrDefaultSize    = 1, 0x40
-	lrShared, idiApplication    = 0x8000, 32512
+	imageIcon, idiApplication   = 1, 32512
+	smCxSmIcon, smCySmIcon      = 49, 50
 	swShowNormal                = 1
+	// appIcon is the number of the program's own icon among its resources. The build's go-winres simply gives it 1,
+	// not the name APP that go-winres's own config would (docker/launcher.sh, .github/workflows/launcher.yml).
+	appIcon = 1
 )
 
 type wndClassEx struct {
@@ -123,10 +127,11 @@ func showTray(host string, menu func() []menuItem) (stop func()) {
 		name, _ := windows.UTF16PtrFromString("TaskbarCreated")
 		made, _, _ := registerMessage.Call(uintptr(unsafe.Pointer(name)))
 		tray.taskbarMade = uint32(made)
-		// Use the program's own icon, which the image's build links in (go-winres: APP), or else Windows' icon for
-		// any program.
-		app, _ := windows.UTF16PtrFromString("APP")
-		icon, _, _ := loadImage.Call(instance, uintptr(unsafe.Pointer(app)), imageIcon, 0, 0, lrDefaultSize|lrShared)
+		// Use the program's own icon (appIcon), at the size of the tray's icons, or else Windows' icon for any program,
+		// which a build without the icon, such as a test's, has.
+		w, _, _ := getSystemMetrics.Call(smCxSmIcon)
+		h, _, _ := getSystemMetrics.Call(smCySmIcon)
+		icon, _, _ := loadImage.Call(instance, appIcon, imageIcon, w, h, 0)
 		if icon == 0 {
 			icon, _, _ = loadIcon.Call(0, idiApplication)
 		}
