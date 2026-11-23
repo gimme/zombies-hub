@@ -362,9 +362,16 @@ ul.members { gap: 8px; }
 #roomstate:empty { display: none; }
 #roomstate { text-align: center; font-size: 14px; color: var(--muted); }
 .foot { display: flex; justify-content: flex-end; gap: 12px; padding-top: 12px; border-top: 1px solid rgba(255, 255, 255, 0.08); }
-#playbat, #t6console { box-sizing: border-box; padding: 10px 12px; border-radius: 8px;
-  background: rgba(0, 0, 0, 0.4); border: 1px solid var(--line); font: 13px/1.4 ui-monospace, Consolas, monospace;
-  white-space: nowrap; overflow-x: auto; user-select: all; }
+/* a line to copy (the Windows client's, the console's), with the button that copies it at its end, in its box: the
+   line has all of the box's width but the button's, and where it is longer it scrolls, cut off before the button */
+.codeline { display: flex; align-items: center; gap: 4px; padding-right: 5px; border-radius: 8px;
+  background: rgba(0, 0, 0, 0.4); border: 1px solid var(--line); }
+#playbat, #t6console { flex: 1; min-width: 0; padding: 10px 4px 10px 12px; font: 13px/1.4 ui-monospace, Consolas, monospace;
+  white-space: nowrap; overflow-x: auto; user-select: all; scrollbar-width: thin; }
+.codeline button.copy { flex: none; width: 30px; height: 28px; padding: 0; border: none; border-radius: 6px;
+  background: rgba(255, 255, 255, 0.08); color: var(--muted); }
+.codeline button.copy:hover { background: rgba(255, 255, 255, 0.14); color: var(--fg); }
+.codeline button.copy.copied { color: var(--fg); }
 /* a room on a Black Ops II map (showT6): what a player needs for its game, which their own Plutonium plays, and
    the line that joins it */
 #t6box { display: flex; flex-direction: column; gap: 12px; }
@@ -374,7 +381,6 @@ ul.members { gap: 8px; }
 #t6box p { margin: 0; }
 #t6box a { color: var(--fg); }
 #t6handline { display: flex; flex-direction: column; gap: 10px; }
-#t6box .row > .grow { min-width: 0; }
 
 /* how the room's last game went (showResult): the map's card, with the round and the team's totals, then the
    scoreboard */
