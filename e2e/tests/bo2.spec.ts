@@ -53,6 +53,10 @@ test('a room plays its game to game over, and its round and easter egg are on th
     await expect(page.locator('#t6console')).toHaveText(/^password [0-9a-f]+;connect [^;]+:\d+$/);
     await expect(page.locator('#ready')).toHaveText('Ready');
   }
+  // the server sends their launchers no game, which would join theirs while they join by hand
+  for (const name of ['Ann', 'Bob']) {
+    await server.waitFor(new RegExp(`^server: ${name} joins Black Ops II games by hand$`));
+  }
   await bob.reload();
   await expect(bob.locator('#roomcode')).toHaveText(code);
   await expect(bob.getByRole('checkbox', { name: 'Join by hand' })).toBeChecked();
@@ -61,7 +65,14 @@ test('a room plays its game to game over, and its round and easter egg are on th
     await expect(page.locator('#ready')).toHaveText('Ready');
     await page.locator('#ready').click();
   }
-  // the countdown, then the game, which the players join from their own PCs
+  // the countdown, then the game, which the players join from their own PCs. A player who no longer joins by hand has
+  // the button that opens the launcher, into the game.
+  await expect(ann.locator('#ready')).toHaveText('Join by hand');
+  await ann.getByRole('checkbox', { name: 'Join by hand' }).uncheck();
+  await expect(ann.locator('#ready')).toHaveText('Join the game');
+  await expect(ann.locator('#ready')).toHaveAttribute('data-does', 'launch');
+  await ann.getByRole('checkbox', { name: 'Join by hand' }).check();
+  await expect(ann.locator('#ready')).toHaveText('Join by hand');
   const games = await Promise.all([plutonium(server.port, 'Ann'), plutonium(server.port, 'Bob')]);
   for (const page of [ann, bob]) await expect(page.locator('#ready')).toHaveText('In game');
 

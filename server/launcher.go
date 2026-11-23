@@ -439,6 +439,9 @@ func (l *lobby) launcherOf(req *http.Request) *player {
 // The launcher is sent the game a little later when another room plays Black Ops II too, and a player of that room
 // is at p's address, whose game is on its way into that room's game (t6Waits). A game that the launcher has been
 // sent stays sent.
+//
+// A player who joins by hand (setHand) has their own game join from its console. Their launcher is sent no game, as
+// it isn't while the room waits for its game: it neither starts their game nor has a game of theirs that runs join.
 func (l *lobby) launcherPlay(p *player) launcherapi.Play {
 	play := launcherapi.Play{Player: p.asked}
 	if title := l.t6(); title != nil && title.pluto != nil {
@@ -460,7 +463,7 @@ func (l *lobby) launcherPlay(p *player) launcherapi.Play {
 	if s == nil || t == nil || s.left || r.game.ending != "" || !t.updated.Load() {
 		return play
 	}
-	if play.InGame = s.in; !s.in {
+	if play.InGame = s.in; !s.in && !p.byHand {
 		if s.sent.IsZero() {
 			waits, whose := l.t6Waits(p)
 			if waits && !p.launcher.waits {

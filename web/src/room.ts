@@ -26,7 +26,7 @@ import { $, el } from './dom';
 import { canRun, started } from './engine';
 import { knowMap, type MapButton, mapButton, showNote } from './files';
 import { checkLock, endNote, forgetOtherTab, lastEnd, lockElsewhere, otherTab } from './game';
-import { act, me, view } from './lobby';
+import { act, ask, me, offline, view } from './lobby';
 import { showAbout, showMaps } from './mapgrid';
 import { mapInfo, mapPicture } from './maps';
 import { modNames, modOn, modValue } from './mods';
@@ -289,6 +289,16 @@ function handOn(): boolean {
   return $<HTMLInputElement>('t6hand').checked;
 }
 
+/**
+ * Tells the lobby whether the player joins by hand (server/rooms.go: setHand). Their launcher, which may still run
+ * from their last game, is then sent no game: it would otherwise start their game into the room's, or have their game
+ * that runs join it. The lobby forgets it when it starts again, so the page tells it each time the lobby's events start
+ * (session.ts: listen).
+ */
+export function tellHand(): void {
+  if (!offline && me.token) ask('hand', { hand: handOn() });
+}
+
 // The room's size (server/rooms.go: room.size), in the Settings tab: how many players it takes, which is 4 until the
 // host sets it. The host picks among the sizes that a room on this server may have, from the players that a game
 // needs to the most that a room holds. A size that the room has too many players for can't be picked. The others see
@@ -473,11 +483,13 @@ export function roomInit(): void {
     $('tabmods').focus();
     $('panelmods').scrollIntoView({ block: 'nearest', behavior: 'smooth' });
   };
-  // A player who joins by hand, with that checkbox checked, needs no launcher. The button is Ready then. The browser
-  // remembers the checkbox for the player's next rooms and visits.
+  // A player who joins by hand, with that checkbox checked, needs no launcher. The button is Ready then, and the lobby
+  // sends their launcher no game (tellHand). The browser remembers the checkbox for the player's next rooms and
+  // visits.
   $<HTMLInputElement>('t6hand').checked = store.get('zombies-by-hand') === '1';
   $('t6hand').onchange = () => {
     store.set('zombies-by-hand', handOn() ? '1' : '');
+    tellHand();
     if (view && view.room) {
       showT6(view, view.room);
       showRoomButton(view, view.room);

@@ -19,6 +19,7 @@ import { tellGamepad } from './padnav';
 import { params } from './params';
 import { openPicker, showName, showProfile } from './profile';
 import { mayLeaveGame } from './question';
+import { tellHand } from './room';
 import { setStatus } from './screen';
 import { loadedServer } from './server';
 import { show } from './show';
@@ -147,7 +148,10 @@ async function listen(): Promise<void> {
     const rsp = await fetch('/lobby/events', { headers: auth(), signal: stream.signal, cache: 'no-store' });
     unknown = rsp.status === 401;
     lost = !rsp.ok && !unknown;
-    if (rsp.ok) tellGamepad(true); // the lobby knows of the page's gamepad only while it sends the page events
+    if (rsp.ok) {
+      tellGamepad(true); // the lobby knows of the page's gamepad only while it sends the page events
+      tellHand(); // and forgets that the player joins by hand when it starts again
+    }
     const reader = rsp.ok && rsp.body ? rsp.body.pipeThrough(new TextDecoderStream()).getReader() : null;
     let text = '';
     while (reader) {

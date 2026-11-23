@@ -115,6 +115,8 @@ const defaultRoomSize = 4
 //	                    be ready only once their page has all of the room's map, or they play on Windows (missing).
 //	POST /lobby/gamepad {"gamepad"}: the player's page reads a gamepad the game can use, or no longer does. Their
 //	                    room shows it on the player while a page of theirs is open (setGamepad).
+//	POST /lobby/hand    {"hand"}: the player joins their Black Ops II rooms' games by hand, from their game's console,
+//	                    and their launcher is sent no game; or no longer does (setHand)
 //	POST /lobby/rejoin  {}: the player goes back into the room's game, to their character
 //	POST /lobby/end     {}: the host ends the room's game, which no one plays (endGame)
 //	POST /lobby/ended   {"why", "text"}: the player's game ended in their page, and why (web/index.html)
@@ -240,6 +242,10 @@ type player struct {
 	// gamepad is set when the player's page reports that it reads a gamepad the game can use (setGamepad). It stays
 	// set until no page of theirs is open.
 	gamepad bool
+	// byHand is set when the player's page reports that they join their T6 rooms' games by hand (setHand). Their
+	// launcher is then sent no game (launcherPlay), so it neither starts their game into one nor has a game of theirs
+	// that runs join one. It stays set until a page of theirs reports otherwise.
+	byHand bool
 	// mark is the map the player suggests to their room's host for its next game (setMark), or "" for none.
 	mark string
 	// waitedSaid is when the player's page last reported how a wait for pipelines went (waited).
@@ -851,6 +857,7 @@ func (l *lobby) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		Need    int64     `json:"need"`
 		Running bool      `json:"running"`
 		Gamepad bool      `json:"gamepad"`
+		Hand    bool      `json:"hand"`
 	}
 	if err := json.NewDecoder(io.LimitReader(req.Body, 4096)).Decode(&in); err != nil {
 		http.Error(w, "bad request", http.StatusBadRequest)
@@ -896,6 +903,8 @@ func (l *lobby) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		err = l.setReady(p, in.Ready)
 	case action == "gamepad":
 		l.setGamepad(p, in.Gamepad)
+	case action == "hand":
+		l.setHand(p, in.Hand)
 	case action == "rejoin":
 		err = l.rejoin(p)
 	case action == "end":
@@ -1866,6 +1875,18 @@ func (l *lobby) setGamepad(p *player, on bool) {
 		return
 	}
 	p.gamepad = on
+	l.change()
+}
+
+// setHand stores whether the player joins their T6 rooms' games by hand (POST /lobby/hand), as the checkbox in their
+// page says, which their browser remembers. Their launcher is then sent no game (launcherPlay). The server doesn't
+// store it: a page tells it again each time its event stream opens.
+func (l *lobby) setHand(p *player, on bool) {
+	if on == p.byHand {
+		return
+	}
+	p.byHand = on
+	log.Printf("server: %s joins Black Ops II games %s", p.asked, map[bool]string{true: "by hand", false: "with the launcher"}[on])
 	l.change()
 }
 

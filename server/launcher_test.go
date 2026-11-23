@@ -132,7 +132,8 @@ func TestLauncherPlayIsHeld(t *testing.T) {
 
 // What the launcher is to play: its player's T6 room's game, once the server's Plutonium is up to date for it, with
 // the password and the name the page's line has, at the port players reach, and whether Plutonium's server is up yet;
-// nothing for a key the server doesn't know. Its calls say where the player's game is, as their page's do.
+// no game for a player who joins by hand; nothing for a key the server doesn't know. Its calls say where the player's
+// game is, as their page's do.
 func TestLauncherPlay(t *testing.T) {
 	l, target := t6Lobby(t)
 	h := &web{lobby: l, publicPort: 4000}
@@ -184,6 +185,15 @@ func TestLauncherPlay(t *testing.T) {
 		*play.Game != (launcherapi.Game{ID: play.Game.ID, Port: 4000, Password: v.Room.T6.Password, Name: "Ann 2", Up: true}) ||
 		v.Room.T6.Name != "Ann 2" || play.InGame {
 		t.Fatalf("the game, to the second Ann's launcher: %+v (%+v), where the page has %+v", play, play.Game, v.Room.T6)
+	}
+	// a player who joins by hand: their launcher is sent no game, until they no longer do
+	do(l, b, "hand", "hand", "true")
+	if play := playOf(t, h, bob.Key); play.Game != nil || play.Room == "" {
+		t.Errorf("to the launcher of a player who joins by hand: %+v", play)
+	}
+	do(l, b, "hand", "hand", "false")
+	if play := playOf(t, h, bob.Key); play.Game == nil {
+		t.Errorf("to the launcher of a player who no longer joins by hand: %+v", play)
 	}
 	// the launcher called from this PC, which the player's game then comes from: the relay takes it to their seat,
 	// whatever address their page is at
