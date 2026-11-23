@@ -49,20 +49,14 @@ export function showMaps(
 }
 
 /**
- * Makes a map's card as tall as the tallest map needs. The card has the title and text of every map in it, unseen
- * (page.css: .about), so it keeps its height whichever map it shows, at any width of the window. Call of the Dead
- * has the most text. The unseen texts are made again only when the maps change.
+ * Shows a map's text on its card. The card is as tall as its picture whichever map it shows, of either game, so that
+ * what is under it stays put (page.css: .about). A text longer than the card has room for scrolls, as Call of the
+ * Dead's does, from its top for each map.
  */
-export function showAbout(box: HTMLElement, maps: MapInfo[]): void {
-  const key = JSON.stringify(maps.map((m) => [m.title, m.desc]));
-  if (box.dataset.key === key) return;
-  box.dataset.key = key;
-  for (const ghost of box.querySelectorAll('.ghost')) ghost.remove();
-  for (const m of maps) {
-    const ghost = el('div', 'ghost');
-    ghost.setAttribute('aria-hidden', 'true');
-    ghost.append(el('h1', 'display', m.title));
-    if (m.desc) ghost.append(el('p', '', m.desc));
-    box.append(ghost);
+export function showDesc(p: HTMLElement, desc: string): void {
+  if (p.textContent !== desc) {
+    p.textContent = desc;
+    p.scrollTop = 0;
   }
+  p.classList.toggle('hidden', !desc);
 }

@@ -232,14 +232,13 @@ ul.rooms { gap: 12px; }
 .mapcard { display: flex; flex-direction: column; gap: 22px; padding: 24px; }
 .mapinfo { display: flex; flex-wrap: wrap; gap: 24px; }
 #mapimg, #soloimg { width: 224px; height: 168px; flex: none; border-radius: 12px; object-fit: cover; background: rgba(255, 255, 255, 0.06); }
-.mapinfo .text { flex: 1 1 280px; min-width: 0; display: flex; flex-direction: column; gap: 10px; }
-/* the map's title and text, over each other map's, unseen (showAbout): the card is as tall as the tallest, and what
-   is under it stays put as the map changes */
-.about { display: grid; }
-.about > div { grid-area: 1 / 1; display: flex; flex-direction: column; gap: 10px; }
-.about > .ghost { visibility: hidden; }
-.about h1 { font-size: 44px; }
-.about p { margin: 0; color: #b7b0a5; line-height: 1.5; }
+/* the map's title and text, as tall as its picture whichever map it shows, of either game, so that what is under the
+   card stays put as the map changes; a longer text scrolls (showDesc) */
+.mapinfo .text { flex: 1 1 280px; min-width: 0; height: 168px; display: flex; flex-direction: column; gap: 10px; }
+.about { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 10px; }
+.about h1 { flex: none; font-size: 44px; }
+.about p { flex: 0 1 auto; min-height: 0; margin: 0; overflow-y: auto; color: #b7b0a5; line-height: 1.5;
+  scrollbar-width: thin; scrollbar-color: rgba(255, 255, 255, 0.24) transparent; }
 .mapgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 10px;
   padding-top: 22px; border-top: 1px solid rgba(255, 255, 255, 0.08); }
 .mapgrid button { position: relative; height: auto; display: flex; flex-direction: column; gap: 6px; padding: 4px 4px 8px;

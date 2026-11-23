@@ -27,7 +27,7 @@ import { canRun, started } from './engine';
 import { knowMap, type MapButton, mapButton, showNote } from './files';
 import { checkLock, endNote, forgetOtherTab, lastEnd, lockElsewhere, otherTab } from './game';
 import { act, ask, me, offline, view } from './lobby';
-import { showAbout, showMaps } from './mapgrid';
+import { showDesc, showMaps } from './mapgrid';
 import { mapInfo, mapPicture } from './maps';
 import { modNames, modOn, modValue } from './mods';
 import { mayLeaveGame } from './question';
@@ -69,9 +69,7 @@ export function showRoom(v: View, room: Room): void {
   // Over the map's name, its game, on a server of two. That is where the others see the room's game.
   $('mapkicker').textContent = (v.titles.length > 1 && titleName(v.titles, room.of)) || 'Map';
   $('maptitle').textContent = map.title;
-  $('mapdesc').textContent = map.desc || '';
-  $('mapdesc').classList.toggle('hidden', !map.desc);
-  showAbout($('mapabout'), mapsOf(v.maps, room.of));
+  showDesc($('mapdesc'), map.desc || '');
   showRoomTitle(v, room, open);
   showRoomMaps(v, room);
   // Whether the room is private: a switch for the host, and a badge for the others.

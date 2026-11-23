@@ -14,7 +14,7 @@ import { canRun, started } from './engine';
 import { knowMap, type MapButton, mapButton, showNote } from './files';
 import { endNote, forgetLastEnd, lastEnd } from './game';
 import { page } from './lobby';
-import { showAbout, showMaps } from './mapgrid';
+import { showDesc, showMaps } from './mapgrid';
 import { hasTitle, mapInfo, mapPicture, soloMapName, t5Maps } from './maps';
 import { showNotice } from './notice';
 import { params } from './params';
@@ -35,9 +35,7 @@ export function showSolo(v: View): void {
   if (picked) mapPicture(img, picked);
   else img.removeAttribute('src');
   $('solotitle').textContent = picked ? map.title : 'No map';
-  $('solodesc').textContent = map.desc || '';
-  $('solodesc').classList.toggle('hidden', !map.desc);
-  showAbout($('soloabout'), t5Maps(v.maps));
+  showDesc($('solodesc'), map.desc || '');
   showMaps($('solomaps'), t5Maps(v.maps), picked, (name) => {
     if (name === picked) return;
     store.set('zombies-solo-map', name);
