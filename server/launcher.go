@@ -361,6 +361,9 @@ type launcherReport struct {
 	seen  time.Time // when the launcher last made any call; zero for a launcher that is not running
 	held  int       // how many of the launcher's calls the server holds now (serveLauncherPlay)
 	ready bool      // the PC has what the game needs, as of the last GET /launcher/play; the launcher waits for the game
+	// waits is set while the server keeps the room's game from the launcher, until the game of another player at the
+	// same address has joined another room's game (t6Waits).
+	waits bool
 	// old is set when the server refused a call of the player's launcher for its version (launcherFits), until a
 	// launcher of theirs that the server takes calls.
 	old bool
@@ -397,6 +400,10 @@ func (l *lobby) launcherOf(req *http.Request) *player {
 // (Game.Up): a player's game that runs already, from the room's last game, joins only then. The answer has the
 // revision of the server's copy of Plutonium, which the player's copy has to match. The caller sets the port
 // (launcherAnswer). The caller holds l.mu.
+//
+// The launcher is sent the game a little later when another room plays Black Ops II too, and a player of that room
+// is at p's address, whose game is on its way into that room's game (t6Waits). A game that the launcher has been
+// sent stays sent.
 func (l *lobby) launcherPlay(p *player) launcherapi.Play {
 	play := launcherapi.Play{Player: p.asked}
 	if title := l.t6(); title != nil && title.pluto != nil {
@@ -419,6 +426,17 @@ func (l *lobby) launcherPlay(p *player) launcherapi.Play {
 		return play
 	}
 	if play.InGame = s.in; !s.in {
+		if s.sent.IsZero() {
+			waits, whose := l.t6Waits(p)
+			if waits && !p.launcher.waits {
+				log.Printf("server: %s's launcher waits to join room %s's game until the game of %s has joined theirs: both are at %s",
+					p.name, r.code, whose, p.addr)
+			}
+			if p.launcher.waits = waits; waits {
+				return play
+			}
+			s.sent = time.Now()
+		}
 		play.Game = &launcherapi.Game{ID: strconv.FormatInt(r.game.began.UnixMilli(), 36), Password: t.password, Name: p.name,
 			Up: !r.game.up.IsZero()}
 	}
@@ -505,8 +523,15 @@ func (l *lobby) launcherStopped(p *player, last launcherapi.Report) {
 
 // launcherSweep handles a launcher that has had no call open, and made none, for launcherQuiet. The launcher has
 // stopped: it was closed, or its PC is gone. The player's room then no longer shows their download, or what their
-// game folder has. The caller holds l.mu.
+// game folder has. launcherSweep also wakes the call of a launcher that waited for another player's game and no
+// longer does (t6Waits), so that the call answers with the room's game. The caller holds l.mu.
 func (l *lobby) launcherSweep(p *player) {
+	if p.launcher.waits {
+		if waits, _ := l.t6Waits(p); !waits {
+			p.launcher.waits = false
+			l.change()
+		}
+	}
 	if p.launcher.held == 0 && !p.launcher.seen.IsZero() && time.Since(p.launcher.seen) >= launcherQuiet {
 		p.launcher.seen, p.launcher.ready, p.launcher.Failed, p.launcher.Doing = time.Time{}, false, "", ""
 		p.launcher.copied, p.launcher.has = false, nil

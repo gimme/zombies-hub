@@ -40,7 +40,7 @@ On Docker Desktop for Windows, keep the game files in a Docker volume. Wine can'
 ## What the server downloads
 
 - **The Black Ops engine**, the first time it starts with Black Ops: about 10 MB from the [releases of bo1-zombies](https://github.com/gimme/bo1-zombies/releases), into `/config/engine`. The download is checked against a SHA-256 that is fixed in the server. Later starts download nothing until an update of the server needs another build. `ZOMBIES_ENGINE_URL` sets another address for the same file.
-- **Plutonium**, when the first Black Ops II game starts: about 56 MB from Plutonium's updater, into `/config/plutonium`. The server checks for updates before each Black Ops II game, because players can only join a server of the same Plutonium version.
+- **Plutonium**, when the first Black Ops II game starts: about 56 MB from Plutonium's updater, into `/config/plutonium`. The server checks for updates before a Black Ops II game, because players can only join a server of the same Plutonium version. It does not check while another Black Ops II game is running: that game keeps the version it started with, and so do the games that start beside it.
 
 ## HTTPS
 
@@ -98,7 +98,6 @@ How the launcher is released is in [Development](development.md#releasing-the-la
 
 ## Limits
 
-- One Black Ops II game runs at a time.
 - Rooms and running games are lost when the server restarts. Players and leaderboards are kept.
 - The launcher has no Windows code-signing certificate, so Windows and the browser warn about it the first time.
 - Players get the launcher from GitHub. Their PCs need to reach github.com to install it and to update it.

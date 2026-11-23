@@ -411,7 +411,7 @@ func listFilesCommand(args []string) int {
 	engineFile := flags.String("engine-file", env("ZOMBIES_ENGINE_FILE", ""), "an engine archive to run instead of the downloaded build (ZOMBIES_ENGINE_FILE)")
 	dataDir := flags.String("data-dir", env("ZOMBIES_DATA_DIR", "/config"), "what the game writes: game/files/ (its home), logs/; and where the engine is kept (ZOMBIES_DATA_DIR)")
 	wine := flags.String("wine", env("ZOMBIES_WINE", "wine"), "the wine command (ZOMBIES_WINE)")
-	port := flags.Int("game-port", envInt("ZOMBIES_GAME_PORT", 3076), "the game's UDP port, on 127.0.0.1 (ZOMBIES_GAME_PORT)")
+	port := flags.Int("game-port", envInt("ZOMBIES_GAME_PORT", 3100), "the game's UDP port, on 127.0.0.1 (ZOMBIES_GAME_PORT)")
 	flags.Usage = func() {
 		fmt.Fprintln(flags.Output(), "usage: zombies-server list-files [flags] <dir> [map...]")
 		flags.PrintDefaults()

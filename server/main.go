@@ -109,6 +109,21 @@ func getEngine(ctx context.Context, dataDir, url, file string) (*bo1zombies.Engi
 	return src.Get(ctx, filepath.Join(dataDir, "engine"))
 }
 
+// gamePorts returns the games' UDP ports on 127.0.0.1: one for each of the games that run at once, from first up. It
+// leaves out the server's own port. It also leaves out the ports that Plutonium's servers open on every address, from
+// plutoniumPort up (t6.go: the comment at the top). Those are one for each game, and one more, because they skip the
+// server's own port when it is among them. A game whose port a Plutonium server took would listen on another port,
+// where the server does not reach it.
+func gamePorts(first, games, port int) []int {
+	var ports []int
+	for p := first; len(ports) < games && p <= 65535; p++ {
+		if p != port && (p < plutoniumPort || p > plutoniumPort+games) {
+			ports = append(ports, p)
+		}
+	}
+	return ports
+}
+
 func run() int {
 	port := flag.Int("port", envInt("ZOMBIES_PORT", 3075), "the port players reach: UDP for the games (WebTransport, and Windows players), TCP for the web client and game files (ZOMBIES_PORT)")
 	publicPort := flag.Int("public-port", envInt("ZOMBIES_PUBLIC_PORT", 0), "the UDP port players reach WebTransport at, when a port forward or mapping makes it other than -port; 0: -port (ZOMBIES_PUBLIC_PORT)")
@@ -118,7 +133,7 @@ func run() int {
 	maxGames := flag.Int("max-games", envInt("ZOMBIES_MAX_GAMES", 4), "most games running at once (ZOMBIES_MAX_GAMES)")
 	loadTimeout := flag.Duration("load-timeout", envDuration("ZOMBIES_LOAD_TIMEOUT", 5*time.Minute), "how long a room's game waits for its players to load before it is called off (ZOMBIES_LOAD_TIMEOUT)")
 	gameArgs := flag.String("game-args", env("ZOMBIES_GAME_ARGS", ""), "more of the engine's command line, before the arguments after -- (ZOMBIES_GAME_ARGS)")
-	gamePort := flag.Int("game-port", envInt("ZOMBIES_GAME_PORT", 3076), "the first game's UDP port, on 127.0.0.1, which only the server reaches; more games take the ports above it (ZOMBIES_GAME_PORT)")
+	gamePort := flag.Int("game-port", envInt("ZOMBIES_GAME_PORT", 3100), "the first game's UDP port, on 127.0.0.1, which only the server reaches; more games take the ports above it, and none takes one of the ports from 3074 that Plutonium's servers open (ZOMBIES_GAME_PORT)")
 	gameDir := flag.String("game-dir", env("ZOMBIES_GAME_DIR", "/game"), "the game files, a folder for each title the server hosts, at least one: t5, a copy of a Black Ops install; t6, one of a Black Ops II install, which rooms play on Plutonium; only read (ZOMBIES_GAME_DIR)")
 	plutoniumDir := flag.String("plutonium-dir", env("ZOMBIES_PLUTONIUM_DIR", ""), "where the server keeps its copy of Plutonium, which it downloads for Black Ops II rooms; empty: plutonium in -data-dir (ZOMBIES_PLUTONIUM_DIR)")
 	engineURL := flag.String("engine-url", env("ZOMBIES_ENGINE_URL", ""), "where the server downloads the Black Ops engine from, with {version} replaced by the release's version; empty: the releases of bo1-zombies on GitHub (ZOMBIES_ENGINE_URL)")
@@ -237,11 +252,7 @@ func run() int {
 		log.Printf("server: can't read the players: %v", err)
 		return 1
 	}
-	for p := *gamePort; len(l.gamePorts) < *maxGames && p <= 65535; p++ {
-		if p != *port {
-			l.gamePorts = append(l.gamePorts, p)
-		}
-	}
+	l.gamePorts = gamePorts(*gamePort, *maxGames, *port)
 	if haveT5 {
 		l.t5().newGame = func(code, mapName string, port, players int, mods []string) *game {
 			// sv_timeout: the game keeps the character of a dropped player for keepCharacter
@@ -276,9 +287,9 @@ func run() int {
 		if *plutoniumDir == "" {
 			*plutoniumDir = filepath.Join(*dataDir, "plutonium")
 		}
-		pluto := &plutonium.Copy{Dir: *plutoniumDir, URL: env("ZOMBIES_PLUTONIUM_URL", plutonium.Manifest),
+		pluto := &t6Copy{Copy: &plutonium.Copy{Dir: *plutoniumDir, URL: env("ZOMBIES_PLUTONIUM_URL", plutonium.Manifest),
 			Needs: plutonium.T6, Client: &http.Client{Timeout: 10 * time.Minute}, State: "zombies-server-files.json",
-			Logf: log.Printf}
+			Logf: log.Printf}}
 		l.t6().pluto = pluto
 		l.t6().newGame = func(code, mapName string, port, players int, password string) *game {
 			g := &game{
@@ -372,7 +383,7 @@ func run() int {
 		log.Printf("server: Black Ops runs on engine %s (build %s)", eng.Version, eng.Build)
 	}
 	if len(t6Maps) > 0 {
-		log.Printf("server: rooms play Black Ops II on Plutonium, one game at a time (its copy: %s)", *plutoniumDir)
+		log.Printf("server: rooms play Black Ops II on Plutonium (its copy: %s)", *plutoniumDir)
 		takes := fmt.Sprintf("version %d and later", launcherapi.MinVersion)
 		if *dev {
 			takes += ", and dev builds"

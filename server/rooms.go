@@ -136,6 +136,7 @@ type lobby struct {
 	gamePorts   []int               // the games' ports on 127.0.0.1, one for each game that can run at once
 	loadTimeout time.Duration       // how long a game waits for its players before it is called off
 	joinWait    time.Duration       // how long a T6 player's game waits to join for a player before them (t6Turn)
+	t6Way       time.Duration       // how long a T6 player's game is waited for by another room's at its address (t6Waits)
 	sweepEvery  time.Duration       // how often sweep checks for players who are gone and games to end
 	countdown   time.Duration       // how long a room's game waits to start once everyone in the room is ready
 	privateFor  time.Duration       // how long a new room is listed as private, so that its maker can make it private
@@ -389,6 +390,10 @@ type seat struct {
 	slot   int          // in a T6 game, the slot Plutonium's server has their client in (t6Status), or -1 for none
 	// awaited is when, in a T6 game, a player after them in the room first waited to join for them (t6Awaited).
 	awaited time.Time
+	// sent is when, in a T6 game, the server first sent the game to their launcher, which has their own game join it
+	// (launcherPlay). knocked is when a game from their address first got the seat (t6Seat). Until then, their game
+	// is on its way (t6Waits).
+	sent, knocked time.Time
 }
 
 // lost reports whether the seat's character is gone for good, so that its player can't take it back. That is the case
@@ -403,7 +408,7 @@ func newLobby(ctx context.Context) *lobby {
 		rooms: map[string]*room{}, reports: map[string]*gameResult{}, unsavedGames: map[string]*gameResult{},
 		titles: []title{&t5Title{}, &t6Title{knocked: map[netip.Addr]time.Time{}}},
 		busy:   map[int]bool{}, changed: make(chan struct{}), roomSize: 4, minPlayers: 2,
-		loadTimeout: 5 * time.Minute, joinWait: 30 * time.Second,
+		loadTimeout: 5 * time.Minute, joinWait: 30 * time.Second, t6Way: time.Minute,
 		sweepEvery: time.Second, countdown: 4 * time.Second, privateFor: 3 * time.Second}
 }
 

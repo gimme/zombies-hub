@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net"
@@ -17,6 +18,7 @@ import (
 	"testing"
 	"time"
 
+	"zombies/internal/launcherapi"
 	"zombies/internal/plutonium"
 	"zombies/internal/plutonium/plutoniumtest"
 )
@@ -285,13 +287,20 @@ func TestPageAddr(t *testing.T) {
 // Plutonium's server, from a copy the server downloads from a stand-in for its updater.
 func t6Lobby(t *testing.T) (*lobby, string) {
 	t.Helper()
+	l, target, _ := t6LobbyAndUpdater(t)
+	return l, target
+}
+
+// t6LobbyAndUpdater is t6Lobby, and the stand-in for Plutonium's updater, which says what the server asked of it.
+func t6LobbyAndUpdater(t *testing.T) (*lobby, string, *plutoniumtest.Updater) {
+	t.Helper()
 	l := testLobby(t)
 	l.maps = func() []string { return []string{"zombie_theater", "zm_standard_town", "zm_classic_tomb"} }
 	l.gamePorts = append(l.gamePorts, freePort(t))
 	revision := 1
 	updater := plutoniumtest.Serve(t, plutoniumFiles, &revision)
-	pluto := &plutonium.Copy{Dir: filepath.Join(t.TempDir(), "plutonium"), URL: updater.URL, Needs: plutonium.T6,
-		Client: updater.Client, State: "zombies-server-files.json"}
+	pluto := &t6Copy{Copy: &plutonium.Copy{Dir: filepath.Join(t.TempDir(), "plutonium"), URL: updater.URL,
+		Needs: plutonium.T6, Client: updater.Client, State: "zombies-server-files.json"}}
 	root := t.TempDir()
 	l.t6().pluto = pluto
 	l.t6().newGame = func(code, mapName string, port, players int, password string) *game {
@@ -311,7 +320,7 @@ func t6Lobby(t *testing.T) (*lobby, string) {
 	l.relay = newRelay(l, certs)
 	go l.relay.serve(udp)
 	t.Cleanup(func() { l.relay.close() })
-	return l, udp.LocalAddr().String()
+	return l, udp.LocalAddr().String(), updater
 }
 
 // pagesAt has the players' pages call from an address, as their last call to the server did.
@@ -466,15 +475,6 @@ func TestT6Room(t *testing.T) {
 	if n := len(t5Boards.All.Rows); n != 0 {
 		t.Errorf("T5's board of all its maps has %d players of a T6 game", n)
 	}
-	// another room can't play T6 meanwhile
-	c := l.hello("", "Cy").Token
-	do(l, c, "create", "map", "zm_classic_tomb")
-	pagesOpen(l, c)
-	do(l, c, "ready", "ready", "true")
-	second := waitView(t, l, c, "the second T6 game refused", func(v view) bool { return v.Room.Note != "" }).Room
-	if !strings.Contains(second.Note, "one such game at a time") || second.State != "open" {
-		t.Errorf("a second T6 room: %q, %s", second.Note, second.State)
-	}
 	// Bob leaves the room: the server kicks his game, and the relay lets it in no more
 	do(l, b, "leave")
 	if !udpSilent(bobsGame, []byte("\xff\xff\xff\xffconnectReq")) {
@@ -510,11 +510,201 @@ func TestT6Room(t *testing.T) {
 	if rows := duo(); len(rows) != 2 || rows[0].Name != "Ann" || rows[0].Round != 7 || rows[1].Round != 3 {
 		t.Errorf("the duo board after game over: %+v", rows)
 	}
+	if runs := l.t6().pluto.runs.Load(); runs != 0 {
+		t.Errorf("the server still counts %d games that run from its copy of Plutonium", runs)
+	}
+}
+
+// t6RoomUp is a room of one player on a T6 map, with its game up. The player's page calls from the address.
+func t6RoomUp(t *testing.T, l *lobby, name, mapName, address string) (token string) {
+	t.Helper()
+	token = l.hello("", name).Token
+	if err := do(l, token, "create", "map", mapName); err != "" {
+		t.Fatal(err)
+	}
+	pagesOpen(l, token)
+	if err := do(l, token, "ready", "ready", "true"); err != "" {
+		t.Fatal(err)
+	}
+	waitView(t, l, token, name+"'s server up", func(v view) bool { return v.Room.T6 != nil && v.Room.T6.Up })
+	pagesAt(l, address, token)
+	return token
+}
+
+// t6GameAt is a player's game at an address, which has yet to send anything.
+func t6GameAt(t *testing.T, address, target string) *net.UDPConn {
+	t.Helper()
+	to, err := net.ResolveUDPAddr("udp4", target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	game, err := net.DialUDP("udp4", &net.UDPAddr{IP: net.ParseIP(address)}, to)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { game.Close() })
+	return game
+}
+
+// t6SeenAt is the address at which a T6 room's game sees a player's game that asks to join: a seat's.
+func t6SeenAt(t *testing.T, game *net.UDPConn) string {
+	t.Helper()
+	game.SetDeadline(time.Now().Add(5 * time.Second))
+	game.Write([]byte("\xff\xff\xff\xffconnectReq"))
+	buf := make([]byte, 2048)
+	n, err := game.Read(buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	game.SetDeadline(time.Time{})
+	return strings.TrimPrefix(string(buf[:n]), "\xff\xff\xff\xffconnectRes ")
+}
+
+// Two rooms play T6 at once, each in a game of its own, which its own players join. Both games run from the server's
+// one copy of Plutonium. The copy is brought up to date for the first, and is left as it is for the second, which
+// starts while the first runs from it.
+func TestT6RoomsPlayAtOnce(t *testing.T) {
+	l, target, updater := t6LobbyAndUpdater(t)
+	a := t6RoomUp(t, l, "Ann", "zm_standard_town", "127.0.0.2")
+	if asked := updater.Asked(); !slices.Contains(asked, "/info.json") {
+		t.Errorf("the server asked Plutonium's updater for %q before the first game", asked)
+	}
+	b := t6RoomUp(t, l, "Bob", "zm_classic_tomb", "127.0.0.3")
+	if asked := updater.Asked(); len(asked) > 0 {
+		t.Errorf("the server asked Plutonium's updater for %q, while a game ran from its copy", asked)
+	}
+	if runs := l.t6().pluto.runs.Load(); runs != 2 {
+		t.Errorf("%d games run from the server's copy of Plutonium", runs)
+	}
+	if homeA, homeB := t6Home(l, a), t6Home(l, b); homeA == homeB {
+		t.Errorf("both games have the home %s", homeA)
+	}
+	annsGame, bobsGame := t6GameAt(t, "127.0.0.2", target), t6GameAt(t, "127.0.0.3", target)
+	if at, seat := t6SeenAt(t, bobsGame), l.seatAddr(b); at != seat {
+		t.Errorf("Bob's game is at %s, his seat at %s", at, seat)
+	}
+	if at, seat := t6SeenAt(t, annsGame), l.seatAddr(a); at != seat {
+		t.Errorf("Ann's game is at %s, her seat at %s", at, seat)
+	}
+	for _, token := range []string{a, b} {
+		v := waitView(t, l, token, "the room playing", func(v view) bool { return v.Room.State == "playing" })
+		if len(v.Room.Members) != 1 || !v.Room.Members[0].InGame {
+			t.Errorf("the room's members: %+v", v.Room.Members)
+		}
+	}
+	// one game ends, and the other plays on
+	annsGame.Write([]byte("\xff\xff\xff\xffover"))
+	waitView(t, l, a, "Ann's room open", func(v view) bool { return v.Room.State == "open" })
+	if v := l.viewOf(b); v.Room.State != "playing" {
+		t.Errorf("Bob's room, as Ann's game ended: %s (%q)", v.Room.State, v.Room.Note)
+	}
+	if runs := l.t6().pluto.runs.Load(); runs != 1 {
+		t.Errorf("%d games run from the server's copy of Plutonium, one having ended", runs)
+	}
+	if udpSilent(bobsGame, []byte("\x05\x00\x00\x00 a netchan packet")) {
+		t.Error("Bob's game reaches its room's game no more")
+	}
+}
+
+// The games' ports: none is the server's own port, and none is a port that a Plutonium server opens beside its game's.
+func TestGamePorts(t *testing.T) {
+	for _, tc := range []struct {
+		first, games, port int
+		want               []int
+	}{
+		{3100, 4, 3075, []int{3100, 3101, 3102, 3103}},
+		{3076, 4, 3075, []int{3079, 3080, 3081, 3082}},
+		{3072, 3, 3073, []int{3072, 3078, 3079}},
+		{65534, 4, 3075, []int{65534, 65535}},
+	} {
+		if got := gamePorts(tc.first, tc.games, tc.port); !slices.Equal(got, tc.want) {
+			t.Errorf("%d games from %d, the server's port being %d: %v", tc.games, tc.first, tc.port, got)
+		}
+	}
+}
+
+// launcherAt is the answer to a launcher's call from an address, which says its PC has what the game needs.
+func launcherAt(h http.Handler, key, address, seen string) launcherapi.Play {
+	_, body := asLauncher(h, http.MethodGet, "/launcher/play?ready=1&seen="+seen, key, "", "from", address+":4000")
+	var play launcherapi.Play
+	json.Unmarshal([]byte(body), &play)
+	return play
+}
+
+// Two players at one address, in two rooms that play T6 at once. Nothing in a game's packets says which room it is
+// to join. So the launcher of the second is sent their room's game once the game of the first has its seat, and each
+// game joins its own room's game.
+func TestT6RoomsTakeThePlayersOfOneAddressInTurn(t *testing.T) {
+	l, target := t6Lobby(t)
+	h := &web{lobby: l, publicPort: 4000}
+	a := t6RoomUp(t, l, "Ann", "zm_standard_town", "127.0.0.1")
+	b := t6RoomUp(t, l, "Bob", "zm_classic_tomb", "127.0.0.1")
+	keys := map[string]string{}
 	l.mu.Lock()
-	busy := l.t6().busy
+	for _, token := range []string{a, b} {
+		keys[token] = l.playerOf(token).key
+	}
 	l.mu.Unlock()
-	if busy {
-		t.Error("the server still counts a T6 game")
+	// Bob's launcher asks first, and is sent his room's game: Ann's waits for his game to have its seat
+	if play := launcherAt(h, keys[b], "127.0.0.1", ""); play.Game == nil {
+		t.Fatalf("the first launcher at the address was sent no game: %+v", play)
+	}
+	waits := launcherAt(h, keys[a], "127.0.0.1", "")
+	if waits.Game != nil || waits.Room == "" {
+		t.Fatalf("the second launcher at the address, as the first one's game is on its way: %+v", waits)
+	}
+	// (the server holds its call, and answers it with the game when the wait is over)
+	held := make(chan launcherapi.Play, 1)
+	go func() { held <- launcherAt(h, keys[a], "127.0.0.1", waits.Version) }()
+	select {
+	case play := <-held:
+		t.Fatalf("the second launcher's call was answered as the first one's game was on its way: %+v", play)
+	case <-time.After(500 * time.Millisecond):
+	}
+	// the one game the address has on its way is Bob's
+	first := t6GameAt(t, "127.0.0.1", target)
+	if at, seat := t6SeenAt(t, first), l.seatAddr(b); at != seat {
+		t.Fatalf("the first game from the address is at %s, where the seat of the player whose launcher has the game is at %s", at, seat)
+	}
+	select {
+	case play := <-held:
+		if play.Game == nil {
+			t.Fatalf("the second launcher's call was answered with no game: %+v", play)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the second launcher was sent no game once the first one's game had its seat")
+	}
+	second := t6GameAt(t, "127.0.0.1", target)
+	if at, seat := t6SeenAt(t, second), l.seatAddr(a); at != seat {
+		t.Errorf("the second game from the address is at %s, its player's seat at %s", at, seat)
+	}
+	for _, token := range []string{a, b} {
+		waitView(t, l, token, "the room playing", func(v view) bool { return v.Room.State == "playing" })
+	}
+}
+
+// A game that doesn't come is waited for only so long (t6Way) by the launcher of a player of another room at its
+// address. That launcher is then sent its game, and the next game from the address is its player's.
+func TestT6RoomsWaitOnlySoLongForAGameOfOneAddress(t *testing.T) {
+	l, target := t6Lobby(t)
+	l.t6Way = 500 * time.Millisecond
+	h := &web{lobby: l, publicPort: 4000}
+	a := t6RoomUp(t, l, "Ann", "zm_standard_town", "127.0.0.1")
+	b := t6RoomUp(t, l, "Bob", "zm_classic_tomb", "127.0.0.1")
+	l.mu.Lock()
+	annsKey, bobsKey := l.playerOf(a).key, l.playerOf(b).key
+	l.mu.Unlock()
+	if play := launcherAt(h, annsKey, "127.0.0.1", ""); play.Game == nil {
+		t.Fatalf("the first launcher at the address was sent no game: %+v", play)
+	}
+	if play := launcherAt(h, bobsKey, "127.0.0.1", ""); play.Game != nil {
+		t.Fatalf("the second launcher at the address was sent its game at once: %+v", play)
+	}
+	waitFor(t, "the second launcher's game, the first one's game not having come", func() bool {
+		return launcherAt(h, bobsKey, "127.0.0.1", "").Game != nil
+	})
+	if at, seat := t6SeenAt(t, t6GameAt(t, "127.0.0.1", target)), l.seatAddr(b); at != seat {
+		t.Errorf("the game from the address is at %s, where the seat of the player whose launcher was sent the game last is at %s", at, seat)
 	}
 }
 

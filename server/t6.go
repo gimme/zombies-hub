@@ -39,9 +39,14 @@ import (
 // The server puts a script in the game that reports how the game goes (t6Script). It reports each round, and the end
 // of the map's main quest, which set the players' records on the leaderboards. At game over it reports each player's
 // line of the scoreboard, which becomes the room's report of the game. Compared with a T5 room's game, a T6 room's
-// game has no stats or collectibles kept by the server, no mods, and no browser to play it in. The server runs
-// one T6 game at a time. Each Plutonium server also opens a UDP port, counting up from 3074, and a second Plutonium
-// server would take a port that the server or one of its games uses.
+// game has no stats or collectibles kept by the server, no mods, and no browser to play it in.
+//
+// Several rooms play T6 at once, each on a Plutonium server of its own, and all from the server's one copy of
+// Plutonium (t6Copy). Besides its game's port, each Plutonium server opens a UDP port on every address: 3074, or the
+// next port above it that it can open. Nothing sets that port (net_broadcast_port does not). With the games' own
+// ports there, a second Plutonium server took a port of one of the games, and that game then listened on another
+// port, where the server never reached it. So no game has a port there (gamePorts). Three Plutonium servers at once
+// opened 3074, 3076 and 3077, the server's own port being 3075.
 //
 // The players join a T6 game in the order of their places in the room (t6Turn), so that the game shows each of them
 // in the colour their place has in the room (web/src/page.css: .avatar[data-place]). The game's HUD colours a
@@ -65,6 +70,10 @@ import (
 
 const t6 = "t6"
 
+// plutoniumPort is the first of the UDP ports that Plutonium's servers open besides their games' ports (the comment at
+// the top).
+const plutoniumPort = 3074
+
 var t6MapList = []mapEntry{
 	// The T6 maps are named after their game settings files in Plutonium's server configs (t6Maps). The page has no
 	// picture or description of them, because T6 keeps its pictures in archives that the server doesn't read.
@@ -86,9 +95,7 @@ type t6Title struct {
 	newGame func(code, mapName string, port, players int, password string) *game
 	// pluto is the server's copy of Plutonium, which the games run. The players' launchers match its revision
 	// (launcherPlay). It is nil on a server without T6's game files.
-	pluto *plutonium.Copy
-	// busy is true while a T6 game runs, from its start until it has quit. The server runs one at a time.
-	busy bool
+	pluto *t6Copy
 	// knocked maps an address to the time the server last logged that a game at that address asked to join and
 	// matched no player's seat (t6Seat).
 	knocked map[netip.Addr]time.Time
@@ -110,11 +117,8 @@ func (*t6Title) mods() bool    { return false } // the engine implements the mod
 func (*t6Title) inPage() bool  { return false }
 
 func (t *t6Title) free(*lobby) error {
-	switch {
-	case t.newGame == nil:
+	if t.newGame == nil {
 		return errors.New("The server doesn't have Black Ops II.")
-	case t.busy:
-		return errors.New("Another room is playing Black Ops II, and the server runs one such game at a time.")
 	}
 	return nil
 }
@@ -128,11 +132,11 @@ func (t *t6Title) begin(l *lobby, r *room, rg *roomGame) *game {
 		l.change()
 		l.mu.Unlock()
 	}
-	t.busy = true
 	return g
 }
 
-func (t *t6Title) done(*lobby, *roomGame) { t.busy = false }
+// done is called once rg's game has quit: it no longer runs from the server's copy of Plutonium.
+func (*t6Title) done(_ *lobby, rg *roomGame) { t6Of(rg).leave() }
 
 // drop removes a player who left the room from the game. A T6 game keeps no character for them. drop kicks their
 // client by its slot and ends their route, and the relay no longer lets their game in.
@@ -262,18 +266,57 @@ func t6Installed(dir string) []string {
 // ---- Plutonium, the server's copy ----
 
 // The server keeps one copy of Plutonium (plutonium.Copy, in -plutonium-dir). It downloads the copy from Plutonium's
-// updater and brings it up to date before each T6 game (t6Prepare). The games only read the copy.
+// updater and brings it up to date before a T6 game (t6Prepare), when no other game runs from the copy. The games only
+// read the copy.
 
 // bootstrapper is the program that starts a Plutonium game, as a path in the Plutonium folder.
 const bootstrapper = plutonium.Bootstrapper
+
+// t6Copy is the server's copy of Plutonium, as the T6 games share it. Every game runs from the copy: its home links
+// to the copy's files (t6Prepare). So the copy changes only while no game runs from it. An update replaces the files
+// of the revision before, which a game that runs still loads from. The players' launchers also match the copy's
+// revision (launcherPlay), and a Plutonium server turns away a client of another revision: the launcher of a player
+// who comes back to a game that runs would bring their PC to a revision that the game is not of.
+type t6Copy struct {
+	*plutonium.Copy
+	mu   sync.Mutex   // held while a game comes to the copy (enter), so that one game at a time brings it up to date
+	runs atomic.Int32 // the games that run from the copy now, each from its enter until its leave
+}
+
+// enter brings the server's copy of Plutonium up to date for the game, which is about to run from it (t6Prepare). It
+// leaves the copy as it is when another game runs from it now. The game then runs the revision that the other game
+// has, and a later game brings the copy up to date, once none runs. The game leaves the copy when it has quit
+// (leave).
+func (t *t6Game) enter(ctx context.Context) error {
+	c := t.pluto
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.runs.Load() == 0 {
+		if err := c.Update(ctx); err != nil {
+			return err
+		}
+	}
+	c.runs.Add(1)
+	t.entered.Store(true)
+	return nil
+}
+
+// leave is called once the game has quit. It does nothing for a game that never came to the copy: one that did not
+// start.
+func (t *t6Game) leave() {
+	if t.entered.Swap(false) {
+		t.pluto.runs.Add(-1)
+	}
+}
 
 // ---- a T6 game ----
 
 // t6Game is the engine (game.go) of a T6 room's game: Plutonium's server, not BO1Zombies.exe.
 type t6Game struct {
-	pluto   *plutonium.Copy
-	mapName string // one of t6Maps
-	players int    // how many players it waits for before round 1 (zombies_minplayers)
+	pluto   *t6Copy
+	entered atomic.Bool // it runs from the server's copy of Plutonium (enter)
+	mapName string      // one of t6Maps
+	players int         // how many players it waits for before round 1 (zombies_minplayers)
 	// waits is how long the game waits for the other players once the first is in, before it starts without them
 	// (t6Prepare: sv_connectTimeout). The server waits as long before it calls the game off (loadTimeout), so the
 	// server's deadline comes first.
@@ -301,7 +344,7 @@ type t6Client struct {
 	in      bool
 }
 
-func newT6Game(pluto *plutonium.Copy, mapName string, players, size int, waits time.Duration, password string) *t6Game {
+func newT6Game(pluto *t6Copy, mapName string, players, size int, waits time.Duration, password string) *t6Game {
 	return &t6Game{pluto: pluto, mapName: mapName, players: players, size: size, waits: waits, password: password,
 		rcon: randomHex(16), send: make(chan string, 16)}
 }
@@ -435,9 +478,9 @@ lobby_game_over()
 `
 
 // t6Prepare makes the game's home a Plutonium folder, which the game runs from. It first brings the server's copy of
-// Plutonium up to date (plutonium.Copy.Update). Everything the game only reads is a link to that copy, so that a game
-// that is taken over can change nothing the next game runs. The home's own files are what the game writes (its logs,
-// in main), its two config files, and the server's script (t6Script).
+// Plutonium up to date, unless another game runs from the copy (enter). Everything the game only reads is a link to
+// that copy, so that a game that is taken over can change nothing that another game runs. The home's own files are
+// what the game writes (its logs, in main), its two config files, and the server's script (t6Script).
 //
 // The first config, lobby.cfg, sets the game up. The game's command line execs it. It sets how many players join the
 // game and with what password. It gives the remote console a password that only the server has. The remote console
@@ -456,7 +499,7 @@ func (g *game) t6Prepare(ctx context.Context) error {
 	if !ok {
 		return fmt.Errorf("%s is no T6 map", t.mapName)
 	}
-	if err := t.pluto.Update(ctx); err != nil {
+	if err := t.enter(ctx); err != nil {
 		return err
 	}
 	if t.updated.Store(true); t.changed != nil {
@@ -760,6 +803,7 @@ func (rg *roomGame) t6Whose(code string, at *seat, name string) *seat {
 	at.local, whose.local = whose.local, at.local
 	at.in, whose.in = whose.in, at.in
 	at.slot, whose.slot = whose.slot, at.slot
+	at.knocked, whose.knocked = whose.knocked, at.knocked
 	return whose
 }
 
@@ -886,8 +930,16 @@ const t6EndTakes = time.Minute
 //
 // Several players can call from ip (a household behind one address). t6Seat then picks a seat that has no client. If
 // each seat has one, it picks the seat whose client has been quiet the longest, for at least t6Requiet: that client's
-// player has started their game again. t6Status later finds which of the players a client belongs to, from the name
-// it plays under, once the room's game lists it.
+// player has started their game again. Players of one room are told apart later, by the name a client plays under:
+// in its connect (t6Turn), and once the room's game lists it (t6Status). Both are clients of the one game.
+//
+// Players of different rooms can call from ip too, and nothing in a client's packets says which room's game it is
+// to join. A client that got a seat in the wrong room's game would ask that game to let it in with the other room's
+// password. So the server has the players' launchers send their games one room after the other (t6Waits), and of
+// the seats that have no client, t6Seat picks the one whose player's launcher was sent the game last. A player who
+// joins by hand, with the console line of their room's page, has no such order: with a player of another room at
+// their address who joins in the same moments, their game can get the other's seat, and then neither joins until
+// they try again.
 //
 // ok is false when there is no such seat. While a T6 game accepts players, the server then logs the address that
 // asked. This is how a player's game fails to join when it reaches the server from another address than the player's
@@ -916,7 +968,7 @@ func (l *lobby) t6Seat(ip netip.Addr, verb string) (game, local *net.UDPAddr, na
 			case quiet < t6Requiet:
 				continue
 			}
-			if quiet > bestQuiet {
+			if quiet > bestQuiet || quiet == bestQuiet && s.sent.After(best.sent) {
 				best, room, bestQuiet = s, r, quiet
 			}
 		}
@@ -932,8 +984,47 @@ func (l *lobby) t6Seat(ip netip.Addr, verb string) (game, local *net.UDPAddr, na
 		}
 		return nil, nil, "", "", false
 	}
+	if best.knocked.IsZero() {
+		best.knocked = time.Now()
+	}
 	return &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: room.game.port}, best.local, best.player.name,
 		fmt.Sprintf("%s, room %s", best.player.name, room.code), true
+}
+
+// t6Waits reports whether p's launcher is to wait before it has p's game join their room's T6 game (launcherPlay).
+// It waits while the game of another player at p's address is on its way into another room's T6 game: whose is that
+// player and their room, for the log. The relay then has one game to expect from the address, and gives it the seat
+// of the player it belongs to (t6Seat).
+//
+// A player's game is on its way from when their launcher was sent their room's game until a game from their address
+// has a seat in it. It can get no seat before the room's game is up. From then, or from when the launcher was sent
+// the game if that was later, it has t6Way to come. A game that takes longer is waited for no more, and p's game may
+// then get its seat. Nor is a game waited for while its launcher is still getting its PC ready, which can take any
+// time (preparing). A launcher that waits is sent no game, so the wait goes one way: of two players at one address,
+// the one whose launcher was sent their game first has their game join first. The caller holds l.mu.
+func (l *lobby) t6Waits(p *player) (waits bool, whose string) {
+	if !p.addr.IsValid() {
+		return false, ""
+	}
+	for _, r := range l.rooms {
+		rg := r.game
+		if r == p.room || t6Of(rg) == nil || rg.ending != "" {
+			continue
+		}
+		for _, s := range rg.seats {
+			if s.player.addr != p.addr || s.left || s.sent.IsZero() || !s.knocked.IsZero() || l.preparing(s.player) {
+				continue
+			}
+			since := s.sent
+			if rg.up.After(since) {
+				since = rg.up
+			}
+			if rg.up.IsZero() || time.Since(since) < l.t6Way {
+				return true, fmt.Sprintf("%s, room %s", s.player.name, r.code)
+			}
+		}
+	}
+	return false, ""
 }
 
 // t6Requiet is how long a T6 client must have sent nothing before another client from its address can take its seat.
