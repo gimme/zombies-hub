@@ -38,7 +38,8 @@ import { bo1Settings } from './settings';
 import { store } from './storage';
 import { mapsOf, titleName } from './titles';
 import {
-  launcherDownloads, launcherHere, launcherMissed, launcherOn, launcherSeen, launcherSetup, onWindows, t6Console,
+  launcherDownloads, launcherHere, launcherMacLine, launcherMissed, launcherOn, launcherOpening, launcherSeen,
+  launcherSetup, launcherStep, onWindows, t6Console,
 } from './windows';
 
 // A gamepad, on a player whose page reads one: its two grips, its d-pad and two of its buttons.
@@ -125,9 +126,11 @@ function memberRow(m: Member, room: Room, open: boolean): HTMLLIElement {
   const who = el('div', 'who grow');
   const name = el('span', 'name', m.name);
   if (mine) name.append(el('span', 'sr', ' (you)'));
-  // A member has a team in a room with Grief on (server/mods.go: teamOf).
-  const what = [m.team && 'Team ' + m.team, m.host && 'Host', m.windows && 'On Windows', m.away && 'Away']
-    .filter(Boolean).join(' · ');
+  // A member has a team in a room with Grief on (server/mods.go: teamOf). On Windows says that they play a Black Ops
+  // game in the Windows client and not in their page. Every player of a Black Ops II game plays it outside their page,
+  // on Windows or on a Mac, so the room says it of none.
+  const what = [m.team && 'Team ' + m.team, m.host && 'Host', m.windows && room.of !== 't6' && 'On Windows',
+    m.away && 'Away'].filter(Boolean).join(' · ');
   const line = el('div', 'line');
   line.append(name);
   if (m.gamepad) {
@@ -203,10 +206,15 @@ export function showRoomButton(v: View, room: Room): void {
     if (t6 && launcherOn() && !v.you.ready && !handOn()) {
       const mine = room.members.find((x) => x.id === me.id);
       if (v.you.launcherFailed) m = { label: 'Try again', does: 'launch', primary: true };
-      else if (!v.you.launcher) m = { label: 'Connect', does: 'launch', primary: true };
-      else if (!v.you.launcherReady) {
+      else if (!v.you.launcher) {
+        // From the click until the launcher shows itself, the button says what it goes on saying once the launcher
+        // has (windows.ts: launcherOpening).
+        m = launcherOpening ? { label: 'Connecting...', disabled: true }
+          : { label: 'Connect', does: 'launch', primary: true };
+      } else if (!v.you.launcherReady) {
+        // The button says the launcher's step once the launcher has been at it for a moment (windows.ts: launcherStep).
         m = { label: mine && mine.downloading ? `Downloading · ${Math.floor((mine.got || 0) * 100)}%`
-          : (v.you.launcherDoing || 'Starting') + '...', disabled: true };
+          : (launcherStep(v.you.launcherDoing || '') || 'Connecting') + '...', disabled: true };
       } else if (mine && mine.missing) {
         lacks = "Your Black Ops II doesn't have this map" + (launcherDownloads()
           ? '. The launcher can download the game files from the server instead.'
@@ -263,7 +271,7 @@ function gameButton(v: View, room: Room): RoomButton {
  * line that installs the launcher, and the line that joins by hand. The line that installs the launcher is there in a
  * browser that has never seen a launcher of the player's run, after a click of the room's button that started no
  * launcher (windows.ts: launcherMissed), and when the server refused the player's launcher as too old. That launcher
- * can't say so itself, because the server takes no report from it.
+ * can't say so itself, because the server takes no report from it. On a Mac the line is one for Terminal.
  */
 export function showT6(v: View, room: Room): void {
   const box = $('t6box');
@@ -279,12 +287,57 @@ export function showT6(v: View, room: Room): void {
   $('t6handline').classList.toggle('hidden', !byHand);
   $('t6console').textContent = t6Console(room);
   const old = !!v.you.launcherOld;
-  $('t6get').classList.toggle('hidden', byHand || (launcherHere && !old && !launcherMissed));
-  $('t6why').textContent = old ? 'Your Zombies Launcher is too old for this server.'
+  // A Mac has no program to download: the launcher is installed there by a line for Terminal (windows.ts:
+  // launcherMacLine), which the box shows in place of the link. The same line brings an old launcher up to date.
+  const line = launcherMacLine();
+  const get = !byHand && (!launcherHere || old || launcherMissed);
+  const why = old ? 'Your Zombies Launcher is too old for this server.'
     : launcherMissed ? 'Nothing happened?' : 'First time?';
+  $('t6get').classList.toggle('hidden', !get || !!line);
+  $('t6why').textContent = why;
   $('t6setup').textContent = old ? 'Install the new one' : 'Install Zombies Launcher';
-  $('t6then').textContent = old ? ', then connect again.' : '.';
   $<HTMLAnchorElement>('t6setup').href = launcherSetup();
+  // The line has no button that copies it. A content blocker takes a page that puts a shell's line on the clipboard
+  // for one that tricks the player into running it, and says so (uBlock Origin: "a potential ClickFix attack"). A
+  // click on the line selects all of it.
+  $('t6mac').classList.toggle('hidden', !get || !line);
+  $('t6machow').textContent = why + (old ? ' Install the new one with this line in Terminal:'
+    : ' Install Zombies Launcher with this line in Terminal:');
+  $('t6macline').textContent = line;
+  // The "?" by what installs the launcher shows what the launcher is and how it goes again, for a player to know
+  // before they install it.
+  const about = $('t6about');
+  about.classList.toggle('hidden', !get || !aboutShown);
+  // The words are made once for the page's platform, and not again at each view: a link in them keeps the focus.
+  const kind = line ? 'mac' : 'pc';
+  if (about.dataset.of !== kind) {
+    about.dataset.of = kind;
+    about.replaceChildren(...(line ? ABOUT_MAC : ABOUT_PC).map(part => typeof part === 'string' ? part : site(part)));
+  }
+  for (const b of box.querySelectorAll('button.what')) b.setAttribute('aria-expanded', String(aboutShown));
+}
+
+// What the launcher is, which the "?" shows (showT6): text, and the names of what the launcher installs, each with its
+// site. The words name no game, as the launcher is to start more than one. A Mac's are of what the line for Terminal
+// installs (launcher/mac.sh). The app that removes the launcher there is "run": opened, it could be taken for the
+// launcher's menu in the menu bar.
+type Words = (string | [name: string, href: string])[];
+const PLUTONIUM: [string, string] = ['Plutonium', 'https://plutonium.pw/'];
+const ABOUT_PC: Words = ['Zombies Launcher is a small program that helps start the game on this PC and connects it ' +
+  'to the room. It also installs the required game client (', PLUTONIUM, ').'];
+const ABOUT_MAC: Words = ['This script installs Zombies Launcher: a small program that helps start the game on this ' +
+  'Mac and connects it to the room. It also installs the required game client (', PLUTONIUM, ') and its Mac ' +
+  'compatibility tool (', ['plutonium-mac-aio', 'https://github.com/LuidgiAlt/plutonium-mac-aio'], '). That can ' +
+  'take a few minutes. To uninstall the launcher, run the "Zombies Launcher" app.'];
+let aboutShown = false; // whether the "?" was clicked, and shows it
+
+/** A link to a site, which opens in a tab of its own: the room stays. */
+function site([name, href]: [string, string]): HTMLAnchorElement {
+  const a = el('a', '', name);
+  a.href = href;
+  a.target = '_blank';
+  a.rel = 'noopener';
+  return a;
 }
 
 /** Whether the player joins their Black Ops II room's game by hand, as that checkbox says (showT6). */
@@ -502,6 +555,12 @@ export function roomInit(): void {
   };
   $('endgame').onclick = () => act('end');
   $('copyt6').onclick = () => copy($('copyt6'), $('t6console').textContent || '');
+  for (const b of $('t6box').querySelectorAll<HTMLButtonElement>('button.what')) {
+    b.onclick = () => {
+      aboutShown = !aboutShown;
+      if (view && view.room) showT6(view, view.room);
+    };
+  }
   $('leave').onclick = async () => (await mayLeaveGame()) && act('leave');
   $('copylink').onclick = () => view && view.room && copy($('copylink'), location.origin + '/?room=' + view.room.code);
 }

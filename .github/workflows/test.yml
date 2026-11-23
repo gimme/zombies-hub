@@ -40,6 +40,9 @@ jobs:
       - run: go vet ${{ matrix.packages }}
       # setup-go keeps Go's build cache between runs, which also holds test results. -count=1 runs every test anyway.
       - run: go test -count=1 ${{ matrix.packages }}
+      # The script that installs the launcher on a Mac (launcher/mac.sh): bash reads it through without running it.
+      - if: matrix.os == 'ubuntu-latest'
+        run: bash -n launcher/mac.sh
   page:
     runs-on: ubuntu-latest
     defaults:

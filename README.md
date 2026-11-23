@@ -3,7 +3,7 @@
 A community hub for playing Call of Duty Zombies together, on a dedicated server. Players open the page, group into rooms and start a co-op game. Results and achievements are kept in leaderboards.
 
 - **Black Ops** plays in the browser (Chrome, WebGPU). Each player imports the game files from their own copy of Black Ops, and the browser keeps them. Imported maps can be played offline too.
-- **Black Ops II** plays on [Plutonium](https://plutonium.pw/). The server runs Plutonium's dedicated server, and each player automatically joins from their own PC with the help of a small launcher, which sits in the tray.
+- **Black Ops II** plays on [Plutonium](https://plutonium.pw/). The server runs Plutonium's dedicated server, and each player automatically joins from their own PC with the help of a small launcher, which sits in the tray. A Mac with Apple Silicon can play too.
 - The server runs in Docker.
 
 ## Quick start

@@ -22,6 +22,8 @@
 //   ?offline=1            shows the page to play offline (solo.ts)
 //   ?boards=1             shows the leaderboards (boards.ts)
 //   &name=Ann             the player's name. It is kept for the next visit, as a name that is typed in is.
+//   ?mac=1                shows a Mac's page on a PC, and ?mac=0 a PC's on a Mac: a Black Ops II room's line that
+//                         installs the launcher (windows.ts: onMac)
 //   ?map=zombie_theater   plays that map in the browser alone, with no lobby: zombie_theater, zombie_pentagon,
 //                         zombietron, zombie_cod5_* and so on
 //   &args=+set%20foo%201  more of the engine's command line

@@ -81,6 +81,11 @@ const (
 	Signed = "zombies-launcher.sig"
 )
 
+// MacSetup is the file name, in a release, of the script that installs the launcher on a Mac and runs it there
+// (launcher/mac.sh). The room's page shows a Mac the line that fetches the script and runs it, for the player to
+// paste into Terminal.
+const MacSetup = "zombies-launcher-mac.sh"
+
 // Tag returns the tag of the launcher's release of a version.
 func Tag(version int64) string { return "launcher-v" + strconv.FormatInt(version, 10) }
 

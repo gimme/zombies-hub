@@ -7,6 +7,7 @@
 import type { Room } from './api';
 import { canRun } from './engine';
 import { me, page, view } from './lobby';
+import { params } from './params';
 import { served } from './server';
 import { store } from './storage';
 
@@ -42,13 +43,39 @@ export const t6Console = (room: Room): string =>
 // The browser asks the player whether the link may open the launcher. On a PC without the launcher, the browser does
 // nothing with the link, and tells the page nothing either way. So the page watches what follows a click (openLauncher):
 // the browser's question takes the focus from the page, and a launcher that starts calls the server. When neither
-// happens within LAUNCHER_WAIT, the PC has no launcher, as far as the page can tell (launcherMissed).
+// happens within LAUNCHER_WAIT, the PC has no launcher, as far as the page can tell (launcherMissed). Until then, the
+// room's button says that the launcher starts (launcherOpening).
 //
 // The launcher's releases are on GitHub. The server says where the latest release's setup is (server/web.go: GET
 // /server), and the page links to it. GitHub sends the file as a download, so the page stays.
+//
+// The launcher is a Windows program. On a Mac it runs in Wine, and a script of the same release installs it there
+// and runs it (launcher/mac.sh). The page shows a Mac the line that fetches the script from GitHub and runs it, for
+// the player to paste into Terminal (launcherMacLine). A script that the browser downloaded would need Terminal too:
+// macOS opens it in an editor, and lets no downloaded script run at a double click.
+
+/**
+ * Whether the page is on a Mac, as the browser says: Chromium's client hints, or else the platform's name
+ * (settings.ts has the same test, for a key's name). ?mac=1 or ?mac=0 in the page's URL says so instead, to see a
+ * Mac's page on a PC.
+ */
+export const onMac = ((): boolean => {
+  const forced = params.get('mac');
+  if (forced === '1' || forced === '0') return forced === '1';
+  const hints = (navigator as unknown as { userAgentData?: { platform?: string } }).userAgentData;
+  return hints && hints.platform ? hints.platform === 'macOS' : /^Mac/.test(navigator.platform || '');
+})();
 
 /** Whether the server has said where the launcher is. Until it has, a Black Ops II room is joined by hand. */
 export const launcherOn = (): boolean => !!served.launcher;
+
+/**
+ * The line that installs the launcher on a Mac, for Terminal, or '' on another system and until the server has said
+ * where the script is. bash runs the script that curl fetches. The script then has its own text, which it keeps for
+ * the launcher's links (launcher/mac.sh: keep_script).
+ */
+export const launcherMacLine = (): string =>
+  onMac && served.launcherMac ? `/bin/bash -c "$(curl -fsSL ${served.launcherMac})"` : '';
 
 /**
  * Whether the server sends game files. The launcher of a player whose copy of Black Ops II lacks the room's map can
@@ -71,45 +98,109 @@ export let launcherHere = store.get('zombies-launcher') === '1';
  */
 export let launcherMissed = false;
 
+/**
+ * Whether the player clicked to open the launcher, and no launcher of theirs has shown itself since (openLauncher).
+ * The room's button says meanwhile that the launcher starts, as it goes on saying once the launcher has. A click that
+ * left the button as it was would look as if it did nothing.
+ */
+export let launcherOpening = false;
+
 /** Notes that the player's launcher runs, as the server says. */
 export function launcherSeen(): void {
   launcherMissed = false;
+  if (launcherOpening) {
+    launcherOpening = false;
+    stopWatching();
+  }
   if (launcherHere) return;
   launcherHere = true;
   store.set('zombies-launcher', '1');
 }
 
-// How long a click waits for a sign of the launcher. A launcher that starts tells the server so at once, before it
-// looks for a later release of itself (internal/launcherapi: POST /launcher/started), which a program that Windows
-// starts does in well under a second. A launcher of a release before that call says it only after its look at GitHub,
-// a second or so later. A sign that comes late still takes the line that installs the launcher away (launcherSeen).
-const LAUNCHER_WAIT = 1500;
+// How long the launcher has to be at a step before the room's button says the step. A step that is over at once, as
+// the check of game files that are all there, would otherwise show for a blink.
+const STEP_SHOWS = 800;
+let step = ''; // the step that the launcher last said it is at ("Checking files"), or ''
+let stepSince = 0; // when the page first heard of that step
+let stepShown = ''; // the step that the button says
+let stepTimer = 0;
+
+/**
+ * Returns the step of the launcher that the room's button is to say, or '' for none, when the launcher says that it
+ * is at the step doing. That is doing once the launcher has been at it for STEP_SHOWS. Until then it is the step
+ * that the button said before, and none at once when the launcher is at none.
+ */
+export function launcherStep(doing: string): string {
+  if (doing !== step) {
+    step = doing;
+    stepSince = Date.now();
+    clearTimeout(stepTimer);
+    if (doing) stepTimer = window.setTimeout(() => page.redraw(), STEP_SHOWS);
+  }
+  if (!doing || Date.now() - stepSince >= STEP_SHOWS - 20) stepShown = doing; // a timer may come a little early
+  return stepShown;
+}
+
+// How long a click waits for a sign of the launcher, where the browser asked nothing. A launcher that starts tells
+// the server so at once, before it looks for a later release of itself (internal/launcherapi: POST
+// /launcher/started), which a program that Windows starts does in well under a second. A launcher of a release
+// before that call says it only after its look at GitHub, a second or so later. On a Mac, Wine starts first, and the
+// launcher said so two seconds after the click on the one Mac that was timed. A sign that comes late still takes the
+// line that installs the launcher away (launcherSeen).
+const LAUNCHER_WAIT = onMac ? 4000 : 1500;
+// How long the button goes on saying that the launcher starts once the browser's question is answered, which the
+// page takes it to be when it has the focus again. A player who answered no then has the button back.
+const LAUNCHER_ANSWERED = onMac ? 6000 : 5000;
+// How long it says so at most, for a question that stays open.
+const LAUNCHER_LIMIT = 60000;
 let stopWatching = (): void => {};
 
 /**
  * Opens the launcher. tls=0 is for a page on plain HTTP, which the launcher takes from a server on its own network.
- * Where nothing follows the click, the room shows the line that installs the launcher (launcherMissed).
+ * The room's button says that the launcher starts (launcherOpening) until one shows itself, or until nothing more
+ * can follow the click. Where nothing followed it at all, the room then shows the line that installs the launcher
+ * (launcherMissed).
  */
 export function openLauncher(): void {
   stopWatching();
   let asked = false; // the browser asked whether to open the launcher, or another window took the focus
+  let limit = 0;
+  // Nothing more is expected of the click: the button is as it was before it.
+  const over = () => {
+    stopWatching();
+    if (!launcherOpening) return;
+    launcherOpening = false;
+    page.redraw();
+  };
   const away = () => {
     asked = true;
   };
+  const back = () => {
+    if (!asked) return;
+    clearTimeout(limit);
+    limit = window.setTimeout(over, LAUNCHER_ANSWERED);
+  };
   const timer = window.setTimeout(() => {
-    stopWatching();
     if (asked || (view && view.you.launcher) || launcherMissed) return;
     console.log('lobby: no launcher started: the room shows where to install it');
     launcherMissed = true;
+    launcherOpening = false;
+    stopWatching();
     page.redraw();
   }, LAUNCHER_WAIT);
+  limit = window.setTimeout(over, LAUNCHER_LIMIT);
   stopWatching = () => {
     clearTimeout(timer);
+    clearTimeout(limit);
     removeEventListener('blur', away);
+    removeEventListener('focus', back);
     document.removeEventListener('visibilitychange', away);
   };
   addEventListener('blur', away);
+  addEventListener('focus', back);
   document.addEventListener('visibilitychange', away);
+  launcherOpening = true;
+  page.redraw();
   location.assign('zombies-launcher://' + location.host + '/play?key=' + (me.key || '') +
     (location.protocol === 'https:' ? '' : '&tls=0'));
 }

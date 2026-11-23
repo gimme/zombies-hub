@@ -14,7 +14,7 @@ A room plays one title: its map's. The page keeps the titles apart. A room's hos
 ## Layout
 
 - `server/`: the server. `rooms.go` has the rooms, `game.go` runs a game process, `relay.go` relays players' packets, and `web.go` serves the page and the game files. Each title has a file: `t5.go`, `t6.go`. `title.go` has what the rest of the server knows of a title, and which map a room goes to when its host picks one. `store.go` is the SQLite database that keeps the players and the games' reports, and has its schema.
-- `launcher/`: Zombies Launcher, the Windows program that starts a player's Black Ops II. Its releases are on GitHub ([below](#releasing-the-launcher)), and the room's page links to the latest one.
+- `launcher/`: Zombies Launcher, the Windows program that starts a player's Black Ops II. Its releases are on GitHub ([below](#releasing-the-launcher)), and the room's page links to the latest one. `mac.sh` installs the launcher on a Mac and runs it there, in Wine. A release has it as `zombies-launcher-mac.sh`, and the room's page shows a Mac the line that fetches it.
 - `internal/`: Go packages.
   - `bo1zombies/`: downloads and unpacks the Black Ops engine build.
   - `plutonium/`: keeps a copy of Plutonium up to date, for the server and the launcher.
@@ -47,6 +47,8 @@ After a change in `web/`, run `make web` and reload the page. The page is built 
 On Windows, Wine can't run programs or load game files from a Windows folder. The scripts therefore copy the game files into the Docker volume `zombies-hub-game` (9 GB per game, once), and the server unpacks the engine into the volume `<container>-engine`.
 
 To try a change to the launcher, `make launcher` builds it into `build/zombies-launcher-setup.exe` (`docker/launcher.sh`). Run that file on a Windows PC to install it over the launcher the PC has. It is a dev build, of version 0: it never updates itself, and only a dev server takes it. On any other server the room says that the launcher is too old, and links to the latest release.
+
+On a Mac, copy the build and `launcher/mac.sh` there, and run `ZOMBIES_LAUNCHER_EXE=zombies-launcher-setup.exe bash mac.sh` in their folder. Without `ZOMBIES_LAUNCHER_EXE`, the script installs the latest release. `ZOMBIES_LAUNCHER_RELEASE=<address>` has it fetch the release's files from another place, such as a folder of them that this PC serves. `?mac=1` in the page's address shows a Mac's page on a PC. The script's header lists its commands: `log` shows what went wrong, and `check <host>:<port>` tells whether the launcher reaches a server on the Mac's own network.
 
 ## The engine
 
@@ -81,9 +83,9 @@ The tests use the pinned engine build. Set `ZOMBIES_ENGINE_FILE` to test another
 
 ## Releasing the launcher
 
-The launcher's releases are among the [releases of this repository](https://github.com/gimme/zombies-hub/releases). Each has a tag `launcher-v<N>` and two files: the launcher, `zombies-launcher-setup.exe`, and `zombies-launcher.sig`, its version and hash signed with the maker's key. N is the launcher's version, a whole number.
+The launcher's releases are among the [releases of this repository](https://github.com/gimme/zombies-hub/releases). Each has a tag `launcher-v<N>` and four files: the launcher, `zombies-launcher-setup.exe`; `zombies-launcher.sig`, its version and hash signed with the maker's key; `zombies-launcher-mac.sh`, the script that installs the launcher on a Mac (`launcher/mac.sh`); and `zombies-launcher.png`, the launcher's icon for the app that the script makes. N is the launcher's version, a whole number.
 
-One more release, tagged `launcher`, always has the files of the latest version. The room's page links to the launcher there. An installed launcher reads the statement there each time it goes to play, before it asks the server anything, and replaces itself when the statement has a later version and the maker's signature (`launcher/update.go`). Neither goes by the release that GitHub marks as the latest, so the repository can have releases of other things too.
+One more release, tagged `launcher`, always has the files of the latest version. The room's page links to the launcher there, and the line that it shows a Mac fetches the script from there. An installed launcher reads the statement there each time it goes to play, before it asks the server anything, and replaces itself when the statement has a later version and the maker's signature (`launcher/update.go`). Neither goes by the release that GitHub marks as the latest, so the repository can have releases of other things too.
 
 To release the launcher, tag the commit with the next version and push the tag:
 

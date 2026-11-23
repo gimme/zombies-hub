@@ -9,15 +9,18 @@
 # The build job vets and tests the launcher's packages, as test.yml does, and builds the launcher for Windows, as
 # docker/launcher.sh does but with the version N. go-winres gives the program its icon, its name and version, and a
 # manifest. -H=windowsgui builds it without a console window. The job then signs the statement of the build with the
-# maker's key, the repository's secret LAUNCHER_KEY (cmd/launcher-release). Only that step has the key.
+# maker's key, the repository's secret LAUNCHER_KEY (cmd/launcher-release). Only that step has the key. The release
+# also has the script that installs the launcher on a Mac and runs it there, launcher/mac.sh, as
+# zombies-launcher-mac.sh, and the launcher's icon for the app that the script makes, as zombies-launcher.png. The
+# room's page shows a Mac the line that fetches the script from the latest release.
 #
-# The publish job publishes two releases on GitHub, each with the build (zombies-launcher-setup.exe) and the statement
-# (zombies-launcher.sig). Only that job may write to the repository. The first release is this version's, at the tag
-# that was pushed. The second is the one tagged launcher, which always has the files of the latest version: the job
-# moves its tag to this commit and puts this version's files in place of the last one's. The room's page links to the
-# launcher there, and installed launchers read the statement there, then download the build from its version's own
-# release (internal/launcherapi). Neither goes by the release that GitHub calls the latest, so the repository may have
-# other releases too. The job can be run again when a step of it failed.
+# The publish job publishes two releases on GitHub, each with the build (zombies-launcher-setup.exe), the statement
+# (zombies-launcher.sig), the Mac's script and the icon. Only that job may write to the repository. The first release
+# is this version's, at the tag that was pushed. The second is the one tagged launcher, which always has the files of the
+# latest version: the job moves its tag to this commit and puts this version's files in place of the last one's. The
+# room's page links to the launcher there, and installed launchers read the statement there, then download the build
+# from its version's own release (internal/launcherapi). Neither goes by the release that GitHub calls the latest, so
+# the repository may have other releases too. The job can be run again when a step of it failed.
 name: launcher
 on:
   push:
@@ -56,6 +59,13 @@ jobs:
           echo "version=$version" >>"$GITHUB_OUTPUT"
       - run: go vet ./launcher/... ./internal/... ./cmd/... && GOOS=windows GOARCH=amd64 go vet ./launcher
       - run: go test -count=1 ./launcher/... ./internal/... ./cmd/...
+      # The Mac's script and the launcher's icon, under the names the release has them by. bash reads the script
+      # through without running it.
+      - run: |
+          bash -n launcher/mac.sh
+          mkdir -p build
+          cp launcher/mac.sh build/zombies-launcher-mac.sh
+          cp launcher/icon.png build/zombies-launcher.png
       - env:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
@@ -85,6 +95,8 @@ jobs:
           path: |
             build/zombies-launcher-setup.exe
             build/zombies-launcher.sig
+            build/zombies-launcher-mac.sh
+            build/zombies-launcher.png
           if-no-files-found: error
   publish:
     needs: build
@@ -106,16 +118,19 @@ jobs:
           gh release view "$TAG" >/dev/null 2>&1 ||
             gh release create "$TAG" --verify-tag --title "Zombies Launcher $VERSION" \
               --notes "Zombies Launcher, version $VERSION. Installed launchers update themselves to it."
-          gh release upload "$TAG" release/zombies-launcher-setup.exe release/zombies-launcher.sig --clobber
+          gh release upload "$TAG" release/zombies-launcher-setup.exe release/zombies-launcher.sig \
+            release/zombies-launcher-mac.sh release/zombies-launcher.png --clobber
           # The release that always has the latest version's files. The launcher goes first, and its statement last:
           # a launcher that reads the statement then finds the build it names in this version's release, above.
-          notes="The latest Zombies Launcher, version $VERSION. To install it, download zombies-launcher-setup.exe and run it. The room's page links here, and installed launchers update themselves from here."
+          notes="The latest Zombies Launcher, version $VERSION. To install it on Windows, download zombies-launcher-setup.exe and run it. On a Mac, a Black Ops II room's page has the line to paste into Terminal, which runs zombies-launcher-mac.sh. The room's page links here, and installed launchers update themselves from here."
           if gh release view launcher >/dev/null 2>&1; then
             gh api --method PATCH "repos/$GH_REPO/git/refs/tags/launcher" -f sha="$GITHUB_SHA" -F force=true >/dev/null
-            gh release upload launcher release/zombies-launcher-setup.exe --clobber
+            gh release upload launcher release/zombies-launcher-setup.exe release/zombies-launcher-mac.sh \
+              release/zombies-launcher.png --clobber
             gh release upload launcher release/zombies-launcher.sig --clobber
             gh release edit launcher --notes "$notes"
           else
-            gh release create launcher release/zombies-launcher-setup.exe release/zombies-launcher.sig \
-              --target "$GITHUB_SHA" --latest=false --title "Zombies Launcher" --notes "$notes"
+            gh release create launcher release/zombies-launcher-setup.exe release/zombies-launcher-mac.sh \
+              release/zombies-launcher.png release/zombies-launcher.sig --target "$GITHUB_SHA" --latest=false \
+              --title "Zombies Launcher" --notes "$notes"
           fi

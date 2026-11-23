@@ -45,6 +45,8 @@ import (
 //	                        server sends game files (-download-rate), which a map's button downloads. "launcher" is
 //	                        the address of the launcher's latest release on GitHub, for the page to link to. The
 //	                        launcher joins a Black Ops II room's game from the player's PC (launcher.go).
+//	                        "launcherMac" is the address there of the script that installs the launcher on a Mac,
+//	                        for the line that the page shows a Mac (launcherapi.MacSetup).
 //	/launcher/...           the launcher's calls (launcher.go).
 //	GET /player.js          the engine's host (web/public/player.js), an ES module that the page runs the game with.
 //	                        It starts and stops the engine, and keeps the game files that a map needs in the
@@ -331,12 +333,14 @@ func (h *web) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		hdr.Set("Content-Type", "application/json")
 		hdr.Set("Cache-Control", "no-store")
 		json.NewEncoder(w).Encode(struct {
-			Port      int    `json:"port"`
-			Web       string `json:"web"`
-			Dev       bool   `json:"dev,omitempty"`
-			Downloads bool   `json:"downloads,omitempty"`
-			Launcher  string `json:"launcher"`
-		}{h.publicPort, h.webVersion(), h.dev, h.downloads, launcherapi.LatestFile(launcherapi.Releases, launcherapi.Setup)})
+			Port        int    `json:"port"`
+			Web         string `json:"web"`
+			Dev         bool   `json:"dev,omitempty"`
+			Downloads   bool   `json:"downloads,omitempty"`
+			Launcher    string `json:"launcher"`
+			LauncherMac string `json:"launcherMac"`
+		}{h.publicPort, h.webVersion(), h.dev, h.downloads, launcherapi.LatestFile(launcherapi.Releases, launcherapi.Setup),
+			launcherapi.LatestFile(launcherapi.Releases, launcherapi.MacSetup)})
 	case p == "/certhash":
 		_, hash, err := h.certs.current()
 		if err != nil {

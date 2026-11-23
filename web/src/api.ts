@@ -13,6 +13,8 @@ export interface ServerInfo {
   downloads?: boolean;
   /** The address of the launcher's latest release, for the player to install it. */
   launcher?: string;
+  /** The address, in that release, of the script that installs the launcher on a Mac. */
+  launcherMac?: string;
 }
 
 /** The lobby as the player sees it (server/rooms.go: view). */

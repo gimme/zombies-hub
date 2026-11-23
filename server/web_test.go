@@ -255,7 +255,7 @@ func TestPipelinesAndDev(t *testing.T) {
 	srv := httptest.NewServer(&web{pageDir: pageDir, pipelinesDir: lists, publicPort: 4075, dev: true})
 	defer srv.Close()
 
-	if _, body := get(t, srv.URL+"/server"); !regexp.MustCompile(`^\{"port":4075,"web":"v[0-9a-f]{16}","dev":true,"launcher":"https://[^"]+"\}\n$`).MatchString(body) {
+	if _, body := get(t, srv.URL+"/server"); !regexp.MustCompile(`^\{"port":4075,"web":"v[0-9a-f]{16}","dev":true,"launcher":"https://[^"]+","launcherMac":"https://[^"]+/zombies-launcher-mac\.sh"\}\n$`).MatchString(body) {
 		t.Errorf("/server on a dev run: %q", body)
 	}
 	for _, coding := range []string{"gzip", "identity"} {

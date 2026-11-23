@@ -384,7 +384,7 @@ ul.members { gap: 8px; }
    line has all of the box's width but the button's, and where it is longer it scrolls, cut off before the button */
 .codeline { display: flex; align-items: center; gap: 4px; padding-right: 5px; border-radius: 8px;
   background: rgba(0, 0, 0, 0.4); border: 1px solid var(--line); }
-#playbat, #t6console { flex: 1; min-width: 0; padding: 10px 4px 10px 12px; font: 13px/1.4 ui-monospace, Consolas, monospace;
+#playbat, #t6console, #t6macline { flex: 1; min-width: 0; padding: 10px 4px 10px 12px; font: 13px/1.4 ui-monospace, Consolas, monospace;
   white-space: nowrap; overflow-x: auto; user-select: all; scrollbar-width: thin; }
 .codeline button.copy { flex: none; width: 30px; height: 28px; padding: 0; border: none; border-radius: 6px;
   background: rgba(255, 255, 255, 0.08); color: var(--muted); }
@@ -398,7 +398,13 @@ ul.members { gap: 8px; }
 #t6hand { width: 14px; height: 14px; margin: 0; accent-color: var(--accent); cursor: pointer; }
 #t6box p { margin: 0; }
 #t6box a { color: var(--fg); }
-#t6handline { display: flex; flex-direction: column; gap: 10px; }
+#t6handline, #t6mac { display: flex; flex-direction: column; gap: 10px; }
+/* the "?" by what installs the launcher, which shows what the launcher is (showT6) */
+#t6box button.what { width: 18px; height: 18px; padding: 0; border: 1px solid var(--line); border-radius: 50%;
+  background: none; color: var(--muted); font: 600 11px/1 inherit; vertical-align: 1px; cursor: pointer; }
+/* its mark is drawn here, so that the line's own text is only what it says */
+#t6box button.what::before { content: "?"; }
+#t6box button.what:hover, #t6box button.what[aria-expanded=true] { border-color: var(--muted); color: var(--fg); }
 
 /* how the room's last game went (showResult): the map's card, with the round and the team's totals, then the
    scoreboard */
