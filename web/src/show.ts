@@ -22,6 +22,7 @@ import {
 } from './game';
 import { act, me, offline, page, setView, view } from './lobby';
 import { soloMapName, t5Maps } from './maps';
+import { musicOutside } from './music';
 import { lobbyMode } from './params';
 import { showName, showPictures } from './profile';
 import { leaveQuestionGone, mayLeaveGame } from './question';
@@ -51,6 +52,9 @@ export function show(v: View): void {
     store.set('zombies-maps', JSON.stringify({ maps: t5Maps(v.maps), defaultMap: v.defaultMap, size: v.size }));
     cacheArt(t5Maps(v.maps));
   }
+  // The player's game runs outside the page, in their own Black Ops II or in the Windows client, until the room's game
+  // is over. The lobby's music waits for it.
+  musicOutside(!!room && room.state !== 'open' && !!room.seat && !room.left && (room.of === 't6' || windows));
   me.name = v.you.name;
   me.avatar = v.you.avatar || '';
   if (!offline) keepAvatar(me.avatar);

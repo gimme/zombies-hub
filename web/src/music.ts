@@ -8,7 +8,8 @@
 // it before. The music starts at that gesture, or at once where the browser allows it. The button at the top turns the
 // music off and on, and the browser remembers the choice (zombies-music). The music stops when a game starts
 // (musicStop), because the engine has its own sounds, and starts again when the page is back in the lobby
-// (musicAgain).
+// (musicAgain). It pauses too while the player's game runs outside the page, which has its own sounds as well: their
+// own Black Ops II, or the Windows client (musicOutside).
 import { decodeAdpcm } from './adpcm';
 import { $ } from './dom';
 import { GESTURES } from './gestures';
@@ -24,6 +25,7 @@ export const music = {
   started: false,
   stopped: false,
   shown: false,
+  outside: false,
 };
 
 // The level the game plays the music of its Zombies menu at. The alias mus_zmb_mainmenu in code_post_gfx.ff is at
@@ -83,7 +85,7 @@ export function musicInit(): void {
 // it off.
 function musicPlay(): void {
   if (!music.ctx || music.stopped) return;
-  if (music.off || !music.shown) {
+  if (music.off || !music.shown || music.outside) {
     music.ctx.suspend().catch(() => {});
     return;
   }
@@ -101,6 +103,16 @@ function musicPlay(): void {
 /** Tells the music whether the lobby shows. It does when the player is signed in or offline, and not at the sign-in. */
 export function musicShown(shown: boolean): void {
   music.shown = shown;
+  musicPlay();
+}
+
+/**
+ * Tells the music whether the player's game runs outside the page, from its start until the room has no game. The
+ * music pauses meanwhile, and then goes on from where it was.
+ */
+export function musicOutside(outside: boolean): void {
+  if (outside === music.outside) return;
+  music.outside = outside;
   musicPlay();
 }
 
