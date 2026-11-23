@@ -500,10 +500,13 @@ func (la *launcher) idle(ctx context.Context, srv *server) bool {
 // play is what a link runs. When it fails, it calls failed with its error before it returns, while its output still
 // goes to its log.
 func (la *launcher) play(ctx context.Context, url string, srv *server, failed func(error)) (err error) {
+	// closeLog ends the run's log, once it has what the run failed at.
+	closeLog := func() {}
 	defer func() {
 		if err != nil {
 			failed(err)
 		}
+		closeLog()
 	}()
 	l, perr := parseLink(url)
 	turn, taken := la.turn, false // taken: this run took the turn, and gives it up; one the program took is kept
@@ -528,10 +531,12 @@ func (la *launcher) play(ctx context.Context, url string, srv *server, failed fu
 		}
 		if f, err := os.OpenFile(filepath.Join(la.home, "launcher.log"), os.O_CREATE|os.O_WRONLY|keep, 0o644); err == nil {
 			la.logged = la.stays
-			defer f.Close()
 			screen := la.out
 			la.out = both{screen, f}
-			defer func() { la.out = screen }()
+			closeLog = func() {
+				la.out = screen
+				f.Close()
+			}
 			fmt.Fprintf(f, "%s\n", time.Now().Format("2006-01-02 15:04:05 -0700"))
 		}
 	}

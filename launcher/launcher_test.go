@@ -769,6 +769,10 @@ func TestTrust(t *testing.T) {
 		!strings.Contains(tl.out.String(), "isn't a secure (https) address") || isFile(tl.configFile()) {
 		t.Errorf("a server on plain HTTP that is not of the PC's network: %d\n%s", code, tl.out)
 	}
+	// the log of a run that failed says what it failed at
+	if kept := read(t, filepath.Join(tl.home, "launcher.log")); !strings.Contains(kept, "isn't a secure (https) address") {
+		t.Errorf("the log of a run that failed doesn't say why:\n%s", kept)
+	}
 	// a key the server doesn't know
 	tl = newTestLauncher(t, "")
 	if code := tl.run(context.Background(), []string{strings.Replace(l.link(), l.key, "ffffffffffffffff", 1)}); code == 0 ||
