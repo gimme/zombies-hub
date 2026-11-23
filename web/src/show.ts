@@ -36,6 +36,7 @@ import { store } from './storage';
 import { onWindows } from './windows';
 
 let shownRoom = ''; // the code of the room that the page last showed
+let quietRoom = ''; // the code of the room in which the player's game ran outside the page, while they are in it
 let roomPushed = false; // going into the room added a step to the browser's history, which leaving it goes back from
 const urlRoom = (url: URL): string => (url.searchParams.get('room') || '').toUpperCase();
 
@@ -52,9 +53,13 @@ export function show(v: View): void {
     store.set('zombies-maps', JSON.stringify({ maps: t5Maps(v.maps), defaultMap: v.defaultMap, size: v.size }));
     cacheArt(t5Maps(v.maps));
   }
-  // The player's game runs outside the page, in their own Black Ops II or in the Windows client, until the room's game
-  // is over. The lobby's music waits for it.
-  musicOutside(!!room && room.state !== 'open' && !!room.seat && !room.left && (room.of === 't6' || windows));
+  // The player's game runs outside the page, in their own Black Ops II or in the Windows client, from the start of the
+  // room's game. That game has its own music, which plays on in its menu when the room's game is over. So the lobby's
+  // music is off from then until the player leaves the room.
+  const outside = !!room && room.state !== 'open' && !!room.seat && !room.left && (room.of === 't6' || windows);
+  if (room && outside) quietRoom = room.code;
+  else if (!room || room.code !== quietRoom) quietRoom = '';
+  musicOutside(!!quietRoom);
   me.name = v.you.name;
   me.avatar = v.you.avatar || '';
   if (!offline) keepAvatar(me.avatar);

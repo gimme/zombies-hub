@@ -8,8 +8,8 @@
 // it before. The music starts at that gesture, or at once where the browser allows it. The button at the top turns the
 // music off and on, and the browser remembers the choice (zombies-music). The music stops when a game starts
 // (musicStop), because the engine has its own sounds, and starts again when the page is back in the lobby
-// (musicAgain). It pauses too while the player's game runs outside the page, which has its own sounds as well: their
-// own Black Ops II, or the Windows client (musicOutside).
+// (musicAgain). It is off too once the player's game runs outside the page, in their own Black Ops II or in the Windows
+// client, until they leave the room (musicOutside). That game has its own music, in its menu too.
 import { decodeAdpcm } from './adpcm';
 import { $ } from './dom';
 import { GESTURES } from './gestures';
@@ -107,8 +107,8 @@ export function musicShown(shown: boolean): void {
 }
 
 /**
- * Tells the music whether the player's game runs outside the page, from its start until the room has no game. The
- * music pauses meanwhile, and then goes on from where it was.
+ * Tells the music whether the player's game runs outside the page, or ran there in the room they are still in
+ * (show.ts). The music pauses meanwhile, and then goes on from where it was.
  */
 export function musicOutside(outside: boolean): void {
   if (outside === music.outside) return;
