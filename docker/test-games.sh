@@ -2,20 +2,22 @@
 # docker/test-games.sh - run the game tests (e2e/game/): real games against the server image, with the game files,
 # played in this PC's Chrome on its GPU.
 #
-#   docker/test-games.sh [--map <map>] [--jobs <n>] [smoke|engine|long|<test>...] [-- <playwright test flags>]
+#   docker/test-games.sh [--map <map>] [--jobs <n>] [smoke|engine|long|bo2|<test>...] [-- <playwright test flags>]
 #   docker/test-games.sh --stop
 #
-# smoke, engine and long are the groups (e2e/game.config.ts), and a test is named by its file: coop for
+# smoke, engine, long and bo2 are the groups (e2e/game.config.ts), and a test is named by its file: coop for
 # e2e/game/smoke/coop.spec.ts. With none named, smoke and engine run. --map is the map of the rooms' games, and the one
 # a player plays alone (default zombie_theater). --jobs is how many tests run at once (default 4), each with a server
 # of its own: on 8 cores, four keep them busy, and six at a time overload them. A run of long, or of bigsquad, runs
 # one test at a time: bigsquad's six browsers need the machine to themselves (ZOMBIES_TEST_PLAYERS: 5 to 8 of them).
+# So does a run of bo2, or of one of its tests: Black Ops II's players draw on the CPU (docker/t6-player.sh), two to
+# three cores each. bo2's tests need Black Ops II's game files too (game/t6), and are skipped without them.
 #
-# It builds the server image as zombies-hub:test and the Windows player's image (docker/Dockerfile: windows-player), and
-# runs the tests with Playwright on this machine, which needs Node, npm ci in e2e, and Chrome (ZOMBIES_CHROME: its
-# executable, where it is not where Chrome installs). Each test's results are in build/test/results: the server's log
-# and data, each player's log, and screenshots of a test that failed. The run's output is in build/test/run.log, which
-# this shows as it comes. One run goes at a time.
+# It builds the server image as zombies-hub:test, the Windows player's image (docker/Dockerfile: windows-player) and the
+# Black Ops II player's (t6-player), and runs the tests with Playwright on this machine, which needs Node, npm ci in
+# e2e, and Chrome (ZOMBIES_CHROME: its executable, where it is not where Chrome installs). Each test's results are in
+# build/test/results: the server's log and data, each player's log, and screenshots of a test that failed. The run's
+# output is in build/test/run.log, which this shows as it comes. One run goes at a time.
 #
 # A run stops safely at any time. Ctrl+C asks it to stop, and so do SIGTERM and SIGHUP, and --stop (make test-stop)
 # from another terminal, which then waits for it to end. The run then ends by itself (e2e/game/stop.ts): Playwright
@@ -93,13 +95,13 @@ while [ $# -gt 0 ]; do
         --map) map=${2:?--map takes a map}; shift 2 ;;
         --jobs) jobs=${2:?--jobs takes how many tests run at once}; shift 2 ;;
         --) shift; break ;;
-        smoke|engine|long) named+=(--project "$1"); [ "$1" != long ] || jobs=1; shift ;;
+        smoke|engine|long|bo2) named+=(--project "$1"); [ "$1" != long ] && [ "$1" != bo2 ] || jobs=1; shift ;;
         *) spec=$(cd "$root/e2e" && ls game/*/"$1".spec.ts 2>/dev/null) || {
                all=$(cd "$root/e2e/game" && ls */*.spec.ts | sed 's|.*/||; s|\.spec\.ts$||' | tr '\n' ' ')
                echo "test-games: no test $1 (they are $all)" >&2
                exit 2
            }
-           named+=("$spec"); [ "$1" != bigsquad ] || jobs=1; shift ;;
+           named+=("$spec"); [ "$1" != bigsquad ] && [ "${spec#game/bo2/}" = "$spec" ] || jobs=1; shift ;;
     esac
 done
 [[ "$jobs" =~ ^[1-9][0-9]*$ ]] || { echo "test-games: --jobs is how many tests run at once, not $jobs" >&2; exit 2; }
@@ -132,8 +134,13 @@ BUILDKIT_PROGRESS=$progress "$here/image.sh" zombies-hub:test >/dev/null
 progress=quiet; docker image inspect zombies-hub-windows-player >/dev/null 2>&1 || progress=auto
 docker build --progress=$progress -f "$here/Dockerfile" --target windows-player -t zombies-hub-windows-player \
     --build-arg UID="$uid" --build-arg GID="$gid" "$here" >/dev/null
+progress=quiet; docker image inspect zombies-hub-t6-player >/dev/null 2>&1 || progress=auto
+docker build --progress=$progress -f "$here/Dockerfile" --target t6-player -t zombies-hub-t6-player \
+    --build-arg UID="$uid" --build-arg GID="$gid" "$here" >/dev/null
 ZOMBIES_TEST_GAME=$(for_wine "$game" zombies-hub-game zombies-hub:test)
 export ZOMBIES_TEST_GAME ZOMBIES_TEST_INSTALL=$game/t5 ZOMBIES_TEST_MAP=$map
+# bo2's tests run where the game files have Black Ops II's
+[ ! -d "$game/t6/zone" ] || export ZOMBIES_TEST_T6=1
 if [ -n "${ZOMBIES_ENGINE_FILE:-}" ]; then
     ZOMBIES_ENGINE_FILE=$(abs "$(dirname "$ZOMBIES_ENGINE_FILE")")/$(basename "$ZOMBIES_ENGINE_FILE")
     export ZOMBIES_ENGINE_FILE

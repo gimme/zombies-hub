@@ -79,12 +79,35 @@ export async function freePorts(n: number): Promise<number[]> {
 const sleep = (ms: number) => new Promise((done) => setTimeout(done, ms));
 const quote = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
+// Mesa's compiled shaders, kept from one run to the next: without them a player's game under Wine takes minutes longer
+// to join. A folder of build/, or on Windows a volume, as Wine can't run a game from a Windows folder.
+const shaders = process.platform === 'win32' ? 'zombies-hub-shader-cache'
+  : join(import.meta.dirname, '..', '..', 'build', 'shader-cache');
+
+/**
+ * docker run's arguments that give a player's game under Wine the shader cache (above), at /shader-cache. On Windows
+ * the volume, as Docker makes it, is root's: the players' user (the image's, 1000) is given it.
+ */
+export async function shaderCache(playerImage: string): Promise<string[]> {
+  if (process.platform === 'win32') {
+    await docker(['run', '--rm', '-u', '0', '--entrypoint', 'chown', ...mount(shaders, '/cache'), playerImage,
+      '1000:1000', '/cache']);
+  }
+  return [...mount(shaders, '/shader-cache'), '-e', 'MESA_SHADER_CACHE_DIR=/shader-cache'];
+}
+
 /** How a server starts. */
 export interface ServerOptions {
   /** Settings over the tests' own: { ZOMBIES_MAX_PLAYERS: '6' }. An empty one is set empty. */
   env?: Record<string, string>;
   /** Without NET_ADMIN, which the image's firewall needs: its games then reach the network. */
   noFirewall?: boolean;
+  /**
+   * For Black Ops II games: on Windows, the server's copy of Plutonium and its games' homes are volumes,
+   * <container>-plutonium and <container>-homes, as in docker/server.sh. From a Windows folder, Wine runs no game of
+   * Plutonium's. The copy is downloaded once, into the volume, which stays for the next run.
+   */
+  t6?: boolean;
 }
 
 /** A row of a room's game's status: a player, with their address (127.1.x.y:port), points and ping. */
@@ -143,12 +166,20 @@ export class Server {
       ZOMBIES_DOWNLOAD_RATE: 'unlimited', ZOMBIES_MIN_PLAYERS: '1', ZOMBIES_MAX_PLAYERS: '4',
       ZOMBIES_PUBLIC_PORT: String(port), ...options.env,
     };
+    const t6: string[] = [];
+    if (options.t6 && process.platform === 'win32') {
+      t6.push(...mount(`${name}-plutonium`, '/plutonium'), '-e', 'ZOMBIES_PLUTONIUM_DIR=/plutonium',
+        ...mount(`${name}-homes`, '/config/game'));
+      // the volumes, as Docker makes them, are root's: the server's user (PUID:PGID) is given them
+      await docker(['run', '--rm', '-u', '0', '--entrypoint', 'chown', ...t6, image, '99:100', '/plutonium',
+        '/config/game']);
+    }
     if (allStopping || stopAsked()) throw new Error(`no server is started as ${name}: the run is stopping`);
     const proc = spawn('docker', ['run', '--rm', '--name', name, '--network', 'bridge',
       '-p', `127.0.0.1:${port}:3075/tcp`, '-p', `127.0.0.1:${port}:3075/udp`, '-p', `127.0.0.1:${proxyPort}:443/tcp`,
       ...(options.noFirewall ? [] : ['--cap-add', 'NET_ADMIN']),
       ...Object.entries(env).flatMap(([k, v]) => ['-e', `${k}=${v}`]),
-      ...mount(game, '/game', true), ...engineArgs(name), ...mount(join(dir, 'config'), '/config'), image],
+      ...mount(game, '/game', true), ...engineArgs(name), ...mount(join(dir, 'config'), '/config'), ...t6, image],
     { windowsHide: true });
     const server = new Server(name, dir, port, proxyPort, proc);
     running.add(server);
@@ -210,6 +241,12 @@ export class Server {
   /** Runs a line on the server's console, as Unraid's Console button does: "<room> <line>" goes to the room's game. */
   async console(line: string): Promise<string> {
     return (await docker(['exec', this.name, 'console', line])).out;
+  }
+
+  /** The server's address on Docker's network, where players' games in containers of their own reach it. */
+  async address(): Promise<string> {
+    return (await docker(['container', 'inspect', '-f', '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}',
+      this.name])).out.trim();
   }
 
   /** Runs a command in the server's container, as the user given: its exit code and output. */

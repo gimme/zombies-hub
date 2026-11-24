@@ -38,6 +38,7 @@
 # ZOMBIES_CHEATS         Passed through when set. ZOMBIES_CHEATS=1 runs the rooms' games with cheats (devmap).
 # ZOMBIES_MIN_PLAYERS    The players a room needs to start a game (default 1 here, so that one player can try a game
 #                        alone; 2 is the server's own default).
+# ZOMBIES_MAX_PLAYERS    Passed through when set. The most players a room's host may set it to take, 1 to 8 (default 4).
 # ZOMBIES_DOWNLOAD_RATE  The most bits a second of game files that the server sends to browsers (40M), unlimited (the
 #                        default), or off.
 # WINEDEBUG              Passed through when set. For example, WINEDEBUG=+loaddll shows which DLLs load (native or
@@ -98,6 +99,7 @@ docker run --rm $tty --name "$name" $net --cap-add NET_ADMIN \
     ${ZOMBIES_HANG_TIMEOUT:+-e ZOMBIES_HANG_TIMEOUT="$ZOMBIES_HANG_TIMEOUT"} \
     ${ZOMBIES_CHEATS:+-e ZOMBIES_CHEATS="$ZOMBIES_CHEATS"} \
     -e ZOMBIES_MIN_PLAYERS="${ZOMBIES_MIN_PLAYERS:-1}" \
+    ${ZOMBIES_MAX_PLAYERS:+-e ZOMBIES_MAX_PLAYERS="$ZOMBIES_MAX_PLAYERS"} \
     -v "$gamedir:/game:ro" -v "$(abs "$svhome"):/config" -v "$root/web/dist:/web:ro" \
     "${engine[@]}" "${pluto[@]}" \
     "$image" -map "$map" -- "$@"

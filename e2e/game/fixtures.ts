@@ -12,6 +12,10 @@
 //             page's engine fails the test.
 // api         players who have no page: the test says for them what a page says to the lobby (api.player), and makes
 //             a room whose game starts at once and waits for a player who never comes (api.room).
+// t6          Black Ops II players (t6.ts), each a container of its own, its page and its game at once:
+//             t6.player('Ann') starts one beside the test's server, which needs serverOptions { t6: true }. Each
+//             ends as the test does, with a screenshot of its screen where the test failed. t6.steer() puts steer.gsc
+//             in the server's Black Ops II games from then on, which lets the test steer them from their console.
 // leftovers   the worker's own, at its end: each player's Chrome of its tests that is still open closes, and each
 //             server still running stops. A test does that itself as it ends; a run that is stopped (stop.ts) gives up
 //             on what a test was doing, even a fixture's teardown, which goes on by itself. A Chrome still open as its
@@ -25,8 +29,9 @@ import { apiPlayer, type ApiPlayer } from '../fixtures';
 import { profiles } from './chrome';
 import { Player, type PlayerOptions } from './player';
 import { map, Server, type ServerOptions } from './server';
+import { steer, T6Player } from './t6';
 
-export { expect, map, Player, Server };
+export { expect, map, Player, Server, T6Player };
 export type { PlayerState } from './player';
 
 export interface Players {
@@ -51,8 +56,15 @@ export interface Api {
   room(name: string): Promise<{ player: ApiPlayer; room: string }>;
 }
 
+export interface T6 {
+  /** Starts a Black Ops II player of that name, beside the test's server, once they are in its lobby. */
+  player(name: string): Promise<T6Player>;
+  /** Puts steer.gsc in the server's Black Ops II games from now on. */
+  steer(): Promise<void>;
+}
+
 export const test = base.extend<{ serverOptions: ServerOptions; server: Server; servers: Servers; players: Players;
-  api: Api }, { leftovers: void }>({
+  api: Api; t6: T6 }, { leftovers: void }>({
   serverOptions: [{}, { option: true }],
 
   leftovers: [async ({}, use) => {
@@ -144,5 +156,22 @@ export const test = base.extend<{ serverOptions: ServerOptions; server: Server; 
       },
     });
     for (const player of made) player.close();
+  },
+
+  t6: async ({ server }, use, testInfo) => {
+    const started: T6Player[] = [];
+    await use({
+      player: async (name) => {
+        const player = await T6Player.start(server, name, testInfo.outputDir);
+        started.push(player);
+        return player;
+      },
+      steer: () => steer(server),
+    });
+    const failed = testInfo.status !== testInfo.expectedStatus;
+    for (const player of started) {
+      if (failed) await player.shot('failed');
+      await player.stop();
+    }
   },
 });

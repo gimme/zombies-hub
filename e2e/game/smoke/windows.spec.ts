@@ -8,20 +8,15 @@
 import { type ChildProcess, spawn } from 'node:child_process';
 import { createWriteStream, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { docker, mount } from '../server';
+import { docker, mount, shaderCache } from '../server';
 import { expect, type Server, test } from '../fixtures';
 
 const sleep = (ms: number) => new Promise((done) => setTimeout(done, ms));
 
-// Mesa's compiled shaders, kept from one run to the next: without them the client takes minutes longer to join. A
-// folder of build/, or on Windows a volume, as Wine can't run the game from a Windows folder.
-const shaders = process.platform === 'win32' ? 'zombies-hub-shader-cache'
-  : join(import.meta.dirname, '..', '..', '..', 'build', 'shader-cache');
-
 /**
  * Windows client n, as container <server>-windows-<n>, its home (its settings and main/console_mp.log) windows-<n> in
  * the test's results, which joins the game of the room of the player with the key, on the server at its address on
- * Docker's network. Its engine is the one the server unpacked.
+ * Docker's network. Its engine is the one the server unpacked. shaders is the shader cache (server.ts: shaderCache).
  */
 class WindowsClient {
   readonly name: string;
@@ -29,13 +24,13 @@ class WindowsClient {
   readonly exited: Promise<number>;
   private readonly proc: ChildProcess;
 
-  constructor(readonly n: number, results: string, server: Server, address: string, key: string) {
+  constructor(readonly n: number, results: string, server: Server, address: string, key: string, shaders: string[]) {
     this.name = `${server.name}-windows-${n}`;
     this.home = join(results, `windows-${n}`);
     const engine = process.platform === 'win32' ? `${server.name}-engine` : join(server.dir, 'config', 'engine');
     this.proc = spawn('docker', ['run', '--rm', '--name', this.name, '--network', 'bridge',
       ...mount(process.env.ZOMBIES_TEST_GAME!, '/game', true), ...mount(engine, '/engine', true),
-      ...mount(results, '/out'), ...mount(shaders, '/shader-cache'), '-e', 'MESA_SHADER_CACHE_DIR=/shader-cache',
+      ...mount(results, '/out'), ...shaders,
       'zombies-hub-windows-player', `/out/windows-${n}`, `${address}:3075`, key], { windowsHide: true });
     const log = createWriteStream(`${this.home}.log`);
     this.proc.stdout!.pipe(log);
@@ -71,15 +66,10 @@ class WindowsClient {
 }
 
 test("a Windows player plays a room's game", async ({ server, api }, testInfo) => {
-  const address = (await docker(['container', 'inspect', '-f',
-    '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}', server.name])).out.trim();
-  if (process.platform === 'win32') {
-    // the volume, as Docker makes it, is root's: the client's user writes in it
-    await docker(['run', '--rm', '-u', '0', '--entrypoint', 'chown', ...mount(shaders, '/cache'),
-      'zombies-hub-windows-player', '1000:1000', '/cache']);
-  }
+  const address = await server.address();
+  const shaders = await shaderCache('zombies-hub-windows-player');
   const win = await api.player('Win');
-  const join1 = new WindowsClient(1, testInfo.outputDir, server, address, win.key);
+  const join1 = new WindowsClient(1, testInfo.outputDir, server, address, win.key, shaders);
   await join1.said('Waiting for you to join a room on the server\'s page...', 300_000);
   await win.say('create', { private: true });
   const room = await server.poll('Win made a room', 10_000, async () => server.roomOf('Win'));
@@ -140,7 +130,7 @@ test("a Windows player plays a room's game", async ({ server, api }, testInfo) =
   // socket's buffer, which drops the newest. Going again, it still hears it was game over, which the game tells its
   // players each second until they have (bo1-zombies/src/server_mp/sv_lobby_mp.cpp: SV_Lobby_TellOver), and quits
   // saying so, rather than a minute later, as one that lost the connection.
-  const join2 = new WindowsClient(2, testInfo.outputDir, server, address, win.key);
+  const join2 = new WindowsClient(2, testInfo.outputDir, server, address, win.key, shaders);
   await join2.said('Waiting for the game to start...', 60_000);
   from = server.mark();
   expect((await win.say('ready', { ready: true })).trim(), 'Win says they are ready').toBe('{}');

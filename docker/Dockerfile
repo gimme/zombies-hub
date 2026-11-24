@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 #
-# Linux images that run the server and the games, and the tests. One file, seven targets:
+# Linux images that run the server and the games, and the tests. One file, eight targets:
 #
 #   wine    Runs BO1Zombies.exe (32-bit) under Wine, with no display, as a user whose uid is the UID build arg. It is
 #           the base of windows-player.
@@ -17,7 +17,10 @@
 #           games. Used by docker/test-e2e.sh. It needs both build contexts, repo and webpage.
 #   windows-player
 #           A Windows player: the wine target and a virtual display, for the Windows client (windows-player.sh). Used
-#           by the game tests (e2e/game).
+#           by the game tests (e2e/game). It is the base of t6-player.
+#   t6-player
+#           A Black Ops II player: windows-player with what Plutonium's game needs, for the player's page and their
+#           game at once (t6-player.sh). Used by the game tests of Black Ops II (e2e/game/bo2).
 #
 # No image has the Black Ops engine in it. The server downloads its engine build the first time it starts
 # (internal/bo1zombies).
@@ -193,3 +196,19 @@ COPY --chmod=755 windows-player.sh /usr/local/bin/
 USER game
 ENV DISPLAY=:99
 ENTRYPOINT ["tini", "--", "windows-player.sh"]
+
+# ---- target t6-player: a Black Ops II player (t6-player.sh), for the game tests. It is Plutonium's T6 Zombies under
+# Wine on the windows-player's virtual display, where Wine's d3d11 draws with Mesa on the CPU. curl and jq are for the
+# player's calls to the lobby. Wine tells the game that its graphics card is an Intel one with 1 GB: the game passes
+# over a card with NVIDIA's id when it can't load nvapi.dll, and over one with Mesa's id, and either way it then stops
+# with "DirectX encountered an unrecoverable error" ----
+FROM windows-player AS t6-player
+USER root
+RUN apt-get update && apt-get install -y --no-install-recommends curl jq && rm -rf /var/lib/apt/lists/*
+COPY --chmod=755 t6-player.sh /usr/local/bin/
+USER game
+RUN for setting in 'VideoMemorySize REG_SZ 1024' 'VideoPciVendorID REG_DWORD 0x8086' \
+            'VideoPciDeviceID REG_DWORD 0x5912'; do \
+        set -- $setting && wine reg add 'HKCU\Software\Wine\Direct3D' /v "$1" /t "$2" /d "$3" /f || exit 1; \
+    done && wineserver -w
+ENTRYPOINT ["tini", "--", "t6-player.sh"]
