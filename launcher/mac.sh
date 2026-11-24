@@ -12,7 +12,7 @@
 #
 #   setup [<Black Ops II folder>]   install the launcher, or bring it up to date; with no command, the script does this
 #   folder <Black Ops II folder>    point the launcher at a copy of the game
-#   link <link>                     start the launcher with a link, as a room's Connect button does
+#   link <link>                     start the launcher with a link, as a room's Connect button or Play offline does
 #   game [<name>]                   start Black Ops II by hand, without the launcher
 #   check <host>[:<port>]           see whether the launcher reaches a server, from Terminal and through the app
 #   log                             show the end of the launcher's log and of Wine's
@@ -581,10 +581,10 @@ cmd_link() {
     [ $# = 1 ] || usage
     case "$url" in
     "$scheme"://*) ;;
-    *) die "that is not a link of a room's page: it starts with $scheme://" ;;
+    *) die "that is not a link of the server's page: it starts with $scheme://" ;;
     esac
     if printf %s "$url" | LC_ALL=C grep -q '[^A-Za-z0-9.:/?&=_%-]'; then
-        die "that is not a link of a room's page"
+        die "that is not a link of the server's page"
     fi
     ready
     wine_env

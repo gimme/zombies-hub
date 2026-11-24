@@ -99,6 +99,12 @@ export interface You {
    * script that runs it on their Mac is too old for it.
    */
   launcherOld?: boolean;
+  /**
+   * Their launcher downloads the game files, and has this much of them, from 0 to 1. A room shows it on their member
+   * too (Member.downloading); Play offline shows it from here.
+   */
+  launcherDownloading?: boolean;
+  launcherGot?: number;
 }
 
 /** A room in the list of rooms (server/rooms.go: roomItem). A room listed as private has no code. */

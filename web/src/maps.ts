@@ -29,9 +29,10 @@ export function soloMapName(v: View): string {
 }
 
 /**
- * The game that the player last picked as a room's host (room.ts: showRoomTitle), by its title's id, which the
- * browser's storage keeps: the room they make next is of it (main.ts), and the leaderboards show it outside a room
- * (boards.ts). '' until they pick one.
+ * The game that the player last picked, by its title's id, which the browser's storage keeps: the game of a room that
+ * they came into, made or joined, or whose host picked another game (room.ts: rememberRoomTitle), or a game that they
+ * picked on the leaderboards (boards.ts) or in Play offline (solo.ts). The room they make next is of it (main.ts), and
+ * the leaderboards outside a room and Play offline show it. '' until they pick one.
  */
 export const lastTitle = {
   get: (): string => store.get('zombies-title'),

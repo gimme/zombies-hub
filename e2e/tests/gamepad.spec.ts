@@ -152,7 +152,7 @@ test('the gamepad goes through the lobby, and into a room and out', async ({ pla
   await refuse();
   await expect(max.locator('#notice')).toBeHidden({ timeout: 10_000 });
 
-  // down to Pick a map, A opens the maps on the one picked, and A on it goes to Play, which A presses
+  // down to Play solo, A opens the maps on the one picked, and A on it goes to Play, which A presses
   for (let i = 0; i < 8 && (await padView(max)).focus !== 'soloopen'; i++) await press(max, PAD.DOWN, () => true);
   expect((await padView(max)).focus).toBe('soloopen');
   await press(max, PAD.A, (v) => v.views === 'solo' && v.picked);

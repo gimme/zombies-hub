@@ -10,6 +10,8 @@
 //	zombies-launcher.exe                 install it, so that links can start it
 //	zombies-launcher.exe zombies-launcher://<host>[:<port>]/play?key=<key>[&tls=0]
 //	                                     what a link runs: play the game of the player's room
+//	zombies-launcher.exe zombies-launcher://<host>[:<port>]/play?solo=1&name=<name>[&key=<key>][&tls=0]
+//	                                     what the lobby's Play offline runs: start the game for the player alone
 //	zombies-launcher.exe uninstall       remove it from the PC
 //
 // Started by a link, the launcher:
@@ -101,8 +103,9 @@ type launcher struct {
 	// program is the player's game, which the launcher stays with (stay).
 	start func(exe, commandLine, dir string) (game, error)
 	// pressed gets a value each time the player asks to join again with the room's button. The button opens a link.
-	// That link starts another launcher, which finds this launcher running, signals it, and ends (main).
-	pressed <-chan struct{}
+	// That link starts another launcher, which finds this launcher running, signals it, and ends (main). solos gets a
+	// value each time the player asks to play alone, with the lobby's Play offline, in the same way.
+	pressed, solos <-chan struct{}
 	// clicked is set for a run that the player started with the room's button: the launcher's first, and each one
 	// after a press. Such a run may ask the player about a copy of the game that lacks the room's map (askMissing). A
 	// run that starts by itself, for the room's next game, asks nothing.
@@ -200,17 +203,17 @@ func main() {
 	// asks to join again, and ends with no window. Two players on one PC each have a launcher.
 	local, err := os.UserCacheDir() // %LOCALAPPDATA%
 	var turn func()
-	var pressed <-chan struct{}
+	var pressed, solos <-chan struct{}
 	if link {
 		// Record that a launcher runs, until the program ends. Uninstalling checks for it (launchers).
 		mark()
 		if l, err := parseLink(args[0]); err == nil {
 			var ok bool
 			if turn, ok = single(l.id()); !ok {
-				press(l.id()) // the player asks to join again
+				press(l.id(), l.solo) // the player asks to join again, or to play alone
 				return
 			}
-			pressed = presses(l.id())
+			pressed, solos = presses(l.id())
 		}
 	}
 	// A launcher that a link started has no window. It writes what it does to its log, reports it to the server for
@@ -227,7 +230,7 @@ func main() {
 		tick:   time.Second, retry: time.Second, away: 5 * time.Minute,
 		stays: link, tray: showTray, pick: pickFolder,
 	}
-	la.notify, la.confirm, la.turn, la.pressed, la.hide = la.tell, la.yes, turn, pressed, func() {}
+	la.notify, la.confirm, la.turn, la.pressed, la.solos, la.hide = la.tell, la.yes, turn, pressed, solos, func() {}
 	if boxes {
 		la.out, la.status, la.notify, la.confirm, la.boxes = io.Discard, io.Discard, box, boxAsk, true
 		la.choose = taskDialogs()
@@ -314,6 +317,11 @@ func (la *launcher) run(ctx context.Context, args []string) int {
 		err = la.uninstall()
 	case len(args) == 1 && strings.HasPrefix(strings.ToLower(args[0]), launcherapi.Scheme+":"):
 		la.clicked = true // the player's click on the room's button started the launcher with the link
+		// A link to play alone with no server (link.offline) has the launcher start the game, and end: it has no
+		// server to stay for.
+		if l, err := parseLink(args[0]); err == nil && l.offline() {
+			la.stays = false
+		}
 		if la.stays {
 			return la.serve(ctx, args[0])
 		}
@@ -332,21 +340,26 @@ func (la *launcher) run(ctx context.Context, args []string) int {
 }
 
 // link runs a link and returns the program's exit code. When the run fails, link prints the error while the run's
-// output still goes to its log too (play).
+// output still goes to its log too (play). A run with no window, which a link to play alone with no server is
+// (main), shows the error in a message box: no page shows it.
 func (la *launcher) link(ctx context.Context, url string) int {
 	var srv *server
-	if l, err := parseLink(url); err == nil {
+	l, err := parseLink(url)
+	if err == nil {
 		var stop func()
 		srv, stop = la.open(ctx, l)
 		defer stop()
 	}
-	if err := la.play(ctx, url, srv, func(err error) {
+	if err := la.play(ctx, url, srv, l.solo, func(err error) {
 		la.say("")
 		if ctx.Err() != nil { // Ctrl+C
 			la.say("Stopped. A download goes on from where it was the next time.")
 			return
 		}
 		la.say("%v", err)
+		if la.boxes {
+			la.notify(err.Error(), true)
+		}
 	}); err != nil {
 		return 1
 	}
@@ -413,8 +426,9 @@ func (la *launcher) serve(ctx context.Context, url string) int {
 		stop := la.tray(l.host, la.menu(l.host, func() { openPage(l.base) }))
 		defer stop()
 	}
+	solo := l.solo // the player asks to play alone, and not in a room
 	for {
-		err := la.play(ctx, url, srv, func(err error) {
+		err := la.play(ctx, url, srv, solo, func(err error) {
 			la.say("%v", err)
 			if ctx.Err() == nil {
 				srv.fail(ctx, sentence(err), errors.Is(err, errSetup))
@@ -427,7 +441,8 @@ func (la *launcher) serve(ctx context.Context, url string) int {
 		case ends(err) || setup:
 			return 1
 		}
-		if !la.idle(ctx, srv) {
+		var again bool
+		if again, solo = la.idle(ctx, srv); !again {
 			// The server was updated while the launcher waited, and takes it no more: a later release takes the link,
 			// when there is one.
 			if _, _, err := srv.latest(); errors.Is(err, errOld) && ctx.Err() == nil {
@@ -466,25 +481,26 @@ func (la *launcher) renew(ctx context.Context, url string, files, giveUp func())
 }
 
 // idle waits for something to play. It makes no call: it waits for the next answer of the call that is open to the
-// server (server.watch), or for the player to press the room's button (pressed). It returns true when the player is
-// in a Black Ops II room whose game the player's game isn't in, or when the player presses the button. It does not
-// return for the room's game that the player's game just left: the player has to ask for that one. After a try that
-// failed, it returns only when the player presses the button, which then says Try again. The launcher does not try
-// again by itself. It returns false when the launcher is to end, because the player quit it, or the server no longer
-// knows the player or doesn't take this launcher.
+// server (server.watch), or for the player to press the room's button (pressed) or the lobby's Play offline (solos).
+// It returns true when the player is in a Black Ops II room whose game the player's game isn't in, or when the player
+// presses either, and solo when they asked to play alone. It does not return for the room's game that the player's
+// game just left: the player has to ask for that one. After a try that failed, it returns only when the player
+// presses a button, which then says Try again. The launcher does not try again by itself. It returns false when the
+// launcher is to end, because the player quit it, or the server no longer knows the player or doesn't take this
+// launcher.
 //
 // When the player has been in no Black Ops II room for away, or the server could not be reached for as long, the
 // launcher rests: it closes its call to the server (server.rest) and sends nothing more. The server then takes the
 // launcher as stopped, and a room's button says Connect. A press of that button wakes the launcher, like any
 // other press.
-func (la *launcher) idle(ctx context.Context, srv *server) bool {
+func (la *launcher) idle(ctx context.Context, srv *server) (again, solo bool) {
 	srv.setReady(la.prepared)
 	var since time.Time // when the launcher began to have nothing to do, or zero when its player is in a room
 	for {
 		play, next, err := srv.latest()
 		switch {
 		case ends(err):
-			return false
+			return false, false
 		case err != nil || play == nil || play.Room == "":
 			if since.IsZero() {
 				since = time.Now()
@@ -492,7 +508,7 @@ func (la *launcher) idle(ctx context.Context, srv *server) bool {
 		default:
 			since = time.Time{}
 			if srv.failure() == "" && !play.InGame && (play.Game == nil || la.left == "" || play.Game.ID != la.left) {
-				return true
+				return true, false
 			}
 		}
 		var rest <-chan time.Time
@@ -503,19 +519,23 @@ func (la *launcher) idle(ctx context.Context, srv *server) bool {
 		case <-la.pressed:
 			srv.resume()
 			la.left, la.clicked = "", true
-			return true
+			return true, false
+		case <-la.solos:
+			srv.resume()
+			la.clicked = true
+			return true, true
 		case <-next:
 		case <-rest:
 			srv.rest()
 		case <-ctx.Done():
-			return false
+			return false, false
 		}
 	}
 }
 
-// play is what a link runs. When it fails, it calls failed with its error before it returns, while its output still
-// goes to its log.
-func (la *launcher) play(ctx context.Context, url string, srv *server, failed func(error)) (err error) {
+// play is what a link runs: the room's game, or with solo, the game alone (alone). When it fails, it calls failed
+// with its error before it returns, while its output still goes to its log.
+func (la *launcher) play(ctx context.Context, url string, srv *server, solo bool, failed func(error)) (err error) {
 	// closeLog ends the run's log, once it has what the run failed at.
 	closeLog := func() {}
 	defer func() {
@@ -562,8 +582,16 @@ func (la *launcher) play(ctx context.Context, url string, srv *server, failed fu
 		return perr
 	}
 	la.loadConfig()
-	if err := la.trust(l); err != nil {
+	// A link to play alone with no server has the launcher call none, and start nothing that a server sent. There is
+	// nothing to trust (trust).
+	offline := l.offline()
+	if offline {
+		srv = nil
+	} else if err := la.trust(l); err != nil {
 		return err
+	}
+	if solo && !offline {
+		srv.setReady(false) // until the game starts, the page's button says what the launcher does
 	}
 	// Only one launcher at a time changes what the PC's launchers share: their own program, the copy of Plutonium
 	// and the game files. If another player's launcher on this PC is changing them now, this launcher waits for it.
@@ -595,9 +623,18 @@ func (la *launcher) play(ctx context.Context, url string, srv *server, failed fu
 	// a later release of itself before it asks the server anything, and hands the link to that one. A server that
 	// takes only later versions than this one's then turns none of this one's calls away, and the player's room has
 	// nothing to say of it: the server takes the call that says the launcher started from a launcher of any version.
-	srv.hello(ctx)
+	if !offline {
+		srv.hello(ctx)
+	}
 	if again, err := la.renew(ctx, url, files, giveUp); again || err != nil {
 		return err
+	}
+	if offline {
+		if macOld(la.mac) {
+			return errSetup
+		}
+		files()
+		return la.alone(ctx, nil, l, &launcherapi.Play{Player: l.name}, done)
 	}
 	srv.start()
 	if la.stays {
@@ -616,6 +653,9 @@ func (la *launcher) play(ctx context.Context, url string, srv *server, failed fu
 	}
 	files()
 	la.say("You are %s on %s.", play.Player, l.host)
+	if solo {
+		return la.alone(ctx, srv, l, play, done)
+	}
 	// The launcher now prepares the PC, and then reports that the PC has what the game needs (setReady). A room's
 	// game waits for a player whose launcher is still preparing, however long a first download of the game files
 	// takes. The call that is open to the server shows it that the launcher runs through all of this.
@@ -843,17 +883,28 @@ func (la *launcher) rejoin(g game, l link, play *launcherapi.Play) bool {
 // It joins a game once that is up. When the game that runs can't join (rejoins), stay closes it and starts it again,
 // at once: a game that starts takes longer than the room's does.
 func (la *launcher) stay(ctx context.Context, srv *server, l link, play *launcherapi.Play, dir string) error {
-	to, rev := play.Game, play.Plutonium // the room's game that the player's game joined, and its Plutonium
 	g, from, err := la.launch(ctx, srv, l, play, dir)
 	if err != nil {
 		return err
 	}
+	return la.stayWith(ctx, srv, l, g, dir, from, play.Game, play.Plutonium)
+}
+
+// aloneStarts is how long the page's button says that the player's game starts, when it starts for the player alone
+// (alone). No room's game says when it is in.
+var aloneStarts = 15 * time.Second
+
+// stayWith is stay, from the start of the player's game g: from the folder from, which the run found as dir, into the
+// room's game to, with Plutonium of the revision rev. For a game alone, to is nil: the game is at its menu, with the
+// PC's Plutonium, and the player's next room's game joins from there.
+func (la *launcher) stayWith(ctx context.Context, srv *server, l link, g game, dir, from string, to *launcherapi.Game, rev int) error {
 	la.hide()
 	// The player's game runs from here until it is closed. The room's button shows what the launcher does with it
 	// until the server has it in the room's game: the game starts, or the game that runs joins the room's game. Once
 	// the server has the player's game in, the launcher has nothing to report. When the player's game is out of the
-	// room's game again, the button then asks to join again (pressed).
-	status := "Starting the game"
+	// room's game again, the button then asks to join again (pressed). The page's button for a game alone says that
+	// the game starts for aloneStarts.
+	status, begun := "Starting the game", time.Now()
 	show := func(what string) {
 		if what != status {
 			status = what
@@ -874,8 +925,11 @@ func (la *launcher) stay(ctx context.Context, srv *server, l link, play *launche
 			show("")
 			asked = false
 		}
+		if to == nil && status == "Starting the game" && time.Since(begun) >= aloneStarts {
+			show("")
+		}
 		again := false
-		if ok && play.Game != nil && (play.Game.ID != to.ID || asked) {
+		if ok && play.Game != nil && (to == nil || play.Game.ID != to.ID || asked) {
 			switch {
 			case !la.rejoins(play, dir, from, rev):
 				again = true
@@ -893,6 +947,7 @@ func (la *launcher) stay(ctx context.Context, srv *server, l link, play *launche
 			select {
 			case <-la.pressed:
 				asked = true
+			case <-la.solos: // the player's game runs already
 			case <-next:
 			case <-time.After(la.tick):
 			case <-ctx.Done():
@@ -912,14 +967,71 @@ func (la *launcher) stay(ctx context.Context, srv *server, l link, play *launche
 		status = "Starting the game" // also after "Updating Plutonium", which launch may have reported
 		la.doing(ctx, srv, status)
 	}
-	la.left = to.ID
+	if to != nil {
+		la.left = to.ID
+	}
 	return nil
+}
+
+// alone prepares the PC and starts the player's game at its menu, for them to play alone: the lobby's Play offline
+// (launcherapi). Their game joins no server's, so any revision of Plutonium does. The PC's copy does as it is, and
+// the launcher contacts Plutonium only when the copy is not complete, as before the PC's first game (havePlutonium).
+// A PC that has played so plays alone with no internet. The game files are found as for a room's game (gameFiles).
+//
+// srv is the link's server, or nil for a link with none (link.offline). With a server, the launcher reports what it
+// does, which the page's button shows, and stays with the game as with a room's (stayWith): when the player then
+// readies up in a room, their game joins the room's game from its menu. With none, it starts the game and ends. done
+// gives up the turn to change the PC's files, once the launcher no longer changes them.
+func (la *launcher) alone(ctx context.Context, srv *server, l link, play *launcherapi.Play, done func()) error {
+	if err := la.havePlutonium(ctx, srv); err != nil {
+		return err
+	}
+	la.doing(ctx, srv, "Checking files")
+	dir, err := la.gameFiles(ctx, srv, l, play)
+	if err != nil {
+		return err
+	}
+	done()
+	from, err := la.startFrom(dir) // or the folder the player chose in the tray's menu since
+	if err != nil {
+		return err
+	}
+	exe := filepath.Join(la.plutonium, filepath.FromSlash(plutonium.Bootstrapper))
+	line, err := aloneLine(exe, from, play.Player)
+	if err != nil {
+		return err
+	}
+	g, err := la.start(exe, line, la.plutonium)
+	if err != nil {
+		return fmt.Errorf("Plutonium couldn't be started: %v\n\n%s", err, la.plutoniumHint())
+	}
+	la.started(g)
+	la.launched = true
+	la.say("")
+	la.say("Black Ops II is starting at its menu, for you to play solo as %s.", gameName(play.Player))
+	if srv == nil {
+		return nil
+	}
+	la.prepared = true
+	srv.setReady(true)
+	rev := (&plutonium.Copy{Dir: la.plutonium, Needs: plutonium.T6, State: "zombies-launcher-files.json"}).Revision()
+	return la.stayWith(ctx, srv, l, g, dir, from, nil, rev)
+}
+
+// havePlutonium makes sure that the PC has Plutonium, for a game alone (alone): a complete copy, of any revision.
+func (la *launcher) havePlutonium(ctx context.Context, srv *server) error {
+	c := &plutonium.Copy{Dir: la.plutonium, Needs: plutonium.T6, State: "zombies-launcher-files.json"}
+	if c.Complete() {
+		return nil
+	}
+	la.doing(ctx, srv, "Updating Plutonium")
+	return la.getPlutonium(ctx)
 }
 
 // doing reports to the server what a launcher that stays does now to prepare the PC, for the room's button to show.
 // Such a launcher has no window of its own to show it in. A download reports how far it is instead (sync).
 func (la *launcher) doing(ctx context.Context, srv *server, what string) {
-	if la.stays {
+	if la.stays && srv != nil {
 		srv.report(ctx, launcherapi.Report{Doing: what})
 	}
 }

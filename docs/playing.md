@@ -13,7 +13,7 @@ Black Ops runs in the browser tab.
 - **Settings:** Black Ops settings, under Ready in a Black Ops room and under Play when you play offline, opens the game's graphics, sound and controls. Your next game in this browser starts with them. In a game, the game's own menu has them.
 - **Mouse and full screen:** a click captures the mouse and goes full screen. Esc opens the game's menu. Hold Esc or press F11 to leave full screen.
 - **Gamepads:** Xbox and PlayStation controllers work. Press any button to turn the gamepad on. Start opens the settings where the page has them.
-- **Play offline:** plays a map alone in the browser. It also works without the server, for maps you have imported.
+- **Play offline:** plays a map solo in the browser. It also works without the server, for maps you have imported.
 - **Dropped from a game:** rejoin within 5 minutes to get your character back.
 
 ## Black Ops II
@@ -27,6 +27,7 @@ Black Ops II runs on your Windows PC, on [Plutonium](https://plutonium.pw/). The
 - **The next game:** leave your game open at its menu when a game ends. When the room's next game starts, your game joins it without starting again. The launcher restarts your game instead when Plutonium has been updated, or when you chose another game folder in its menu.
 - **Updates:** the launcher updates itself from GitHub. If the room says that your launcher is too old, install the new one with the link there, then press Connect.
 - **Plutonium:** the launcher keeps Plutonium in Plutonium's own folder, `%LOCALAPPDATA%\Plutonium`, where Plutonium's own launcher (`plutonium.exe`, from its site) has it too. So Plutonium is not part of the Zombies Launcher: a PC that has Plutonium already keeps it, and Plutonium stays when the launcher is uninstalled.
+- **Play offline:** the lobby's Play offline has Black Ops II too, behind a switch where the server hosts both games. The switch shows the game you last picked or were last in a room of, as a new room and the leaderboards do. Launch game starts the game on your PC through Plutonium, and you pick a map in the game. It needs no room, and no Plutonium account. The launcher plays with the Plutonium the PC has, whatever its version, and gets Plutonium only when the PC has none yet. So once the PC has played, it plays solo with no internet. Where the browser can't reach the server either, its copy of the page still has the button: the game then starts from the game files the PC has.
 - **Join by hand:** check Join by hand under the room's button to join from your game's console instead, in a game that Plutonium started in LAN mode. The room shows the line to type there. The launcher then leaves your game alone, even when it still runs from an earlier game.
 - **The launcher's icon in the tray:** its menu shows which game folder the launcher uses. Choose Black Ops II folder… points it at another copy, from the game's next start. Delete downloaded Black Ops II files… frees the space of files the launcher downloaded.
 - **Your colour:** the game shows your points in the colour of your ring in the room, while everyone listed before you in the room is in the game. For that, the games join in the room's order: yours may stay at Connecting for up to 30 seconds while it waits for the game of a player before you.

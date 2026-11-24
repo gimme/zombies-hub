@@ -207,6 +207,7 @@ type testLauncher struct {
 	games     []*fakeGame
 	gameStays bool
 	button    chan struct{} // gets a value each time the player presses the room's button
+	solo      chan struct{} // gets a value each time the player presses the lobby's Play offline
 	// the stand-in for Plutonium's updater, and the revision it serves
 	updater  *plutoniumtest.Updater
 	revision *int
@@ -264,7 +265,8 @@ func newTestLauncher(t *testing.T, answers string) *testLauncher {
 	revision := 1
 	updater := plutoniumtest.Serve(t, plutoniumFiles, &revision)
 	root := t.TempDir()
-	tl := &testLauncher{out: &bytes.Buffer{}, button: make(chan struct{}, 1), updater: updater, revision: &revision}
+	tl := &testLauncher{out: &bytes.Buffer{}, button: make(chan struct{}, 1), solo: make(chan struct{}, 1),
+		updater: updater, revision: &revision}
 	tl.launcher = &launcher{
 		home: filepath.Join(root, appName), plutonium: filepath.Join(root, "Plutonium"), manifest: updater.URL,
 		client: newClient(), in: bufio.NewReader(strings.NewReader(answers)), out: tl.out, status: io.Discard,
@@ -276,6 +278,7 @@ func newTestLauncher(t *testing.T, answers string) *testLauncher {
 			return g, nil
 		},
 		pressed: tl.button,
+		solos:   tl.solo,
 		hide:    func() { tl.hidden = true },
 		rerun: func(exe, link string) error {
 			tl.reran = append(tl.reran, exe+" "+link)
@@ -340,12 +343,26 @@ var t6Files = map[string]string{
 
 func TestParseLink(t *testing.T) {
 	for url, want := range map[string]link{
-		"zombies-launcher://zombies.example.com/play?key=0123456789abcdef":          {"https://zombies.example.com", "zombies.example.com", true, "0123456789abcdef"},
-		"zombies-launcher://Zombies.Example.com:8443/play?key=0123456789abcdef":     {"https://zombies.example.com:8443", "zombies.example.com", true, "0123456789abcdef"},
-		"ZOMBIES-LAUNCHER://10.0.50.11:3075/play?key=0123456789abcdef&tls=0":        {"http://10.0.50.11:3075", "10.0.50.11", false, "0123456789abcdef"},
-		"zombies-launcher://10.0.50.11:3075/play/?tls=0&key=0123456789abcdef":       {"http://10.0.50.11:3075", "10.0.50.11", false, "0123456789abcdef"},
-		"zombies-launcher://tower/play?key=0123456789abcdef&tls=1":                  {"https://tower", "tower", true, "0123456789abcdef"},
-		"zombies-launcher://host/play":                                              {},
+		"zombies-launcher://zombies.example.com/play?key=0123456789abcdef": {base: "https://zombies.example.com",
+			host: "zombies.example.com", tls: true, key: "0123456789abcdef"},
+		"zombies-launcher://Zombies.Example.com:8443/play?key=0123456789abcdef": {base: "https://zombies.example.com:8443",
+			host: "zombies.example.com", tls: true, key: "0123456789abcdef"},
+		"ZOMBIES-LAUNCHER://10.0.50.11:3075/play?key=0123456789abcdef&tls=0": {base: "http://10.0.50.11:3075",
+			host: "10.0.50.11", key: "0123456789abcdef"},
+		"zombies-launcher://10.0.50.11:3075/play/?tls=0&key=0123456789abcdef": {base: "http://10.0.50.11:3075",
+			host: "10.0.50.11", key: "0123456789abcdef"},
+		"zombies-launcher://tower/play?key=0123456789abcdef&tls=1": {base: "https://tower", host: "tower", tls: true,
+			key: "0123456789abcdef"},
+		// the lobby's Play offline: with the key, or with none from a page that has no server
+		"zombies-launcher://10.0.50.11:3075/play?solo=1&name=Ann&tls=0": {base: "http://10.0.50.11:3075",
+			host: "10.0.50.11", solo: true, name: "Ann"},
+		"zombies-launcher://zombies.example.com/play?solo=1&name=Ann+B%22&key=0123456789abcdef": {
+			base: "https://zombies.example.com", host: "zombies.example.com", tls: true, key: "0123456789abcdef",
+			solo: true, name: `Ann B"`},
+		"zombies-launcher://host/play?solo=1&key=0123456789ABCDEF":              {},
+		"zombies-launcher://host/play?name=Ann":                                 {},
+		"zombies-launcher://host/play?solo=1&name=" + strings.Repeat("a", 65): {},
+		"zombies-launcher://host/play":                                          {},
 		"zombies-launcher://host/play?key=":                                         {},
 		"zombies-launcher://host/play?key=0123456789ABCDEF":                         {},
 		"zombies-launcher://host/play?key=0123456789abcdef%26x":                     {},
@@ -367,7 +384,7 @@ func TestParseLink(t *testing.T) {
 		"zombies-launcher://" + strings.Repeat("a", 254) + "/play?key=0123456789ab": {},
 	} {
 		got, err := parseLink(url)
-		if got != want || (err == nil) != (want.key != "") {
+		if got != want || (err == nil) != (want.base != "") {
 			t.Errorf("%s: %+v, %v", url, got, err)
 		}
 	}

@@ -93,7 +93,7 @@ test('a player plays a map alone, twice, with the settings they changed', async 
   await eve.page.click('.om-back');
 
   // Back to the lobby plays a button's sound under the mouse once more, not a click, and the large menu's closing;
-  // Pick a map plays its click, and the menu's opening
+  // Play solo plays its click, and the menu's opening
   const back = await heardWhile(eve, async () => {
     await eve.page.click('#soloback');
     await eve.page.waitForSelector('#solo.hidden', { state: 'attached', timeout: 10_000 });
@@ -109,7 +109,7 @@ test('a player plays a map alone, twice, with the settings they changed', async 
   });
   const at = open.indexOf('uin_navigation_menu_lg_open');
   expect(at >= 1 && open[at - 1] === 'uin_navigation_click' && count(open, 'uin_navigation_menu_lg_open') === 1,
-    `Pick a map's sounds: ${open.join(', ')}`).toBe(true);
+    `Play solo's sounds: ${open.join(', ')}`).toBe(true);
 
   eve.lobbyMemory = await eve.memory();
   eve.note(`before the first game, ${Player.gb(eve.lobbyMemory)}`);

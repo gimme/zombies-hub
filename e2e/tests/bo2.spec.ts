@@ -6,7 +6,7 @@
 // lacks the room's map is not ready, and where the server sends game files, the room's button offers them.
 import type { Page } from '@playwright/test';
 import { createSocket, type Socket } from 'node:dgram';
-import { expect, test } from '../fixtures';
+import { expect, joinRoom, makeRoom, test } from '../fixtures';
 
 // Where the room links to the launcher: its latest release (internal/launcherapi: LatestFile).
 const setup = 'https://github.com/gimme/zombies-hub/releases/download/launcher/zombies-launcher-setup.exe';
@@ -230,6 +230,130 @@ test('a Mac is shown the line that installs the launcher from Terminal', async (
   expect((await launcher('/launcher/started')).status).toBe(200);
   expect((await launcher('/launcher/files', {})).status).toBe(200);
   await expect(ann.locator('#t6mac')).toBeHidden();
+});
+
+test("Play offline starts Black Ops II on the player's PC, and says what the launcher does", async ({ server, player }) => {
+  const ann = await player('Ann');
+  await expect(ann.locator('#soloopen')).toHaveText('Play solo');
+  await ann.locator('#soloopen').click();
+  // the server hosts both games: Black Ops is picked first, and Black Ops II is one click away
+  const titles = ann.locator('#solotitles');
+  await expect(titles.getByRole('radio', { name: 'Black Ops', exact: true })).toHaveAttribute('aria-checked', 'true');
+  await expect(ann.locator('#solomaps')).toBeVisible();
+  await titles.getByRole('radio', { name: 'Black Ops II', exact: true }).click();
+  await expect(titles.getByRole('radio', { name: 'Black Ops II', exact: true })).toHaveAttribute('aria-checked', 'true');
+  await expect(ann.locator('#solotitle')).toHaveText('Black Ops II');
+  await expect(ann.locator('#solodesc')).toHaveText('Launches the game on this PC through Plutonium.');
+  await expect(ann.locator('#solodesc').getByRole('link', { name: 'Plutonium' }))
+    .toHaveAttribute('href', 'https://plutonium.pw/');
+  await expect(ann.locator('#solomaps')).toBeHidden();
+  await expect(ann.locator('#settings')).toBeHidden(); // Black Ops' options
+  // where to get the launcher, as in a room
+  await expect(ann.locator('#t6get')).toHaveText('First time? Install Zombies Launcher.');
+  await expect(ann.locator('#t6setup')).toHaveAttribute('href', setup);
+  // the button, which starts no launcher on this PC
+  await expect(ann.locator('#playalone')).toHaveText('Launch game');
+  await ann.locator('#playalone').click();
+  await expect(ann.locator('#playalone')).toHaveText('Connecting...');
+  await expect(ann.locator('#t6get')).toHaveText('Nothing happened? Install Zombies Launcher.');
+  await expect(ann.locator('#playalone')).toHaveText('Launch game');
+
+  // calls of Ann's launcher, by her key: the button says what it does, and the box where to get it goes
+  await expect(ann.locator('#playbat')).toHaveText(/ [0-9a-f]{16}$/);
+  const key = ((await ann.locator('#playbat').textContent()) || '').split(' ').pop();
+  const headers = { Authorization: 'Key ' + key, 'Zombies-Launcher-Version': '1' };
+  const launcher = (path: string, body?: object) =>
+    fetch(server.url + path, { method: 'POST', headers, body: body && JSON.stringify(body) });
+  const ready = () => fetch(server.url + '/launcher/play?ready=1', { headers });
+  expect((await launcher('/launcher/started')).status).toBe(200);
+  await expect(ann.locator('#playalone')).toHaveText('Connecting...');
+  await expect(ann.locator('#t6install')).toBeHidden();
+  expect((await launcher('/launcher/files', { doing: 'Updating Plutonium' })).status).toBe(200);
+  await expect(ann.locator('#playalone')).toHaveText('Updating Plutonium...');
+  expect((await launcher('/launcher/files', { running: true, got: 50, need: 100 })).status).toBe(200);
+  await expect(ann.locator('#playalone')).toHaveText('Downloading · 50%');
+  expect((await launcher('/launcher/files', { doing: 'Starting the game' })).status).toBe(200);
+  expect((await ready()).status).toBe(200);
+  await expect(ann.locator('#playalone')).toHaveText('Starting the game...');
+  expect((await launcher('/launcher/files', {})).status).toBe(200);
+  await expect(ann.locator('#playalone')).toHaveText('Launch game');
+  await expect(ann.locator('#playalone')).not.toHaveAttribute('aria-disabled', 'true');
+  // a try that failed: the page says why, and the button tries again
+  expect((await launcher('/launcher/files', { failed: "Couldn't find Black Ops II on this PC." })).status).toBe(200);
+  await expect(ann.locator('#solonote')).toHaveText("Couldn't find Black Ops II on this PC.");
+  await expect(ann.locator('#playalone')).toHaveText('Try again');
+  expect((await launcher('/launcher/files', {})).status).toBe(200);
+  await expect(ann.locator('#solonote')).toBeHidden();
+  expect((await launcher('/launcher/stopped')).status).toBe(200);
+  await expect(ann.locator('#playalone')).toHaveText('Launch game');
+  // the browser keeps the pick, which is the game of the rooms too: the room she makes next is of Black Ops II, and a
+  // pick for a room is Play offline's
+  await ann.reload();
+  await expect(ann.locator('#solotitle')).toHaveText('Black Ops II');
+  await ann.locator('#soloback').click();
+  await ann.locator('#make').click();
+  await expect(ann.locator('#mapkicker')).toHaveText('Black Ops II');
+  await ann.locator('#titlepick').getByRole('radio', { name: 'Black Ops', exact: true }).click();
+  await expect(ann.locator('#mapkicker')).toHaveText('Black Ops');
+  await ann.locator('#leave').click();
+  await ann.locator('#soloopen').click();
+  await expect(titles.getByRole('radio', { name: 'Black Ops', exact: true })).toHaveAttribute('aria-checked', 'true');
+  await titles.getByRole('radio', { name: 'Black Ops II', exact: true }).click();
+  await expect(ann.locator('#solotitle')).toHaveText('Black Ops II');
+  // and the leaderboards' game: they open on Black Ops II, and a pick there is Play offline's
+  await ann.locator('#boardsopen').click();
+  const boardTitles = ann.locator('#boardtitles');
+  await expect(boardTitles.getByRole('radio', { name: 'Black Ops II', exact: true }))
+    .toHaveAttribute('aria-checked', 'true');
+  await boardTitles.getByRole('radio', { name: 'Black Ops', exact: true }).click();
+  await ann.locator('#boardsopen').click();
+  await expect(titles.getByRole('radio', { name: 'Black Ops', exact: true })).toHaveAttribute('aria-checked', 'true');
+  await titles.getByRole('radio', { name: 'Black Ops II', exact: true }).click();
+  await expect(ann.locator('#solotitle')).toHaveText('Black Ops II');
+
+  // a page that can't reach its server still offers it: the button says that the game starts for a moment, as the
+  // server can't say what the launcher does
+  await ann.route('**/lobby/**', (route) => route.abort());
+  await ann.reload();
+  await expect(ann.locator('#rooms')).toContainText('No connection to the server.', { timeout: 20000 });
+  await expect(ann.locator('#solotitle')).toHaveText('Black Ops II');
+  await expect(ann.locator('#playalone')).toHaveText('Launch game');
+  await ann.locator('#playalone').click();
+  await expect(ann.locator('#playalone')).toHaveText('Starting...');
+  await expect(ann.locator('#playalone')).toHaveText('Launch game', { timeout: 10000 });
+  await expect(ann.locator('#t6install')).toBeHidden();
+  // so it does in a browser that has never seen a launcher run, as another browser on the PC may have
+  const bea = await player('Bea');
+  await bea.locator('#soloopen').click();
+  await bea.locator('#solotitles').getByRole('radio', { name: 'Black Ops II', exact: true }).click();
+  await expect(bea.locator('#t6get')).toHaveText('First time? Install Zombies Launcher.');
+  await bea.route('**/lobby/**', (route) => route.abort());
+  await bea.reload();
+  await expect(bea.locator('#rooms')).toContainText('No connection to the server.', { timeout: 20000 });
+  await expect(bea.locator('#solotitle')).toHaveText('Black Ops II');
+  await expect(bea.locator('#playalone')).toHaveText('Launch game');
+});
+
+test("a room's game counts as its players' pick: for their next room, the leaderboards and Play offline", async ({ player }) => {
+  const ann = await player('Ann');
+  const bea = await player('Bea');
+  const code = await makeRoom(ann);
+  await ann.locator('#titlepick').getByRole('radio', { name: 'Black Ops II', exact: true }).click();
+  await expect(ann.locator('#mapkicker')).toHaveText('Black Ops II');
+  // Bea, who has picked no game, joins the room of Black Ops II
+  await joinRoom(bea, code);
+  await expect(bea.locator('#mapkicker')).toHaveText('Black Ops II');
+  await bea.locator('#leave').click();
+  await bea.locator('#soloopen').click();
+  await expect(bea.locator('#solotitles').getByRole('radio', { name: 'Black Ops II', exact: true }))
+    .toHaveAttribute('aria-checked', 'true');
+  await bea.locator('#boardsopen').click();
+  await expect(bea.locator('#boardtitles').getByRole('radio', { name: 'Black Ops II', exact: true }))
+    .toHaveAttribute('aria-checked', 'true');
+  await bea.locator('#boardsopen').click();
+  await bea.locator('#soloback').click();
+  await bea.locator('#make').click();
+  await expect(bea.locator('#mapkicker')).toHaveText('Black Ops II');
 });
 
 /**

@@ -271,12 +271,24 @@ func (p *process) join(line string) error {
 	return nil
 }
 
-// presses returns a channel that gets a value each time the player asks to join again, while their launcher (id)
-// runs. It waits for a Windows event. The launcher that another link of theirs starts sets the event (press) before
-// it ends.
-func presses(id string) <-chan struct{} {
+// presses returns two channels, each of which gets a value each time the player asks something of their launcher (id)
+// while it runs: join, to join again (the room's button), and solo, to play alone (the lobby's Play offline). Each
+// waits for a Windows event. The launcher that another link of theirs starts sets the event (press) before it ends.
+func presses(id string) (join, solo <-chan struct{}) {
+	return pressesOf(id, "join"), pressesOf(id, "solo")
+}
+
+func press(id string, solo bool) {
+	if solo {
+		pressOf(id, "solo")
+	} else {
+		pressOf(id, "join")
+	}
+}
+
+func pressesOf(id, what string) <-chan struct{} {
 	ch := make(chan struct{}, 1)
-	name, err := windows.UTF16PtrFromString(`Local\zombies-launcher-` + id + `-join`)
+	name, err := windows.UTF16PtrFromString(`Local\zombies-launcher-` + id + `-` + what)
 	if err != nil {
 		return ch
 	}
@@ -298,8 +310,8 @@ func presses(id string) <-chan struct{} {
 	return ch
 }
 
-func press(id string) {
-	name, err := windows.UTF16PtrFromString(`Local\zombies-launcher-` + id + `-join`)
+func pressOf(id, what string) {
+	name, err := windows.UTF16PtrFromString(`Local\zombies-launcher-` + id + `-` + what)
 	if err != nil {
 		return
 	}

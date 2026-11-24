@@ -6,7 +6,7 @@
 // game's console (t6Console).
 import type { Room } from './api';
 import { canRun } from './engine';
-import { me, page, view } from './lobby';
+import { me, offline, page, view } from './lobby';
 import { params } from './params';
 import { served } from './server';
 import { store } from './storage';
@@ -160,9 +160,32 @@ let stopWatching = (): void => {};
  * The room's button says that the launcher starts (launcherOpening) until one shows itself, or until nothing more
  * can follow the click. Where nothing followed it at all, the room then shows the line that installs the launcher
  * (launcherMissed).
+ *
+ * With solo, the link asks the launcher to start Black Ops II for the player alone (solo.ts), under their name. A
+ * page that can't reach its server sends no key: the launcher then calls no server, and plays from what the PC has
+ * (internal/launcherapi). The server can't tell such a page of the launcher, so its button says that the game starts
+ * for a while, and the page takes nothing for a sign that the PC has no launcher.
  */
-export function openLauncher(): void {
+export function openLauncher(solo = false): void {
+  // The name is encoded down to letters, digits and %: the script that runs the launcher on a Mac takes no other
+  // characters of a link (launcher/mac.sh: cmd_link).
+  const name = encodeURIComponent((view && view.you.name) || me.name || '')
+    .replace(/[!'()*~]/g, (c) => '%' + c.charCodeAt(0).toString(16).toUpperCase());
+  const link = 'zombies-launcher://' + location.host + '/play?' + (solo
+    ? 'solo=1&name=' + name + (offline ? '' : '&key=' + (me.key || ''))
+    : 'key=' + (me.key || '')) + (location.protocol === 'https:' ? '' : '&tls=0');
   stopWatching();
+  if (offline) {
+    launcherOpening = true;
+    const timer = window.setTimeout(() => {
+      launcherOpening = false;
+      page.redraw();
+    }, LAUNCHER_ANSWERED);
+    stopWatching = () => clearTimeout(timer);
+    page.redraw();
+    location.assign(link);
+    return;
+  }
   let asked = false; // the browser asked whether to open the launcher, or another window took the focus
   let limit = 0;
   // Nothing more is expected of the click: the button is as it was before it.
@@ -201,6 +224,5 @@ export function openLauncher(): void {
   document.addEventListener('visibilitychange', away);
   launcherOpening = true;
   page.redraw();
-  location.assign('zombies-launcher://' + location.host + '/play?key=' + (me.key || '') +
-    (location.protocol === 'https:' ? '' : '&tls=0'));
+  location.assign(link);
 }

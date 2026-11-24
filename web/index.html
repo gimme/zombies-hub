@@ -138,7 +138,7 @@
           </section>
           <section class="panel start" id="soloentry">
             <h1 class="display">Play offline</h1>
-            <button type="button" class="big" id="soloopen">Pick a map</button>
+            <button type="button" class="big" id="soloopen">Play solo</button>
           </section>
         </div>
         <section class="browse">
@@ -153,10 +153,12 @@
               <div class="mapinfo">
                 <img id="soloimg" alt="">
                 <div class="text">
-                  <div class="label">Map</div>
+                  <div class="label" id="solokicker">Map</div>
                   <div class="about"><h1 class="display" id="solotitle"></h1><p id="solodesc"></p></div>
                 </div>
               </div>
+              <!-- the game to play offline, where the page offers two (src/solo.ts: showSoloTitle) -->
+              <div class="titlepick hidden" id="solotitles"></div>
               <div class="mapgrid" id="solomaps" role="radiogroup" aria-label="The map to play offline"></div>
             </section>
           </div>
@@ -164,6 +166,8 @@
             <h2 class="display" id="solohead">Play offline</h2>
             <button type="button" class="primary big" id="playalone" aria-disabled="true">Play</button>
             <p id="solonote" class="files hidden"></p>
+            <!-- where to install the launcher, for Black Ops II: the room's, which moves here (src/room.ts: placeInstall) -->
+            <div id="soloinstall"></div>
             <!-- Black Ops' options menu (src/main.ts: settingsInit), as a room on a Black Ops map has it too -->
             <button type="button" id="settings" class="gamesettings hidden" aria-haspopup="dialog" aria-expanded="false"
               aria-controls="options" title="Graphics, sound and controls">
@@ -255,17 +259,20 @@
             </button>
             <button type="button" class="big hidden" id="endgame" title="No one is playing it">End the game</button>
             <section id="t6box" class="hidden">
-              <p id="t6get" class="hidden"><span id="t6why">First time?</span> <a id="t6setup">Install Zombies
-                Launcher</a>. <button type="button" class="what" aria-expanded="false" aria-controls="t6about"
-                title="What is it?" aria-label="What is Zombies Launcher?"></button></p>
-              <div id="t6mac" class="hidden">
-                <p><span id="t6machow"></span> <button type="button" class="what" aria-expanded="false"
-                  aria-controls="t6about" title="What is it?" aria-label="What is Zombies Launcher?"></button></p>
-                <div class="codeline">
-                  <span id="t6macline"></span>
+              <!-- where to install the launcher; Play offline shows it too, for Black Ops II (src/room.ts: placeInstall) -->
+              <div id="t6install">
+                <p id="t6get" class="hidden"><span id="t6why">First time?</span> <a id="t6setup">Install Zombies
+                  Launcher</a>. <button type="button" class="what" aria-expanded="false" aria-controls="t6about"
+                  title="What is it?" aria-label="What is Zombies Launcher?"></button></p>
+                <div id="t6mac" class="hidden">
+                  <p><span id="t6machow"></span> <button type="button" class="what" aria-expanded="false"
+                    aria-controls="t6about" title="What is it?" aria-label="What is Zombies Launcher?"></button></p>
+                  <div class="codeline">
+                    <span id="t6macline"></span>
+                  </div>
                 </div>
+                <p id="t6about" class="hidden"></p>
               </div>
-              <p id="t6about" class="hidden"></p>
               <label id="t6handrow" class="hidden"><input type="checkbox" id="t6hand"
                 aria-controls="t6handline">Join by hand</label>
               <div id="t6handline" class="hidden">

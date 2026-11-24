@@ -54,6 +54,7 @@ const SEAT_ICON = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" s
 
 /** Draws the room from a view of the lobby. */
 export function showRoom(v: View, room: Room): void {
+  rememberRoomTitle(room);
   $('roomcode').textContent = room.code;
   // The room's game, beside its code, while it has one. A game starts first. A Black Ops II room then waits, once its
   // server is up, for the players' own games to join. A game is in play from round 1.
@@ -287,11 +288,34 @@ export function showT6(v: View, room: Room): void {
   $('t6handrow').classList.toggle('hidden', !launcherOn());
   $('t6handline').classList.toggle('hidden', !byHand);
   $('t6console').textContent = t6Console(room);
+  placeInstall($('t6box'));
+  showInstall(v, !byHand);
+}
+
+/**
+ * Puts what installs the launcher (#t6install) into box: the room's box for Black Ops II, or Play offline's (solo.ts).
+ * The two never show at once, so the page has it once, and draws it wherever it is (showInstall).
+ */
+export function placeInstall(box: HTMLElement): void {
+  const install = $('t6install');
+  if (install.parentElement === box) return;
+  if (box.id === 't6box') box.prepend(install);
+  else box.append(install);
+}
+
+/**
+ * Draws what installs the launcher, where the launcher is to start the game (wanted): the link to its setup, or on a
+ * Mac the line for Terminal, and the "?" by them, with what the launcher is. It shows in a browser that has never seen
+ * a launcher of the player's run, after a click that started none (windows.ts: launcherMissed), and when the
+ * launcher is too old (View.you.launcherOld).
+ */
+export function showInstall(v: View, wanted: boolean): void {
   const old = !!v.you.launcherOld;
   // A Mac has no program to download: the launcher is installed there by a line for Terminal (windows.ts:
   // launcherMacLine), which the box shows in place of the link. The same line brings an old launcher up to date.
   const line = launcherMacLine();
-  const get = !byHand && (!launcherHere || old || launcherMissed);
+  const get = wanted && (!launcherHere || old || launcherMissed);
+  $('t6install').classList.toggle('hidden', !get);
   // A Mac's launcher is old also when the script that runs it is (launcher/mac.go), which is no matter of the server.
   const why = old ? (line ? 'Your Zombies Launcher needs an update.' : 'Your Zombies Launcher is too old for this server.')
     : launcherMissed ? 'Nothing happened?' : 'First time?';
@@ -316,7 +340,7 @@ export function showT6(v: View, room: Room): void {
     about.dataset.of = kind;
     about.replaceChildren(...(line ? ABOUT_MAC : ABOUT_PC).map(part => typeof part === 'string' ? part : site(part)));
   }
-  for (const b of box.querySelectorAll('button.what')) b.setAttribute('aria-expanded', String(aboutShown));
+  for (const b of $('t6install').querySelectorAll('button.what')) b.setAttribute('aria-expanded', String(aboutShown));
 }
 
 // What the launcher is, which the "?" shows (showT6): text, and the names of what the launcher installs, each with its
@@ -324,7 +348,7 @@ export function showT6(v: View, room: Room): void {
 // installs (launcher/mac.sh). The app that removes the launcher there is "run": opened, it could be taken for the
 // launcher's menu in the menu bar.
 type Words = (string | [name: string, href: string])[];
-const PLUTONIUM: [string, string] = ['Plutonium', 'https://plutonium.pw/'];
+export const PLUTONIUM: [string, string] = ['Plutonium', 'https://plutonium.pw/'];
 const ABOUT_PC: Words = ['Zombies Launcher is a small program that helps start the game on this PC and connects it ' +
   'to the room. It also installs the required game client (', PLUTONIUM, ').'];
 const ABOUT_MAC: Words = ['This script installs Zombies Launcher: a small program that helps start the game on this ' +
@@ -333,8 +357,8 @@ const ABOUT_MAC: Words = ['This script installs Zombies Launcher: a small progra
   'take a few minutes. To uninstall the launcher, run the "Zombies Launcher" app.'];
 let aboutShown = false; // whether the "?" was clicked, and shows it
 
-/** A link to a site, which opens in a tab of its own: the room stays. */
-function site([name, href]: [string, string]): HTMLAnchorElement {
+/** A link to a site, which opens in a tab of its own: the page stays. */
+export function site([name, href]: [string, string]): HTMLAnchorElement {
   const a = el('a', '', name);
   a.href = href;
   a.target = '_blank';
@@ -489,11 +513,26 @@ function pickRoomMap(name: string): unknown {
   return act('mark', { map: mine && mine.mark === name ? '' : name });
 }
 
+// The room and its game, as the page last saw the player in them (rememberRoomTitle).
+let roomTitleSeen = '';
+
+/**
+ * Remembers the game of the player's room as the game they last picked (maps.ts: lastTitle), as they come into the
+ * room, whether they made it or joined it, and as its game changes: being in a room of a game counts as picking it.
+ * A game that they pick on the leaderboards while in the room stays picked until then.
+ */
+function rememberRoomTitle(room: Room): void {
+  const seen = room.code + ' ' + room.of;
+  if (seen === roomTitleSeen) return;
+  roomTitleSeen = seen;
+  if (room.of) lastTitle.set(room.of);
+}
+
 // The room's game, over its maps, on a server that hosts two (View.titles). The host picks it while the room has no
 // game, and the room goes to a map of it (server/rooms.go: setRoom), which the grid then shows the maps of. The
-// browser remembers the pick: the next room the player makes is of that game (maps.ts: lastTitle). The others see the
-// game over the map's name. The options are made again only when the games change, so that an option keeps the focus
-// as it is picked.
+// browser remembers the room's game, as it does whenever the player is in a room (rememberRoomTitle). The others see
+// the game over the map's name. The options are made again only when the games change, so that an option keeps the
+// focus as it is picked.
 function showRoomTitle(v: View, room: Room, open: boolean): void {
   const box = $('titlepick');
   box.classList.toggle('hidden', v.titles.length < 2 || !room.host);
@@ -502,10 +541,7 @@ function showRoomTitle(v: View, room: Room, open: boolean): void {
     box.dataset.key = key;
     box.textContent = '';
     const options = { name: "The room's game", options: v.titles.map((t) => ({ value: t.id, label: t.name })) };
-    box.append(optionButtons(options, (title) => {
-      lastTitle.set(title);
-      return { title };
-    }));
+    box.append(optionButtons(options, (title) => ({ title })));
   }
   for (const b of box.querySelectorAll('button')) b.disabled = !open;
   optionShow(box.firstElementChild!, room.of);
@@ -557,10 +593,11 @@ export function roomInit(): void {
   };
   $('endgame').onclick = () => act('end');
   $('copyt6').onclick = () => copy($('copyt6'), $('t6console').textContent || '');
-  for (const b of $('t6box').querySelectorAll<HTMLButtonElement>('button.what')) {
+  for (const b of $('t6install').querySelectorAll<HTMLButtonElement>('button.what')) {
     b.onclick = () => {
       aboutShown = !aboutShown;
       if (view && view.room) showT6(view, view.room);
+      else if (view) showInstall(view, true); // in Play offline
     };
   }
   $('leave').onclick = async () => (await mayLeaveGame()) && act('leave');

@@ -23,15 +23,25 @@ var (
 // (web/src/windows.ts: t6Console). The game parses the command line itself, so the values that the server and the
 // player's PC put into it are checked: a quote or a plus in the wrong place would be another command.
 func commandLine(exe, dir, name, password, server string) (string, error) {
+	if _, err := joinAs(name, password, server); err != nil {
+		return "", err
+	}
+	line, err := aloneLine(exe, dir, name)
+	if err != nil {
+		return "", err
+	}
+	return line + fmt.Sprintf(` +set password %s +connect %s`, password, server), nil
+}
+
+// aloneLine returns the command line that starts the player's game at its menu, to play alone (the lobby's Play
+// offline), as commandLine does but with no room's game to join. In LAN mode the game needs nothing of Plutonium's
+// servers, nor an account there.
+func aloneLine(exe, dir, name string) (string, error) {
 	dir = strings.TrimRight(dir, `\/`) // a backslash before the closing quote would escape it
 	if strings.ContainsAny(exe+dir, "\"\r\n") || dir == "" {
 		return "", fmt.Errorf("The game can't be started from the folder %q.", dir)
 	}
-	name, err := joinAs(name, password, server)
-	if err != nil {
-		return "", err
-	}
-	return fmt.Sprintf(`"%s" t6zm "%s" -lan +name "%s" +set password %s +connect %s`, exe, dir, name, password, server), nil
+	return fmt.Sprintf(`"%s" t6zm "%s" -lan +name "%s"`, exe, dir, gameName(name)), nil
 }
 
 // consoleLine returns the line that joins a game that runs to a room's game, for the game's console (game.join). It
@@ -51,8 +61,13 @@ func joinAs(name, password, server string) (string, error) {
 	if !launchPassword.MatchString(password) || !launchServer.MatchString(server) {
 		return "", errors.New("The server's answer isn't one the launcher can start a game from.")
 	}
+	return gameName(name), nil
+}
+
+// gameName returns name without the characters that the server removes, or "Player" when nothing is left.
+func gameName(name string) string {
 	if name = strings.TrimSpace(launchName.ReplaceAllString(name, "")); name == "" {
-		name = "Player"
+		return "Player"
 	}
-	return name, nil
+	return name
 }

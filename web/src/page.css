@@ -391,20 +391,21 @@ ul.members { gap: 8px; }
 .codeline button.copy:hover { background: rgba(255, 255, 255, 0.14); color: var(--fg); }
 .codeline button.copy.copied { color: var(--fg); }
 /* a room on a Black Ops II map (showT6): what a player needs for its game, which their own Plutonium plays, and
-   the line that joins it */
-#t6box { display: flex; flex-direction: column; gap: 12px; }
-#t6box p, #t6handrow { font-size: 14px; line-height: 1.45; color: var(--muted); }
+   the line that joins it. What installs the launcher (#t6install) is in Play offline instead while that shows Black
+   Ops II (placeInstall). */
+#t6box, #t6install { display: flex; flex-direction: column; gap: 12px; }
+#t6box p, #t6install p, #t6handrow { font-size: 14px; line-height: 1.45; color: var(--muted); }
 #t6handrow { align-self: flex-start; display: flex; align-items: center; gap: 8px; cursor: pointer; }
 #t6hand { width: 14px; height: 14px; margin: 0; accent-color: var(--accent); cursor: pointer; }
-#t6box p { margin: 0; }
-#t6box a { color: var(--fg); }
+#t6box p, #t6install p { margin: 0; }
+#t6box a, #t6install a { color: var(--fg); }
 #t6handline, #t6mac { display: flex; flex-direction: column; gap: 10px; }
 /* the "?" by what installs the launcher, which shows what the launcher is (showT6) */
-#t6box button.what { width: 18px; height: 18px; padding: 0; border: 1px solid var(--line); border-radius: 50%;
+#t6install button.what { width: 18px; height: 18px; padding: 0; border: 1px solid var(--line); border-radius: 50%;
   background: none; color: var(--muted); font: 600 11px/1 inherit; vertical-align: 1px; cursor: pointer; }
 /* its mark is drawn here, so that the line's own text is only what it says */
-#t6box button.what::before { content: "?"; }
-#t6box button.what:hover, #t6box button.what[aria-expanded=true] { border-color: var(--muted); color: var(--fg); }
+#t6install button.what::before { content: "?"; }
+#t6install button.what:hover, #t6install button.what[aria-expanded=true] { border-color: var(--muted); color: var(--fg); }
 
 /* how the room's last game went (showResult): the map's card, with the round and the team's totals, then the
    scoreboard */

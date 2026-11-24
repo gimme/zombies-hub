@@ -7,8 +7,9 @@
 //
 // Each game that the server hosts has boards of its own. The player picks first the game, on a server of two, then
 // the kind of board that the game has (Rounds, Easter eggs), which stays as they pick another game, then a map, or all
-// of them (titles.ts: pickBoard). Until they pick a game, the boards show the game of their room, or outside a room the
-// game they last picked for one (maps.ts: lastTitle).
+// of them (titles.ts: pickBoard). The game is the one they last picked, here, in Play offline, or by being in a room
+// of it, which the browser keeps (maps.ts: lastTitle). In a room, the boards open on the room's game, until they pick
+// another.
 //
 // show draws the views (show.ts). It shows the leaderboards while boardsOpen is set, or the report
 // of one game in their place while boardReport is set, and it calls loadBoards.
@@ -39,8 +40,8 @@ let boardsAsked = false; // the page is reading them
 const KIND_NAMES: Record<Kind, string> = { rounds: 'Rounds', eggs: 'Easter eggs' };
 // the rounds from which a map's tile has a frame, and the frame
 const MILESTONES: [number, string][] = [[20, 'silver'], [30, 'gold']];
-// What the player picked: the game, the kind, and of each game's kind the map (pickBoard). It is kept while the page
-// is open.
+// What the player picked: the game, the kind, and of each game's kind the map (pickBoard). The kind and the maps are
+// kept while the page is open. The game is kept while the boards show, and is the one the browser keeps (lastTitle).
 const boardPicked: Picked = { maps: {} };
 
 /** Opens or closes the leaderboards, as the player asks, with the sound of a large menu. */
@@ -50,6 +51,7 @@ export function openBoards(open: boolean): void {
   setUrl(open);
   boardsOpen = boardsPushed = open;
   boards = boardReport = null;
+  boardPicked.title = undefined;
   menuSound(open, true);
   page.redraw();
 }
@@ -84,6 +86,7 @@ function setUrl(open: boolean): void {
 export function boardsFollowUrl(url: URL): void {
   boardsOpen = boardsPushed = url.searchParams.get('boards') === '1';
   boards = boardReport = null;
+  boardPicked.title = undefined;
 }
 
 /**
@@ -206,6 +209,7 @@ function showBoards(): void {
   $('boardtitles').classList.toggle('hidden', boards.titles.length < 2);
   picker($('boardtitles'), boards.titles.map((t): [string, string] => [t.id, t.name]), shown?.title.id, (id) => {
     boardPicked.title = id;
+    lastTitle.set(id);
   });
   if (!shown) return;
   const { title, kind } = shown;

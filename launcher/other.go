@@ -19,9 +19,9 @@ func steamCopies() []string { return nil }
 
 func startProgram(exe, commandLine, dir string) (game, error) { return nil, errWindows }
 
-func presses(id string) <-chan struct{} { return nil }
+func presses(id string) (join, solo <-chan struct{}) { return nil, nil }
 
-func press(id string) {}
+func press(id string, solo bool) {}
 
 func rerun(exe, link string) error { return errWindows }
 

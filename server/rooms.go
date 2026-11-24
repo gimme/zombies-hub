@@ -633,6 +633,11 @@ type youView struct {
 	// on their Mac, until its next report (launcherapi.Report: Setup). Their page then links to the launcher's latest
 	// release, or shows a Mac the line that installs it.
 	LauncherOld bool `json:"launcherOld,omitempty"`
+	// LauncherDownloading is set while their launcher downloads the game files, and LauncherGot is how much of that
+	// download it has, from 0 to 1 (player.downloading). A room shows it on their member too. The lobby's Play offline,
+	// which has no room, shows it here.
+	LauncherDownloading bool    `json:"launcherDownloading,omitempty"`
+	LauncherGot         float64 `json:"launcherGot,omitempty"`
 }
 
 // roomItem is a room in the list. A room that is private, or less than privateFor old, is listed as private and
@@ -767,6 +772,7 @@ func (l *lobby) view(p *player) view {
 		LauncherOld: p.launcher.old || p.launcher.Setup},
 		Size: l.roomSize, MinPlayers: l.minPlayers, Mods: modList, Pictures: l.picturesShown, Rooms: []roomItem{},
 		Full: l.full(), DefaultMap: l.mapName("")}
+	v.You.LauncherDownloading, v.You.LauncherGot = p.downloading()
 	if v.Pictures == nil {
 		v.Pictures = []pictureView{} // none yet
 	}
