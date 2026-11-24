@@ -84,14 +84,21 @@ const quote = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const shaders = process.platform === 'win32' ? 'zombies-hub-shader-cache'
   : join(import.meta.dirname, '..', '..', 'build', 'shader-cache');
 
+/** Where the server of the container name, with its data in dir, keeps its copy of Plutonium (Server.plutonium). */
+const plutoniumOf = (name: string, dir: string): string =>
+  process.platform === 'win32' ? `${name}-plutonium` : join(dir, 'config', 'plutonium');
+
+let shadersGiven: Promise<unknown> | undefined;
+
 /**
  * docker run's arguments that give a player's game under Wine the shader cache (above), at /shader-cache. On Windows
- * the volume, as Docker makes it, is root's: the players' user (the image's, 1000) is given it.
+ * the volume, as Docker makes it, is root's: the players' user (the images', 1000) is given it, once a run.
  */
 export async function shaderCache(playerImage: string): Promise<string[]> {
   if (process.platform === 'win32') {
-    await docker(['run', '--rm', '-u', '0', '--entrypoint', 'chown', ...mount(shaders, '/cache'), playerImage,
-      '1000:1000', '/cache']);
+    shadersGiven ??= docker(['run', '--rm', '-u', '0', '--entrypoint', 'chown', ...mount(shaders, '/cache'),
+      playerImage, '1000:1000', '/cache']);
+    await shadersGiven;
   }
   return [...mount(shaders, '/shader-cache'), '-e', 'MESA_SHADER_CACHE_DIR=/shader-cache'];
 }
@@ -168,7 +175,7 @@ export class Server {
     };
     const t6: string[] = [];
     if (options.t6 && process.platform === 'win32') {
-      t6.push(...mount(`${name}-plutonium`, '/plutonium'), '-e', 'ZOMBIES_PLUTONIUM_DIR=/plutonium',
+      t6.push(...mount(plutoniumOf(name, dir), '/plutonium'), '-e', 'ZOMBIES_PLUTONIUM_DIR=/plutonium',
         ...mount(`${name}-homes`, '/config/game'));
       // the volumes, as Docker makes them, are root's: the server's user (PUID:PGID) is given them
       await docker(['run', '--rm', '-u', '0', '--entrypoint', 'chown', ...t6, image, '99:100', '/plutonium',
@@ -244,9 +251,20 @@ export class Server {
   }
 
   /** The server's address on Docker's network, where players' games in containers of their own reach it. */
-  async address(): Promise<string> {
-    return (await docker(['container', 'inspect', '-f', '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}',
-      this.name])).out.trim();
+  address(): Promise<string> {
+    this.addressOf ??= docker(['container', 'inspect', '-f', '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}',
+      this.name]).then((inspected) => inspected.out.trim());
+    return this.addressOf;
+  }
+
+  private addressOf: Promise<string> | undefined;
+
+  /**
+   * Where the server keeps its copy of Plutonium, for the Black Ops II players to mount: on Windows a volume
+   * (ServerOptions.t6), elsewhere the folder plutonium in its data.
+   */
+  get plutonium(): string {
+    return plutoniumOf(this.name, this.dir);
   }
 
   /** Runs a command in the server's container, as the user given: its exit code and output. */

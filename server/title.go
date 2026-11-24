@@ -74,18 +74,18 @@ func (l *lobby) hosted() []title {
 	return out
 }
 
-// titleMap returns the map that r goes to when its host picks the title of (setRoom): r's own map when it is of that
-// title, else the map r last had of it, else the server's default map when that is of it, else the first map of it
-// that the game files have. It returns "" when the game files have no map of it.
+// titleMap returns the map that r goes to when its host picks the title of (setRoom), as pickMap picks it.
 func (l *lobby) titleMap(r *room, of string) string {
+	return l.pickMap(r, of, func(m string) bool { return titleOf(m) == of })
+}
+
+// pickMap returns the map that r goes to of the maps that is takes: r's own map when it is one, else the map r last
+// had of them (r.had[had]), else the server's default map when that is one, else the first of them that the game files
+// have. It returns "" when the game files have none of them.
+func (l *lobby) pickMap(r *room, had string, is func(string) bool) string {
 	have := l.maps()
-	for _, m := range []string{r.mapName, r.had[of], l.defaultMap} {
-		if titleOf(m) == of && slices.Contains(have, m) {
-			return m
-		}
-	}
-	for _, m := range have {
-		if titleOf(m) == of {
+	for _, m := range append([]string{r.mapName, r.had[had], l.defaultMap}, have...) {
+		if is(m) && slices.Contains(have, m) {
 			return m
 		}
 	}
@@ -106,15 +106,14 @@ func (l *lobby) titleMap(r *room, of string) string {
 // maps of its versus alone.
 type mapEntry struct{ of, name, title, preview, loadscreen, description, place, mode, versus string }
 
-// The kinds of versus (mapEntry.versus). A Grief room takes up to griefSize players, whatever the server's rooms
+// The kinds of versus (mapEntry.versus). A Grief room takes up to maxRoomSize players, whatever the server's rooms
 // take otherwise (-max-players): four in each team, as the game was made for. The game ends a game of more than
 // four players on any other mode, and of more than eight on Grief (maps/mp/zombies/_zm.gsc:
 // player_too_many_players_check), and Plutonium's own script turns that off (scripts/zm/ranked.gsc).
 const (
-	coop      = ""
-	grief     = "grief"
-	turned    = "turned"
-	griefSize = 8
+	coop   = ""
+	grief  = "grief"
+	turned = "turned"
 )
 
 // versusOf returns the versus of a map (mapEntry.versus): coop for a map the server doesn't list.
@@ -128,23 +127,10 @@ func versusName(versus string) string {
 	return map[string]string{coop: "Co-op", grief: "Grief", turned: "Turned"}[versus]
 }
 
-// versusMap returns the map that r goes to when its host picks a versus of the title of (setRoom): r's own map when
-// it is of both, else the map r last had of them, else the server's default map when that is of them, else the first
-// map of them that the game files have. It returns "" when the game files have no such map.
+// versusMap returns the map that r goes to when its host picks a versus of the title of (setRoom), as pickMap picks it
+// of the maps of both.
 func (l *lobby) versusMap(r *room, of, versus string) string {
-	have := l.maps()
-	is := func(m string) bool { return titleOf(m) == of && versusOf(m) == versus && slices.Contains(have, m) }
-	for _, m := range []string{r.mapName, r.had[of+" "+versus], l.defaultMap} {
-		if is(m) {
-			return m
-		}
-	}
-	for _, m := range have {
-		if is(m) {
-			return m
-		}
-	}
-	return ""
+	return l.pickMap(r, of+" "+versus, func(m string) bool { return titleOf(m) == of && versusOf(m) == versus })
 }
 
 // mapTitles is the Zombies maps, in the order the page lists them.

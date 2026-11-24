@@ -22,6 +22,7 @@
 // While the room's game runs, its maps, and its host's pick of its game, stay as they were, and can't be picked: the
 // room looks the same, and nothing under them moves.
 import type { Member, Mod, Room, View } from './api';
+import type { Options } from './controls';
 import { avatar } from './avatar';
 import {
   badgeSay, copy, flipSwitch, optionButtons, optionShow, setButton, showOnOff, switchButton, switchOn, switchShow,
@@ -130,9 +131,9 @@ function memberRow(m: Member, room: Room, open: boolean): HTMLLIElement {
   const who = el('div', 'who grow');
   const name = el('span', 'name', m.name);
   if (mine) name.append(el('span', 'sr', ' (you)'));
-  // A member has a team in a room with Grief on, or on a map of Grief (server/mods.go: teamOf). On Windows says that they play a Black Ops
-  // game in the Windows client and not in their page. Every player of a Black Ops II game plays it outside their page,
-  // on Windows or on a Mac, so the room says it of none.
+  // A member has a team in a room with Grief on, or on a map of Grief (server/mods.go: teamOf). On Windows says that
+  // they play a Black Ops game in the Windows client and not in their page. Every player of a Black Ops II game plays
+  // it outside their page, on Windows or on a Mac, so the room says it of none.
   const what = [m.team && 'Team ' + m.team, m.host && 'Host', m.windows && room.of !== 't6' && 'On Windows',
     m.away && 'Away'].filter(Boolean).join(' · ');
   const line = el('div', 'line');
@@ -388,29 +389,39 @@ export function tellHand(): void {
 // host sets it. The host picks among the sizes that a room on this server may have on its map, from the players that
 // a game needs to the most that a room holds there: 8 on a map of Grief, four in each team. A size that the room has
 // too many players for can't be picked. The others see the size. Where the room can have one size, there is nothing
-// to pick, and no row. The options are made again only when they change, so that an option keeps the focus as it is
-// picked.
+// to pick, and no row (settingRow).
 function showRoomSize(v: View, room: Room): void {
   const sizes = [];
-  for (let n = v.minPlayers; n <= (room.maxSize || v.size); n++) sizes.push(n);
-  const row = $('sizesetting');
-  row.classList.toggle('hidden', sizes.length < 2);
-  const key = JSON.stringify(sizes);
-  if (row.dataset.key !== key) {
-    row.dataset.key = key;
-    row.querySelector('.seg')?.remove();
-    const options = { name: 'Room size', options: sizes.map((value) => ({ value })) };
-    $('sizetext').before(optionButtons(options, (size) => ({ size })));
-  }
-  const box = row.querySelector('.seg')!;
-  box.classList.toggle('hidden', !room.host);
+  for (let n = v.minPlayers; n <= room.maxSize; n++) sizes.push({ value: n });
+  const box = settingRow($('sizesetting'), $('sizetext'), room.host, { name: 'Room size', options: sizes },
+    (size) => ({ size }));
   for (const b of box.querySelectorAll('button')) {
     b.disabled = Number(b.dataset.value) < room.members.length;
     b.title = b.disabled ? 'The room has more players' : '';
   }
   optionShow(box, room.size);
-  $('sizetext').classList.toggle('hidden', room.host);
   badgeSay($('sizetext'), room.size + (room.size === 1 ? ' player' : ' players'));
+}
+
+/**
+ * A setting of the room's with options (optionButtons), its row: the host's buttons, before the badge that shows the
+ * others the setting, and hidden where there is only one option. The buttons are made again only when the options
+ * change, so that a button keeps the focus as it is picked. Returns the buttons' box, for the caller to show the
+ * setting in (optionShow).
+ */
+function settingRow<V extends number | string>(row: HTMLElement, badge: HTMLElement, host: boolean,
+  options: Options<V>, set: (value: V) => object): Element {
+  row.classList.toggle('hidden', options.options.length < 2);
+  const key = JSON.stringify(options.options);
+  if (row.dataset.key !== key) {
+    row.dataset.key = key;
+    row.querySelector('.seg')?.remove();
+    badge.before(optionButtons(options, set));
+  }
+  const box = row.querySelector('.seg')!;
+  box.classList.toggle('hidden', !host);
+  badge.classList.toggle('hidden', host);
+  return box;
 }
 
 // The room's mods (server/mods.go), in the Mods tab. The host sets each while the room has no game: a switch on or
@@ -554,26 +565,15 @@ function showRoomTitle(v: View, room: Room, open: boolean): void {
 // The room's mode (its versus: titles.ts), in the Settings tab, where the room's game has maps of more than one: how
 // its players play against each other. The host picks it while the room has no game, and the room goes to a map of
 // it (server/rooms.go: setRoom), which the grid then shows the maps of. The others see it, as they see the size, and
-// the row says what the mode is. The options are made again only when they change, so that an option keeps the focus
-// as it is picked.
+// the row says what the mode is (settingRow).
 function showRoomVersus(v: View, room: Room, open: boolean): void {
-  const row = $('versussetting');
   const versuses = versusesOf(v.maps, room.of);
-  row.classList.toggle('hidden', versuses.length < 2);
-  const key = JSON.stringify(versuses);
-  if (row.dataset.key !== key) {
-    row.dataset.key = key;
-    row.querySelector('.seg')?.remove();
-    const options = { name: 'Mode', options: versuses.map((x) => ({ value: x.id, label: x.name })) };
-    $('versustext').before(optionButtons(options, (versus) => ({ versus })));
-  }
-  const box = row.querySelector('.seg')!;
-  box.classList.toggle('hidden', !room.host);
+  const options = { name: 'Mode', options: versuses.map((x) => ({ value: x.id, label: x.name })) };
+  const box = settingRow($('versussetting'), $('versustext'), room.host, options, (versus) => ({ versus }));
   for (const b of box.querySelectorAll('button')) b.disabled = !open;
   const now = versuses.find((x) => x.id === versusOf(mapInfo(room.map)));
   optionShow(box, now ? now.id : '');
   $('versusdesc').textContent = now ? now.desc : '';
-  $('versustext').classList.toggle('hidden', room.host);
   badgeSay($('versustext'), now ? now.name : '');
 }
 

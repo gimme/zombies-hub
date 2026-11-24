@@ -823,7 +823,7 @@ func (l *lobby) view(p *player) view {
 		if !r.startsAt.IsZero() {
 			rv.StartsIn = max(time.Until(r.startsAt).Milliseconds(), 1)
 		}
-		teams := slices.Contains(r.mods, "grief") || versusOf(r.mapName) == grief
+		teams := r.teams()
 		for i, m := range r.members {
 			s := r.seatOf(m)
 			mv := memberView{ID: m.id, Name: m.asked, Avatar: l.avatar(m), Place: r.placeOf(m), Host: i == 0,
@@ -1148,11 +1148,11 @@ func (l *lobby) newRoomSize() int {
 	return min(max(defaultRoomSize, l.minPlayers), l.roomSize)
 }
 
-// sizeFor returns the most players a room on mapName may take: griefSize on a T6 map of Grief, four in each team,
+// sizeFor returns the most players a room on mapName may take: maxRoomSize on a T6 map of Grief, four in each team,
 // and otherwise the most that the server's rooms hold (-max-players).
 func (l *lobby) sizeFor(mapName string) int {
 	if versusOf(mapName) == grief {
-		return max(griefSize, l.roomSize)
+		return maxRoomSize
 	}
 	return l.roomSize
 }
@@ -1250,11 +1250,13 @@ func (l *lobby) setRoom(p *player, of string, versus *string, mapName string, pr
 		if t == nil {
 			return fmt.Errorf("There is no game %s.", of)
 		}
-		to := l.titleMap(r, of)
-		if versus != nil {
-			if versusName(*versus) == "" {
-				return fmt.Errorf("There is no mode %s.", *versus)
-			}
+		var to string
+		switch {
+		case versus == nil:
+			to = l.titleMap(r, of)
+		case versusName(*versus) == "":
+			return fmt.Errorf("There is no mode %s.", *versus)
+		default:
 			to = l.versusMap(r, of, *versus)
 		}
 		switch {
@@ -1309,23 +1311,21 @@ func (l *lobby) setRoom(p *player, of string, versus *string, mapName string, pr
 		if r.had == nil {
 			r.had = map[string]string{}
 		}
+		versusWas, versusNow := versusOf(r.mapName), versusOf(mapName)
 		r.had[was.id()] = r.mapName
-		r.had[was.id()+" "+versusOf(r.mapName)] = r.mapName
-		versusWas := versusOf(r.mapName)
+		r.had[was.id()+" "+versusWas] = r.mapName
 		r.mapName = mapName
-		if now.id() != was.id() || versusOf(mapName) != versusWas {
-			// A mark is for a map of the room's title and versus (setMark). The marks of the other maps go.
-			for _, m := range r.members {
-				if m.mark != "" && (titleOf(m.mark) != now.id() || versusOf(m.mark) != versusOf(mapName)) {
-					m.mark = ""
-				}
+		// A mark is for a map of the room's title and versus (setMark). The marks of the other maps go.
+		for _, m := range r.members {
+			if m.mark != "" && (titleOf(m.mark) != now.id() || versusOf(m.mark) != versusNow) {
+				m.mark = ""
 			}
 		}
 		if now.id() != was.id() {
 			log.Printf("server: room %s plays %s", r.code, now.label())
 		}
-		if versusOf(mapName) != versusWas {
-			log.Printf("server: room %s plays %s", r.code, versusName(versusOf(mapName)))
+		if versusNow != versusWas {
+			log.Printf("server: room %s plays %s", r.code, versusName(versusNow))
 		}
 		if r.size > most && size == 0 {
 			r.size = most
@@ -1712,29 +1712,33 @@ func (l *lobby) result(r *room, rg *roomGame, round int) *gameResult {
 		res.Seconds = int64(time.Since(rg.round1).Seconds())
 	}
 	versus := versusOf(r.mapName)
-	teams := slices.Contains(r.mods, "grief")
+	teams := r.teams()
 	for i, s := range rg.seats {
 		if st, ok := rg.stats[s.local.String()]; ok {
 			st.ID, st.Name = s.player.id, s.player.asked
+			// only a room with teams has them: the team that a T6 game of Grief says, or else the player's by their place
 			switch {
-			case teams:
-				st.Team = teamOf(i, len(rg.seats))
-			case versus == grief && st.Team == 0:
-				st.Team = teamOf(i, len(rg.seats))
-			case versus != grief:
+			case !teams:
 				st.Team = 0
+			case st.Team == 0:
+				st.Team = teamOf(i, len(rg.seats))
 			}
 			st.Won = versus == grief && st.Team == rg.won
 			res.Players = append(res.Players, st)
 		}
 	}
-	won := func(st playerStats) int { return map[bool]int{true: 1}[st.Won] }
+	won := func(st playerStats) int {
+		if st.Won {
+			return 1
+		}
+		return 0
+	}
 	slices.SortStableFunc(res.Players, func(a, b playerStats) int {
 		switch {
-		case teams:
-			return cmp.Or(a.Team-b.Team, b.Cash-a.Cash)
 		case versus == grief:
 			return cmp.Or(won(b)-won(a), a.Team-b.Team, b.Score-a.Score)
+		case teams:
+			return cmp.Or(a.Team-b.Team, b.Cash-a.Cash)
 		case versus == turned:
 			return b.Cash - a.Cash
 		}
@@ -1745,6 +1749,23 @@ func (l *lobby) result(r *room, rg *roomGame, round int) *gameResult {
 		res.Players[0].Won = true
 	}
 	return res
+}
+
+// gameOverText says how a game ended, while its end plays out: the team or the player that won it (result), or else
+// the round it ended on, if any.
+func gameOverText(res *gameResult) string {
+	i := slices.IndexFunc(res.Players, func(st playerStats) bool { return st.Won })
+	switch {
+	case i >= 0 && res.Players[i].Team > 0 && res.Round > 0:
+		return fmt.Sprintf("Team %d won on round %d.", res.Players[i].Team, res.Round)
+	case i >= 0 && res.Players[i].Team > 0:
+		return fmt.Sprintf("Team %d won.", res.Players[i].Team)
+	case i >= 0:
+		return res.Players[i].Name + " won."
+	case res.Round > 0:
+		return fmt.Sprintf("Game over on round %d.", res.Round)
+	}
+	return "Game over."
 }
 
 // avatar returns the URL the page loads p's picture from, or "" when they have none. It is their avatar on Discord

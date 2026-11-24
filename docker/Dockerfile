@@ -185,10 +185,11 @@ ENTRYPOINT ["node_modules/.bin/playwright", "test"]
 # ---- target windows-player: a Windows player (windows-player.sh), for the game tests. It is the Windows client under
 # Wine on a virtual display (Xvfb). Wine's d3d9 draws with OpenGL, which Mesa (llvmpipe) runs on the CPU. For that,
 # this target installs what the server's image lacks: the 32-bit GL, and the X libraries that Wine's display driver
-# loads. ImageMagick's import takes screenshots ----
+# loads. ImageMagick's import takes screenshots, and curl and jq are for a Black Ops II player's calls to the lobby
+# (t6-player) ----
 FROM wine AS windows-player
 USER root
-RUN apt-get update && apt-get install -y --no-install-recommends tini xvfb imagemagick \
+RUN apt-get update && apt-get install -y --no-install-recommends tini xvfb imagemagick curl jq \
         libgl1:i386 libglx-mesa0:i386 libgl1-mesa-dri:i386 libxrender1:i386 libxrandr2:i386 libxi6:i386 \
         libxcursor1:i386 libxinerama1:i386 libxcomposite1:i386 libxfixes3:i386 libxxf86vm1:i386 && \
     rm -rf /var/lib/apt/lists/*
@@ -198,17 +199,14 @@ ENV DISPLAY=:99
 ENTRYPOINT ["tini", "--", "windows-player.sh"]
 
 # ---- target t6-player: a Black Ops II player (t6-player.sh), for the game tests. It is Plutonium's T6 Zombies under
-# Wine on the windows-player's virtual display, where Wine's d3d11 draws with Mesa on the CPU. curl and jq are for the
-# player's calls to the lobby. Wine tells the game that its graphics card is an Intel one with 1 GB: the game passes
-# over a card with NVIDIA's id when it can't load nvapi.dll, and over one with Mesa's id, and either way it then stops
-# with "DirectX encountered an unrecoverable error" ----
+# Wine on the windows-player's virtual display, where Wine's d3d11 draws with Mesa on the CPU. Wine tells the game
+# that its graphics card is an Intel one with 1 GB: the game passes over a card with NVIDIA's id when it can't load
+# nvapi.dll, and over one with Mesa's id, and either way it then stops with "DirectX encountered an unrecoverable
+# error" ----
 FROM windows-player AS t6-player
-USER root
-RUN apt-get update && apt-get install -y --no-install-recommends curl jq && rm -rf /var/lib/apt/lists/*
-COPY --chmod=755 t6-player.sh /usr/local/bin/
-USER game
 RUN for setting in 'VideoMemorySize REG_SZ 1024' 'VideoPciVendorID REG_DWORD 0x8086' \
             'VideoPciDeviceID REG_DWORD 0x5912'; do \
         set -- $setting && wine reg add 'HKCU\Software\Wine\Direct3D' /v "$1" /t "$2" /d "$3" /f || exit 1; \
     done && wineserver -w
+COPY --chmod=755 t6-player.sh /usr/local/bin/
 ENTRYPOINT ["tini", "--", "t6-player.sh"]

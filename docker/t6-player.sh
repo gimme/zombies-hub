@@ -18,8 +18,9 @@
 #
 # The game runs under Wine on a virtual display (Xvfb at $DISPLAY, which Mesa draws on the CPU), from copies that it
 # can write in: of the game files (/game/t6, as links), and of Plutonium (/plutonium, the server's copy, mounted
-# read-only), copied again for each game, as the server downloads its copy, or brings it up to date, as it starts one. It draws at 800x600, the least it takes, with its graphics turned down, at 20 frames a second at most. With
-# more to draw, its frames take so long that the room's game hears nothing from it for a minute, and drops it. Mesa
+# read-only), copied again for each game, as the server downloads its copy, or brings it up to date, as it starts one.
+# It draws at 800x600, the least it takes, with its graphics turned down, at 20 frames a second at most. With more to
+# draw, its frames take so long that the room's game hears nothing from it for a minute, and drops it. Mesa
 # compiles each of the game's shaders the first time the game draws it, and the game waits: the first time, its first
 # minutes in a map pass in fits and starts. MESA_SHADER_CACHE_DIR keeps the compiled shaders for the next run.
 #

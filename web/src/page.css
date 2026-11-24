@@ -302,16 +302,13 @@ ul.rooms { gap: 12px; }
 .setting .seg { flex: none; }
 .setting .seg button { width: 50px; height: 34px; }
 .setting .seg button:disabled { color: #b7b0a5; opacity: 0.35; }
-/* the room's size has up to 8 of them: under its words where the two don't fit side by side, and narrower still
-   where a line is too short for them */
-#sizesetting { flex-wrap: wrap; row-gap: 10px; padding-top: 12px; padding-bottom: 12px; }
-#sizesetting > span:first-child { flex-basis: 200px; }
+/* the room's size has up to 8 of them, and its mode (showRoomVersus) has words for options, which change with it: the
+   options under the setting's words where the two don't fit side by side, and the sizes narrower still where a line
+   is too short for them */
+#sizesetting, #versussetting { flex-wrap: wrap; row-gap: 10px; padding-top: 12px; padding-bottom: 12px; }
+#sizesetting > span:first-child, #versussetting > span:first-child { flex-basis: 200px; }
 #sizesetting .seg { max-width: 100%; box-sizing: border-box; }
 #sizesetting .seg button { width: 44px; min-width: 0; flex: 0 1 44px; padding: 0; }
-/* the room's mode (showRoomVersus) has words for options, and its words change with it: under them too where the two
-   don't fit side by side */
-#versussetting { flex-wrap: wrap; row-gap: 10px; padding-top: 12px; padding-bottom: 12px; }
-#versussetting > span:first-child { flex-basis: 200px; }
 #versussetting .seg button { width: auto; min-width: 72px; padding: 0 14px; }
 .setting .desc { display: block; margin-top: 2px; color: var(--muted); font-size: 13px; font-weight: 400; }
 /* a switch (switchSet): off to the left and dark, on to the right and lit, and the word beside it */

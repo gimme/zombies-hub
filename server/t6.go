@@ -167,7 +167,7 @@ func (t *t6Title) free(*lobby) error {
 // their place (teamOf), as a Black Ops game with Grief on does, and as the room shows them.
 func (t *t6Title) begin(l *lobby, r *room, rg *roomGame) *game {
 	g := t.newGame(r.code, r.mapName, rg.port, len(rg.seats), r.password)
-	if versusOf(r.mapName) == grief {
+	if r.teams() { // a T6 room has no mods: its map is one of Grief
 		for i, s := range rg.seats {
 			team := teamOf(i, len(rg.seats)) - 1
 			g.t6().teams[team] = append(g.t6().teams[team], s.player.name)
@@ -1058,14 +1058,8 @@ func (l *lobby) t6Said(r *room, rg *roomGame, line string) {
 		// The players watch the game's end. The script reports when the end has played out ("exit"). If it doesn't, the
 		// server stops the game anyway after t6EndTakes. The script reports the round, and in Grief the team that won.
 		// Turned counts no rounds: its round is none.
-		fields := strings.Fields(arg)
 		round, won := 0, 0
-		if len(fields) > 0 {
-			round, _ = strconv.Atoi(fields[0])
-		}
-		if len(fields) > 1 {
-			won, _ = strconv.Atoi(fields[1])
-		}
+		fmt.Sscan(arg, &round, &won) // "over 12", or in Grief "over 12 2"
 		versus := versusOf(r.mapName)
 		if versus == turned {
 			round = 0
@@ -1074,7 +1068,7 @@ func (l *lobby) t6Said(r *room, rg *roomGame, line string) {
 			rg.won = won
 		}
 		res := l.result(r, rg, max(round, 0))
-		rg.ending = gameOverText(versus, round, rg.won, res)
+		rg.ending = gameOverText(res)
 		// The result is what the page shows from now on. It is kept only when the script printed the players' lines.
 		// Otherwise the room shows only that it was game over.
 		if len(res.Players) > 0 {
@@ -1090,22 +1084,6 @@ func (l *lobby) t6Said(r *room, rg *roomGame, line string) {
 		rg.cancel()
 	}
 	l.change()
-}
-
-// gameOverText says how a T6 game ended at game over, while its end plays out: the team that won a game of Grief
-// (won), the player who won a game of Turned (the first of res), or else the round it ended on, if any.
-func gameOverText(versus string, round, won int, res *gameResult) string {
-	switch {
-	case versus == grief && won > 0 && round > 0:
-		return fmt.Sprintf("Team %d won on round %d.", won, round)
-	case versus == grief && won > 0:
-		return fmt.Sprintf("Team %d won.", won)
-	case versus == turned && len(res.Players) > 0:
-		return res.Players[0].Name + " won."
-	case round > 0:
-		return fmt.Sprintf("Game over on round %d.", round)
-	}
-	return "Game over."
 }
 
 // t6Egg keeps the easter egg of rg's map for the players whose client is in one of the slots: the script's report

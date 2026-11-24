@@ -66,5 +66,8 @@ export function mapShot(shot: HTMLElement, name: string): void {
   const words = shot.querySelector('.words')!;
   words.classList.toggle('hidden', !t6 || !map.place);
   words.children[0].textContent = (t6 && map.place) || '';
-  words.children[1].textContent = t6 && map.place ? map.title + (map.mode ? ' / ' + map.mode : '') : '';
+  words.children[1].textContent = t6 && map.place ? mapLabel(map, ' / ') : '';
 }
+
+/** A map's name, with its mode where it has one: "Bus Depot · Grief". */
+export const mapLabel = (map: MapInfo, between = ' · '): string => map.title + (map.mode ? between + map.mode : '');

@@ -4,37 +4,25 @@
 // test says, which is game over in round 1: the room has the game's result, and the round is on the leaderboards of
 // two players.
 import { expect, test } from '../fixtures';
-import { gameUp, reported, settled, t6Boards } from '../t6';
+import { gameOver, makeRoom, playGame, t6Boards } from '../t6';
 
 test.use({ serverOptions: { t6: true } });
+test.skip(!process.env.ZOMBIES_TEST_T6, 'no Black Ops II game files (game/t6)');
 
 test("two players play a room's game of Black Ops II to game over", async ({ server, t6 }) => {
-  test.skip(!process.env.ZOMBIES_TEST_T6, 'no Black Ops II game files (game/t6)');
-  await t6.steer();
-  const ann = await t6.player('Ann');
-  const bob = await t6.player('Bob');
-  expect((await ann.say('create', { map: 'zm_standard_town', private: true })).trim(), 'Ann makes a room').toBe('{}');
-  const room = await server.poll('Ann made a room', 10_000, async () => server.roomOf('Ann'));
-  expect((await bob.say('join', { room })).trim(), 'Bob joins it').toBe('{}');
-  const from = server.mark();
-  for (const player of [ann, bob]) {
-    expect((await player.say('ready', { ready: true })).trim(), `${player.name} is ready`).toBe('{}');
-  }
-
-  await gameUp(server, room, from);
-  await server.waitFor(new RegExp(`^server: room ${room}'s game has begun$`), 900_000, from);
+  const players = await Promise.all([t6.player('Ann'), t6.player('Bob')]);
+  const [ann] = players;
+  const room = await makeRoom(server, players, 'zm_standard_town');
+  const { from } = await playGame(server, room, players, (rows) => rows.every((p) => !p.down));
   const joined = server.all(new RegExp(`^relay: .* \\((Ann|Bob), room ${room}\\) joined over UDP, as `), from);
   expect(joined.map((l) => /\((\w+), room/.exec(l)![1]), 'the players joined in the order of their places')
     .toEqual(['Ann', 'Bob']);
-  await settled(server, room, ['Ann', 'Bob']);
-  await reported(server, room, ['Ann', 'Bob'], (rows) => rows.every((p) => !p.down));
   await ann.shot('joined');
 
   const over = server.mark();
   await server.console(`${room} set steer_down all`);
   await server.waitFor(new RegExp(`^\\[${room}\\] zombies_steer: downed 2 of all$`), 10_000, over);
-  await server.waitFor(new RegExp(`^\\[${room}\\] zombies_lobby: over 1$`), 60_000, over);
-  await server.waitFor(new RegExp(`^server: room ${room}'s game is over$`), 10_000, over);
+  await gameOver(server, room, '1', over);
   const result = (await ann.view()).room?.result;
   expect(result?.map, "the result's map").toBe('zm_standard_town');
   expect(result?.round, "the result's round").toBe(1);

@@ -10,7 +10,7 @@ import { avatar } from './avatar';
 import { $, el } from './dom';
 import { clock } from './format';
 import { me } from './lobby';
-import { mapInfo, mapShot } from './maps';
+import { mapInfo, mapLabel, mapShot } from './maps';
 import { scoreboard, statOf } from './scoreboard';
 import { store } from './storage';
 
@@ -36,9 +36,8 @@ export function showResult(result: GameResult): void {
     console.log('lobby: how the game went: ' + (result.round ? 'round ' + result.round : 'no round') + ', ' +
       result.players.length + (result.players.length === 1 ? ' player' : ' players'));
   }
-  const map = mapInfo(result.map);
   mapShot($('resultshot'), result.map);
-  $('resultkicker').textContent = 'Game over · ' + map.title + (map.mode ? ' · ' + map.mode : '');
+  $('resultkicker').textContent = 'Game over · ' + mapLabel(mapInfo(result.map));
   const n = (x: number) => x.toLocaleString('en-US');
   $('resulttitle').textContent = result.round ? 'Round ' : 'Game over';
   if (result.round) $('resulttitle').append(el('span', '', n(result.round)));
@@ -52,13 +51,13 @@ export function showResult(result: GameResult): void {
   const cash = [sum('cash', 1), sum('cash', 2)];
   const totals = $('resulttotals');
   totals.textContent = '';
-  const shown: [value: string, label: string, won?: boolean][] = winner
-    ? [[clock(result.seconds), 'Time'], [winner.team ? 'Team ' + winner.team : winner.name, 'Winner', true]]
+  type Shown = [value: string, label: string, won?: boolean];
+  const after: Shown[] = winner
+    ? [[winner.team ? 'Team ' + winner.team : winner.name, 'Winner', true]]
     : teams
-      ? [[clock(result.seconds), 'Time'], [n(cash[0]), 'Team 1 cash', cash[0] > cash[1]],
-        [n(cash[1]), 'Team 2 cash', cash[1] > cash[0]]]
-      : [[clock(result.seconds), 'Time'], [n(sum('cash')), 'Team cash'], [n(sum('score')), 'Team score'],
-        [n(sum('kills')), 'Team kills']];
+      ? [[n(cash[0]), 'Team 1 cash', cash[0] > cash[1]], [n(cash[1]), 'Team 2 cash', cash[1] > cash[0]]]
+      : [[n(sum('cash')), 'Team cash'], [n(sum('score')), 'Team score'], [n(sum('kills')), 'Team kills']];
+  const shown: Shown[] = [[clock(result.seconds), 'Time'], ...after];
   for (const [value, label, won] of shown) {
     const t = el('div');
     t.append(el('b', won ? 'won' : '', value), el('span', 'label', label));

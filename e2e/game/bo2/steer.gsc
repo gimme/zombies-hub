@@ -7,8 +7,10 @@
 //   set steer_clear 1        ends the round: none of its zombies are left, nor still to come
 //   set steer_cure <name>    moves the player onto Turned's cure, which they pick up as a player does
 //   set steer_timeup 1       runs Turned's clock out
-//   set steer_report 1       prints a line of each player's:
+//   set steer_report 1       prints a line of each player's, then how many they are, and whether the level has
+//                            started, past its black screen at the start:
 //                            zombies_steer: <name> team <A|B|none> <up|down> <human|zombie> score <points>
+//                            zombies_steer: reported <n> players, the level <started|waits>
 //
 // The rest is the game's own: who is in which team, who wins Grief and Turned, when it is game over.
 init()
@@ -149,4 +151,14 @@ steer_report()
 
 		printf( "zombies_steer: " + player.name + " team " + team + " " + state + " " + kind + " score " + score );
 	}
+
+	// The level starts as its black screen at the start passes: Grief watches its teams from then on
+	// (maps/mp/gametypes_zm/zgrief.gsc: zgrief_main).
+	started = "waits";
+	passed = "initial_blackscreen_passed";
+
+	if ( isdefined( level.flag ) && isdefined( level.flag[passed] ) && level.flag[passed] )
+		started = "started";
+
+	printf( "zombies_steer: reported " + players.size + " players, the level " + started );
 }

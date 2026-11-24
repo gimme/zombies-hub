@@ -9,7 +9,7 @@ import type { KindBoards, Leaderboards, MapInfo, Title, TitleBoards } from './ap
 
 /** The maps of a title, in the view's order, and of one versus where it is given (versusOf). */
 export const mapsOf = (maps: MapInfo[], of: string, versus?: string): MapInfo[] =>
-  maps.filter((m) => m.of === of && (versus === undefined || (m.versus || '') === versus));
+  maps.filter((m) => m.of === of && (versus === undefined || versusOf(m) === versus));
 
 /** A way to play against each other: its id, its name, and what a room says of it. */
 export interface Versus {
@@ -23,7 +23,7 @@ export interface Versus {
  * that a room offers them: co-op, where the players play together against the zombies, then Grief, in two teams, and
  * Turned, each for themselves.
  */
-export const VERSUS: Versus[] = [
+const VERSUS: Versus[] = [
   { id: '', name: 'Co-op', desc: 'Everyone together against the zombies.' },
   { id: 'grief', name: 'Grief', desc: 'Two teams. A team wins once the other is down and it lasts the round.' },
   { id: 'turned', name: 'Turned', desc: 'One human, everyone else a zombie. The most points wins.' },
@@ -34,7 +34,7 @@ export const versusOf = (map: MapInfo): string => map.versus || '';
 
 /** The kinds of versus that the server has maps of in a title, which a room of the title may pick among. */
 export const versusesOf = (maps: MapInfo[], of: string): Versus[] =>
-  VERSUS.filter((v) => maps.some((m) => m.of === of && m.have && versusOf(m) === v.id));
+  VERSUS.filter((v) => mapsOf(maps, of, v.id).some((m) => m.have));
 
 /** The name of a title, such as Black Ops II, or '' for one that the server does not host. */
 export const titleName = (titles: Title[], of: string): string => titles.find((t) => t.id === of)?.name || '';

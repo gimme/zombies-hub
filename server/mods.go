@@ -102,3 +102,9 @@ func teamOf(place, players int) int {
 	}
 	return 1
 }
+
+// teams reports whether the room's players play in two teams: with Grief on (a T5 room's mod), or on a T6 map of
+// Grief.
+func (r *room) teams() bool {
+	return slices.Contains(r.mods, "grief") || versusOf(r.mapName) == grief
+}

@@ -1164,12 +1164,7 @@ func t6Playing(t *testing.T, l *lobby, target string, tokens ...string) []*net.U
 	var games []*net.UDPConn
 	for range tokens {
 		game := windowsPlayer(t, target)
-		game.SetDeadline(time.Now().Add(5 * time.Second))
-		game.Write([]byte("\xff\xff\xff\xffconnectReq"))
-		if _, err := game.Read(make([]byte, 2048)); err != nil {
-			t.Fatal(err)
-		}
-		game.SetDeadline(time.Time{})
+		t6SeenAt(t, game)
 		games = append(games, game)
 	}
 	waitView(t, l, tokens[0], "everyone in the game", func(v view) bool { return v.Room.State == "playing" })
@@ -1336,23 +1331,22 @@ func TestT6Turned(t *testing.T) {
 	}
 }
 
-// How a T6 game says it ended, while its end plays out.
+// How a game says it ended, while its end plays out: by its result, which has the winner of Grief and Turned.
 func TestGameOverText(t *testing.T) {
-	ann := &gameResult{Players: []playerStats{{Name: "Ann"}}}
+	ann, bob := playerStats{Name: "Ann", Team: 1}, playerStats{Name: "Bob", Team: 2, Won: true}
 	for _, tc := range []struct {
-		versus     string
-		round, won int
-		want       string
+		res  gameResult
+		want string
 	}{
-		{coop, 12, 0, "Game over on round 12."},
-		{coop, 0, 0, "Game over."},
-		{grief, 5, 2, "Team 2 won on round 5."},
-		{grief, 0, 1, "Team 1 won."},
-		{grief, 5, 0, "Game over on round 5."},
-		{turned, 0, 0, "Ann won."},
+		{gameResult{Round: 12, Players: []playerStats{{Name: "Ann"}}}, "Game over on round 12."},
+		{gameResult{}, "Game over."},
+		{gameResult{Round: 5, Players: []playerStats{bob, ann}}, "Team 2 won on round 5."},
+		{gameResult{Players: []playerStats{bob, ann}}, "Team 2 won."},
+		{gameResult{Round: 5, Players: []playerStats{ann}}, "Game over on round 5."},
+		{gameResult{Players: []playerStats{{Name: "Ann", Won: true}, {Name: "Bob"}}}, "Ann won."},
 	} {
-		if got := gameOverText(tc.versus, tc.round, tc.won, ann); got != tc.want {
-			t.Errorf("%q, round %d, team %d: %q, want %q", tc.versus, tc.round, tc.won, got, tc.want)
+		if got := gameOverText(&tc.res); got != tc.want {
+			t.Errorf("%+v: %q, want %q", tc.res, got, tc.want)
 		}
 	}
 }

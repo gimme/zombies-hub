@@ -131,12 +131,11 @@ trap 'rm -f "$pidfile"' EXIT
 # the images, brought up to date (seconds when nothing changed), and the game files where Wine can run them
 progress=quiet; docker image inspect zombies-hub:test >/dev/null 2>&1 || progress=auto
 BUILDKIT_PROGRESS=$progress "$here/image.sh" zombies-hub:test >/dev/null
-progress=quiet; docker image inspect zombies-hub-windows-player >/dev/null 2>&1 || progress=auto
-docker build --progress=$progress -f "$here/Dockerfile" --target windows-player -t zombies-hub-windows-player \
-    --build-arg UID="$uid" --build-arg GID="$gid" "$here" >/dev/null
-progress=quiet; docker image inspect zombies-hub-t6-player >/dev/null 2>&1 || progress=auto
-docker build --progress=$progress -f "$here/Dockerfile" --target t6-player -t zombies-hub-t6-player \
-    --build-arg UID="$uid" --build-arg GID="$gid" "$here" >/dev/null
+for player in windows-player t6-player; do
+    progress=quiet; docker image inspect "zombies-hub-$player" >/dev/null 2>&1 || progress=auto
+    docker build --progress=$progress -f "$here/Dockerfile" --target "$player" -t "zombies-hub-$player" \
+        --build-arg UID="$uid" --build-arg GID="$gid" "$here" >/dev/null
+done
 ZOMBIES_TEST_GAME=$(for_wine "$game" zombies-hub-game zombies-hub:test)
 export ZOMBIES_TEST_GAME ZOMBIES_TEST_INSTALL=$game/t5 ZOMBIES_TEST_MAP=$map
 # bo2's tests run where the game files have Black Ops II's

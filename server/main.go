@@ -161,7 +161,7 @@ func run() int {
 	*maxPlayers = min(max(*maxPlayers, 1), maxRoomSize)
 	// Each player of each game has a seat with a loopback address of its own (relay.go: acquire). There are 65,534 of
 	// these addresses. A game of Grief may have more players than the server's rooms hold otherwise (lobby.sizeFor).
-	*maxGames = min(*maxGames, 0xFFFE/max(*maxPlayers, griefSize))
+	*maxGames = min(*maxGames, 0xFFFE/maxRoomSize)
 	downloads, rate, rateErr := parseRate(*downloadRate)
 	if rateErr != nil {
 		log.Printf("server: %v", rateErr)

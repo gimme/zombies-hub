@@ -232,10 +232,8 @@ func (l *lobby) gameLine(r *room, rg *roomGame, line string) {
 		return // the leaderboards are read when a page opens them
 	case "over": // game over, with the round it ended on when the level counts rounds: "over 5"
 		round, _ := strconv.Atoi(arg)
-		rg.ending, rg.result = "Game over.", l.result(r, rg, max(round, 0))
-		if round > 0 {
-			rg.ending = fmt.Sprintf("Game over on round %d.", round)
-		}
+		rg.result = l.result(r, rg, max(round, 0))
+		rg.ending = gameOverText(rg.result)
 		l.keepRounds(r, rg, rg.result)
 		log.Printf("server: room %s's game is over", r.code)
 	case "dstat": // the level changed a player's stat: "dstat 127.1.0.4:28960 zombie_kills 412"

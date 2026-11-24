@@ -7,7 +7,7 @@
 import type { View } from './api';
 import { $, el } from './dom';
 import { act, offline } from './lobby';
-import { mapInfo, mapPicture } from './maps';
+import { mapInfo, mapLabel, mapPicture } from './maps';
 import { modNames } from './mods';
 import { titleName } from './titles';
 
@@ -19,7 +19,7 @@ export function showRooms(v: View): void {
     const li = el('li', 'panel');
     const text = el('div', 'grow');
     const map = mapInfo(r.map);
-    text.append(el('div', 'title', map.title + (map.mode ? ' · ' + map.mode : '')));
+    text.append(el('div', 'title', mapLabel(map)));
     const game = v.titles.length > 1 ? titleName(v.titles, r.of) : '';
     const sub = el('div', 'sub', (game ? game + ' · ' : '') + r.host + '\'s room');
     if (!r.private) sub.append(' · ', el('span', 'mono', r.code));
