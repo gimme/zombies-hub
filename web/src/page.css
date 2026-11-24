@@ -308,6 +308,11 @@ ul.rooms { gap: 12px; }
 #sizesetting > span:first-child { flex-basis: 200px; }
 #sizesetting .seg { max-width: 100%; box-sizing: border-box; }
 #sizesetting .seg button { width: 44px; min-width: 0; flex: 0 1 44px; padding: 0; }
+/* the room's mode (showRoomVersus) has words for options, and its words change with it: under them too where the two
+   don't fit side by side */
+#versussetting { flex-wrap: wrap; row-gap: 10px; padding-top: 12px; padding-bottom: 12px; }
+#versussetting > span:first-child { flex-basis: 200px; }
+#versussetting .seg button { width: auto; min-width: 72px; padding: 0 14px; }
 .setting .desc { display: block; margin-top: 2px; color: var(--muted); font-size: 13px; font-weight: 400; }
 /* a switch (switchSet): off to the left and dark, on to the right and lit, and the word beside it */
 .switch { flex: none; display: flex; align-items: center; gap: 12px; padding: 0 2px 0 8px; border: none;

@@ -8,7 +8,8 @@ import "slices"
 //
 // A room's title is its map's (lobby.title). The host picks the title, and the room goes to a map of it (titleMap),
 // or picks a map, and the room's title follows. The page shows the titles apart: a room's maps, and the leaderboards
-// (leaderboards.go), are of one title.
+// (leaderboards.go), are of one title. A room's versus (co-op, Grief or Turned: mapEntry.versus) is its map's in the
+// same way.
 type title interface {
 	id() string    // its folder among the game files, and its id for the page: "t5"
 	label() string // its name in messages to players: "Black Ops II"
@@ -97,8 +98,54 @@ func (l *lobby) titleMap(r *room, of string) string {
 // map's textures are images/<name>.iwi in the archives, and a Black Ops II map's are in that game's image packs
 // (ipak.go). A Black Ops II map's card in that game's lobby has two lines of words (t6.go: t6MapList): where the map
 // is (place), over the map's name. The name is followed by the map's mode when the map has a mode alone that is not
-// the story (mode).
-type mapEntry struct{ of, name, title, preview, loadscreen, description, place, mode string }
+// the story (mode): Survival, Grief or Turned.
+//
+// versus is how the map's players play against each other: in two teams (grief), or each for themselves (turned). It
+// is "" on a co-op map, where they play together against the zombies: a map's story, and Survival. A room's host picks
+// the room's versus as they pick its title, and the room goes to a map of it (versusMap). The room's grid shows the
+// maps of its versus alone.
+type mapEntry struct{ of, name, title, preview, loadscreen, description, place, mode, versus string }
+
+// The kinds of versus (mapEntry.versus). A Grief room takes up to griefSize players, whatever the server's rooms
+// take otherwise (-max-players): four in each team, as the game was made for. The game ends a game of more than
+// four players on any other mode, and of more than eight on Grief (maps/mp/zombies/_zm.gsc:
+// player_too_many_players_check), and Plutonium's own script turns that off (scripts/zm/ranked.gsc).
+const (
+	coop      = ""
+	grief     = "grief"
+	turned    = "turned"
+	griefSize = 8
+)
+
+// versusOf returns the versus of a map (mapEntry.versus): coop for a map the server doesn't list.
+func versusOf(mapName string) string {
+	m, _ := mapByName(mapName)
+	return m.versus
+}
+
+// versusName returns the name of a versus in messages to players, or "" for none.
+func versusName(versus string) string {
+	return map[string]string{coop: "Co-op", grief: "Grief", turned: "Turned"}[versus]
+}
+
+// versusMap returns the map that r goes to when its host picks a versus of the title of (setRoom): r's own map when
+// it is of both, else the map r last had of them, else the server's default map when that is of them, else the first
+// map of them that the game files have. It returns "" when the game files have no such map.
+func (l *lobby) versusMap(r *room, of, versus string) string {
+	have := l.maps()
+	is := func(m string) bool { return titleOf(m) == of && versusOf(m) == versus && slices.Contains(have, m) }
+	for _, m := range []string{r.mapName, r.had[of+" "+versus], l.defaultMap} {
+		if is(m) {
+			return m
+		}
+	}
+	for _, m := range have {
+		if is(m) {
+			return m
+		}
+	}
+	return ""
+}
 
 // mapTitles is the Zombies maps, in the order the page lists them.
 var mapTitles = slices.Concat(t5MapList, t6MapList)

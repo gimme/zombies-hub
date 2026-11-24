@@ -69,7 +69,7 @@ Settings are environment variables. `docker run --rm zombies-hub -h` lists all o
 | --- | --- | --- |
 | `ZOMBIES_MAP` | `zombie_theater` | The map a new room starts with. |
 | `ZOMBIES_MIN_PLAYERS` | `2` | Players a room needs to start a game. |
-| `ZOMBIES_MAX_PLAYERS` | `4` | Most players a room can take, up to 8. The maps were made for 4. |
+| `ZOMBIES_MAX_PLAYERS` | `4` | Most players a room can take, up to 8. The maps were made for 4. A Black Ops II room of Grief can take 8 whatever this is: four in each team. |
 | `ZOMBIES_MAX_GAMES` | `4` | Games running at once. |
 | `ZOMBIES_DOWNLOAD_RATE` | empty | Send game files to players, at most this many bits per second in total (`40M`, `1G`) or `unlimited`. Empty sends none. |
 | `ZOMBIES_PUBLIC_PORT` | `3075` | The UDP port players reach from outside. |

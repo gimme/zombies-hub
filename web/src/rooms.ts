@@ -2,7 +2,8 @@
 //
 // A room takes players while it has no game running and has a seat free. Its host sets how many seats it has. A room
 // that is private to the player comes without its code (server/rooms.go: roomItem), and is joined by its code alone:
-// a private room, or one that was just made. On a server that hosts two games, a room's line says its game first.
+// a private room, or one that was just made. On a server that hosts two games, a room's line says its game first. A
+// room's map has its mode after its name, where the map has one: Town is a map of Survival and one of Grief.
 import type { View } from './api';
 import { $, el } from './dom';
 import { act, offline } from './lobby';
@@ -17,7 +18,8 @@ export function showRooms(v: View): void {
   for (const r of v.rooms) {
     const li = el('li', 'panel');
     const text = el('div', 'grow');
-    text.append(el('div', 'title', mapInfo(r.map).title));
+    const map = mapInfo(r.map);
+    text.append(el('div', 'title', map.title + (map.mode ? ' · ' + map.mode : '')));
     const game = v.titles.length > 1 ? titleName(v.titles, r.of) : '';
     const sub = el('div', 'sub', (game ? game + ' · ' : '') + r.host + '\'s room');
     if (!r.private) sub.append(' · ', el('span', 'mono', r.code));

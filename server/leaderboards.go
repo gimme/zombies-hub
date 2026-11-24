@@ -31,6 +31,10 @@ import (
 // the round begins, so the round counts however the game ends. Each record names the game that set it. The database
 // keeps every game's report (gameResult). The lobby has a report for as long as a record names it (keepGame), for the
 // page to show. A game with mods (mods.go) counts like any other, and its report names the mods.
+//
+// The maps on which the players play against each other (title.go: mapEntry.versus), T6's maps of Grief and Turned,
+// have no boards. Their games are won, not survived: a round of Grief is how long both teams lasted, and Turned
+// counts no rounds. Their games set no records, and the database keeps no report of them.
 
 // boardRows is how many players a board lists at most.
 const boardRows = 50
@@ -107,9 +111,9 @@ func (p *player) keepEgg(mapName string, party int, seconds int64, game string) 
 // keepRounds records the round of res for each of rg's players whose character is in the game: the players that rg has
 // a line of the scoreboard for. The size of the party is the number of players that started the game. keepRounds also
 // keeps the report. It then clears the lines of the scoreboard, so that the game's next lines are those of the players
-// who are in it then. The caller holds l.mu.
+// who are in it then. On a map of Grief or Turned it keeps nothing, and only clears the lines. The caller holds l.mu.
 func (l *lobby) keepRounds(r *room, rg *roomGame, res *gameResult) {
-	if res.Round > 0 && rg.started {
+	if res.Round > 0 && rg.started && versusOf(r.mapName) == coop {
 		for _, s := range rg.seats {
 			if _, ok := rg.stats[s.local.String()]; ok {
 				s.player.keepRound(r.mapName, len(rg.seats), res.Round, res.ID)
@@ -307,7 +311,7 @@ func (l *lobby) leaderboards(asker *player) leaderboards {
 	for _, t := range l.hosted() {
 		var mapNames, eggMaps []string
 		for _, name := range l.maps() {
-			if titleOf(name) != t.id() {
+			if titleOf(name) != t.id() || versusOf(name) != coop {
 				continue
 			}
 			mapNames = append(mapNames, name)

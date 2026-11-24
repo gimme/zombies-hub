@@ -1,6 +1,6 @@
 import { expect, test } from 'vitest';
 import type { KindBoards, Leaderboards, MapInfo, TitleBoards } from './api';
-import { ALL_MAPS, kindsOf, mapsOf, type Picked, pickBoard, titleName } from './titles';
+import { ALL_MAPS, kindsOf, mapsOf, type Picked, pickBoard, titleName, versusesOf } from './titles';
 
 // A kind's boards of these maps, with no one on them.
 const kind = (...maps: string[]): KindBoards => ({
@@ -19,6 +19,19 @@ test("a room's maps are those of its title", () => {
   expect(mapsOf(maps, 't6').map((m) => m.name)).toEqual(['zm_standard_town']);
   expect(titleName([{ id: 't6', name: 'Black Ops II' }], 't6')).toBe('Black Ops II');
   expect(titleName([{ id: 't5', name: 'Black Ops' }], 't6')).toBe('');
+});
+
+test("a room's maps are those of its versus, and it may pick among the versus that the server has maps of", () => {
+  const maps: MapInfo[] = [{ name: 'zombie_theater', title: 'Kino der Toten', of: 't5', have: true },
+    { name: 'zm_standard_town', title: 'Town', of: 't6', mode: 'Survival', have: true },
+    { name: 'zm_grief_town', title: 'Town', of: 't6', mode: 'Grief', versus: 'grief', have: true },
+    { name: 'zm_grief_farm', title: 'Farm', of: 't6', mode: 'Grief', versus: 'grief' },
+    { name: 'zm_cleansed_diner', title: 'Diner', of: 't6', mode: 'Turned', versus: 'turned' }];
+  expect(mapsOf(maps, 't6', '').map((m) => m.name)).toEqual(['zm_standard_town']);
+  expect(mapsOf(maps, 't6', 'grief').map((m) => m.name)).toEqual(['zm_grief_town', 'zm_grief_farm']);
+  // the server lacks the Diner: no Turned
+  expect(versusesOf(maps, 't6').map((v) => v.name)).toEqual(['Co-op', 'Grief']);
+  expect(versusesOf(maps, 't5').map((v) => v.name)).toEqual(['Co-op']);
 });
 
 test('a title has its rounds, and its easter eggs where it has them', () => {

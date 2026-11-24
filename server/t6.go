@@ -77,11 +77,19 @@ const plutoniumPort = 3074
 var t6MapList = []mapEntry{
 	// The T6 maps are named after their game settings files in Plutonium's server configs (t6Maps). The main maps come
 	// first, in the order of their release, then the maps that have the survival mode alone: three parts of TranZit's
-	// map, and Nuketown. Their pictures are textures in T6's image packs (ipak.go), by the names of the textures that
-	// their materials draw. The preview is the map's tile on its card in the game's lobby, which its leaderboards show
-	// too: the material menu_zm_<map>_<mode>_<location> (in patch_ui_zm.ff, and ui_zm.ff for TranZit's maps). The
-	// loading screen is the material loadscreen_<map>_<mode>_<location> (in code_post_gfx_zm.ff, or the map pack's
-	// dlc<n>_load_zm.ff). Bus Depot's is the same picture as TranZit's.
+	// map, and Nuketown. Then come the maps of the two modes in which the players play against each other (versus):
+	// Grief's, in two teams, and Turned's, each for themselves, each in the order of their release. Their pictures are
+	// textures in T6's image packs (ipak.go), by the names of the textures that their materials draw. The preview is
+	// the map's tile on its card in the game's lobby, which its leaderboards show too: the material
+	// menu_zm_<map>_<mode>_<location> (in patch_ui_zm.ff, and ui_zm.ff for TranZit's maps). The loading screen is the
+	// material loadscreen_<map>_<mode>_<location> (in code_post_gfx_zm.ff, or the map pack's dlc<n>_load_zm.ff). Bus
+	// Depot's is the same picture as TranZit's.
+	//
+	// A part of a map has one tile for Grief and Turned both, menu_zm_<map>_zencounter_<location>, after the modes'
+	// group (zencounter). Cell Block's is menu_zm_prison_select_grief_cellblock, after Mob of the Dead's own, and the
+	// Diner's is menu_zm_transit_zsurvival_diner, as if it were a part of TranZit to survive on. Their loading screens
+	// are not in the packs, by any of two million names that were tried, so the two have the loading screens of their
+	// maps' own stories.
 	//
 	// The place is the card's words over the map's name, the localized string ZMUI_<MAP>_CAPS (in en_patch_zm.ff), and
 	// the mode, after the name, is ZMUI_SURVIVAL_CAPS, as the page writes them. The page has no description of the T6
@@ -104,6 +112,20 @@ var t6MapList = []mapEntry{
 		preview: "menu_zm_transit_zsurvival_farm", loadscreen: "loadscreen_transit_standard_farm"},
 	{of: t6, name: "zm_standard_nuked", title: "Nuketown", place: "Nevada, U.S.A.", mode: "Survival",
 		preview: "menu_zm_nuketown_select", loadscreen: "loadscreen_zm_nuketown"},
+	{of: t6, name: "zm_grief_transit", title: "Bus Depot", place: "Green Run", mode: "Grief", versus: grief,
+		preview: "menu_zm_transit_zencounter_transit", loadscreen: "loadscreen_transit_grief_busdepot"},
+	{of: t6, name: "zm_grief_town", title: "Town", place: "Green Run", mode: "Grief", versus: grief,
+		preview: "menu_zm_transit_zencounter_town", loadscreen: "loadscreen_transit_grief_town"},
+	{of: t6, name: "zm_grief_farm", title: "Farm", place: "Green Run", mode: "Grief", versus: grief,
+		preview: "menu_zm_transit_zencounter_farm", loadscreen: "loadscreen_transit_grief_farm"},
+	{of: t6, name: "zm_grief_cellblock", title: "Cell Block", place: "Alcatraz Island", mode: "Grief", versus: grief,
+		preview: "menu_zm_prison_select_grief_cellblock", loadscreen: "loadscreen_zm_hellcatraz"},
+	{of: t6, name: "zm_grief_street", title: "Borough", place: "Resolution 1295", mode: "Grief", versus: grief,
+		preview: "menu_zm_buried_zencounter_street", loadscreen: "loadscreen_buried_zgrief_street"},
+	{of: t6, name: "zm_cleansed_diner", title: "Diner", place: "Green Run", mode: "Turned", versus: turned,
+		preview: "menu_zm_transit_zsurvival_diner", loadscreen: "loadscreen_transit_classic"},
+	{of: t6, name: "zm_cleansed_street", title: "Borough", place: "Resolution 1295", mode: "Turned", versus: turned,
+		preview: "menu_zm_buried_zencounter_street", loadscreen: "loadscreen_buried_zcleansed_street"},
 }
 
 // t6Title is the title (title.go) for Black Ops II.
@@ -141,8 +163,16 @@ func (t *t6Title) free(*lobby) error {
 	return nil
 }
 
+// begin makes the Plutonium server that is r's game. In Grief, the server's script puts each player in the team of
+// their place (teamOf), as a Black Ops game with Grief on does, and as the room shows them.
 func (t *t6Title) begin(l *lobby, r *room, rg *roomGame) *game {
 	g := t.newGame(r.code, r.mapName, rg.port, len(rg.seats), r.password)
+	if versusOf(r.mapName) == grief {
+		for i, s := range rg.seats {
+			team := teamOf(i, len(rg.seats)) - 1
+			g.t6().teams[team] = append(g.t6().teams[team], s.player.name)
+		}
+	}
 	g.lines = func(line string) { l.t6Said(r, rg, line) }
 	g.t6().status = func(clients []t6Client) { l.t6Status(r, rg, clients) }
 	g.t6().changed = func() {
@@ -255,6 +285,13 @@ var t6Maps = map[string]t6Map{
 	"zm_classic_prison":     {"zm_prison", "zclassic", "zclassic", "prison"},
 	"zm_classic_processing": {"zm_buried", "zclassic", "zclassic", "processing"},
 	"zm_classic_tomb":       {"zm_tomb", "zclassic", "zclassic", "tomb"},
+	"zm_grief_transit":      {"zm_transit", "zencounter", "zgrief", "transit"},
+	"zm_grief_town":         {"zm_transit", "zencounter", "zgrief", "town"},
+	"zm_grief_farm":         {"zm_transit", "zencounter", "zgrief", "farm"},
+	"zm_grief_cellblock":    {"zm_prison", "zencounter", "zgrief", "cellblock"},
+	"zm_grief_street":       {"zm_buried", "zencounter", "zgrief", "street"},
+	"zm_cleansed_diner":     {"zm_transit_dr", "zencounter", "zcleansed", "diner"}, // the Diner is a zone of its own
+	"zm_cleansed_street":    {"zm_buried", "zencounter", "zcleansed", "street"},
 }
 
 // t6Zone returns the game file that a T6 map's zone is, by its path in the game's folder, with slashes: a copy of the
@@ -342,6 +379,9 @@ type t6Game struct {
 	size     int    // the most players it takes (sv_maxclients)
 	password string // the password a client joins it with (g_password)
 	rcon     string // its remote console's password, which only the server has
+	// teams has the names that the players of each team play under, in a game of Grief, for the server's script to put
+	// them in their teams (t6Script). It is empty in a game of another mode.
+	teams [2][]string
 	// status is called with the clients that the game's status lists, each second that the game answers. A client is
 	// listed by the address the game sees it at, which is a seat's address.
 	status func([]t6Client)
@@ -375,21 +415,32 @@ var t6Own = []string{"main", "players", "demos", "gamesettings", "scripts", "lob
 // (storage/t6/scripts/zm), together with the level's own scripts. As far as a script can, it prints what the engine
 // prints in a T5 game ("bo1_lobby: ...", t5.go: gameLine), for the server to read (t6Said):
 //
-//	zombies_lobby: stats 0 4350 1200 31 12 1 0 2   a player's line of the scoreboard, by their client's slot: all the
-//	                                               points they earned, the points left to spend, their kills,
-//	                                               headshots, downs, revives and doors bought. It is printed before
-//	                                               "round" and "over".
-//	zombies_lobby: round 5                         a round begins
-//	zombies_lobby: egg 0 2                         the map's main quest is done, with the slots of the players in the
-//	                                               game then. It is printed once a game.
-//	zombies_lobby: over 12                         game over, and the round it ended on
-//	zombies_lobby: exit                            the game's end has played out (the words on the screen, then the
-//	                                               view over the map: 20 seconds). The game loads the map again a
-//	                                               second and a half later.
+//	zombies_lobby: stats 0 4350 1200 31 12 1 0 2 1  a player's line of the scoreboard, by their client's slot: all the
+//	                                                points they earned, the points left to spend, their kills,
+//	                                                headshots, downs, revives and doors bought, and their team in
+//	                                                Grief (1 or 2, else 0). It is printed before "round" and "over".
+//	zombies_lobby: round 5                          a round begins
+//	zombies_lobby: egg 0 2                          the map's main quest is done, with the slots of the players in
+//	                                                the game then. It is printed once a game.
+//	zombies_lobby: over 12 1                        game over, the round it ended on, and in Grief the team that won
+//	zombies_lobby: exit                             the game's end has played out (the words on the screen, then the
+//	                                                view over the map: 20 seconds). The game loads the map again a
+//	                                                second and a half later.
 //
 // The server stops the game on "exit". The players' games then go back to their menus from the end of the game, and
 // not from the loading screen of the next game. The level's scripts (maps/mp/zombies/_zm.gsc and its neighbours) keep
-// each of these numbers on the player. They count the doors in the stats they keep of the player.
+// each of these numbers on the player. They count the doors in the stats they keep of the player. Turned counts no
+// rounds, and its points left to spend are the points it ranks its players by.
+//
+// Grief has two teams: team 1 is the game's team A (its "axis"), and team 2 is team B ("allies"). A team wins once
+// every player of the other is down and it has lived to the end of that round (maps/mp/zombies/_zm_game_module.gsc:
+// wait_for_team_death_and_round_end), so a team that no one is in loses at once. Left to itself, the game puts each
+// player in a team as they connect (maps/mp/gametypes_zm/_globallogic_ui.gsc: menuautoassign). In Zombies that is team
+// B unless the game's party gives them a team (party_autoteams, getassignedteam), which a dedicated server's game may
+// not have. So the script puts each player in the team that the server gives them (t6Game.teams), in place of the
+// game's menuautoassign: the config names the players of each team (zombies_team_1 and zombies_team_2), by the names
+// they play under. A player who is in neither list, such as one who joins by hand under another name, goes to the team
+// with fewer players.
 //
 // A map's main quest is done when the level gives its achievement, to everyone in the game. The map's quest notifies
 // the level then, and the map's script of achievements waits for that notify (maps/mp/zm_<map>_achievement.gsc in the
@@ -407,9 +458,11 @@ var t6Own = []string{"main", "players", "demos", "gamesettings", "scripts", "lob
 // The script waits for each of them on any map, and reports the first. A quest runs in its map's classic mode alone,
 // and not on Easy, so another map or mode never notifies one.
 const t6Script = `// zombies-server's (server/t6.go): the rounds, the scoreboard at each, the main quest done, game over, its end
-// played out
+// played out, and in Grief each player's team
 main()
 {
+	if ( getdvar( "g_gametype" ) == "zgrief" )
+		replaceFunc( GetFunction( "maps/mp/gametypes_zm/_globallogic_ui", "menuautoassign" ), ::lobby_autoassign, -1 );
 }
 
 init()
@@ -425,6 +478,21 @@ lobby_number( value )
 		return 0;
 
 	return value;
+}
+
+// A player's Grief team, by its letter in the game: 1 for A, 2 for B, and 0 for none or outside Grief.
+lobby_team_number( team )
+{
+	if ( getdvar( "g_gametype" ) != "zgrief" || !isdefined( team ) )
+		return 0;
+
+	if ( team == "A" )
+		return 1;
+
+	if ( team == "B" )
+		return 2;
+
+	return 0;
 }
 
 lobby_stats()
@@ -443,8 +511,90 @@ lobby_stats()
 		line = line + " " + lobby_number( player.score_total ) + " " + lobby_number( player.score );
 		line = line + " " + lobby_number( player.kills ) + " " + lobby_number( player.headshots );
 		line = line + " " + lobby_number( player.downs ) + " " + lobby_number( player.revives ) + " " + doors;
+		line = line + " " + lobby_team_number( player._encounters_team );
 		printf( line );
 	}
+}
+
+// The game's team of the player in Grief: "axis" (A, team 1) or "allies" (B, team 2), as the server's config names
+// them, or else the team with fewer players, the first when the two are even.
+lobby_team()
+{
+	for ( team = 1; team <= 2; team++ )
+	{
+		names = strtok( getdvar( "zombies_team_" + team ), "/" );
+
+		for ( i = 0; i < names.size; i++ )
+		{
+			if ( tolower( names[i] ) == tolower( self.name ) )
+			{
+				if ( team == 1 )
+					return "axis";
+
+				return "allies";
+			}
+		}
+	}
+
+	axis = 0;
+	allies = 0;
+	players = getplayers();
+
+	for ( i = 0; i < players.size; i++ )
+	{
+		if ( players[i] == self || !isdefined( players[i].pers["team"] ) )
+			continue;
+
+		if ( players[i].pers["team"] == "axis" )
+			axis++;
+		else if ( players[i].pers["team"] == "allies" )
+			allies++;
+	}
+
+	if ( allies < axis )
+		return "allies";
+
+	return "axis";
+}
+
+// In Grief, in place of the game's menuautoassign (maps/mp/gametypes_zm/_globallogic_ui.gsc), which does the same
+// with the team that it picks itself.
+lobby_autoassign( comingfrommenu )
+{
+	team = self lobby_team();
+	self maps\mp\gametypes_zm\_globallogic_ui::closemenus();
+
+	if ( team == self.pers["team"] && ( self.sessionstate == "playing" || self.sessionstate == "dead" ) )
+	{
+		self maps\mp\gametypes_zm\_globallogic_ui::beginclasschoice();
+		return;
+	}
+
+	if ( team != self.pers["team"] && ( self.sessionstate == "playing" || self.sessionstate == "dead" ) )
+	{
+		self.switching_teams = 1;
+		self.joining_team = team;
+		self.leaving_team = self.pers["team"];
+		self suicide();
+	}
+
+	self.pers["team"] = team;
+	self.team = team;
+	self.pers["class"] = undefined;
+	self.class = undefined;
+	self.pers["weapon"] = undefined;
+	self.pers["savedmodel"] = undefined;
+	self maps\mp\gametypes_zm\_globallogic_ui::updateobjectivetext();
+	self.sessionteam = team;
+
+	if ( !isalive( self ) )
+		self.statusicon = "hud_status_dead";
+
+	self notify( "joined_team" );
+	level notify( "joined_team" );
+	self notify( "end_respawn" );
+	self maps\mp\gametypes_zm\_globallogic_ui::beginclasschoice();
+	self setclientscriptmainmenu( game["menu_class"] );
 }
 
 lobby_rounds()
@@ -489,7 +639,12 @@ lobby_game_over()
 {
 	level waittill( "end_game" );
 	lobby_stats();
-	printf( "zombies_lobby: over " + level.round_number );
+	line = "zombies_lobby: over " + lobby_number( level.round_number );
+
+	if ( isdefined( level.gamemodulewinningteam ) )
+		line = line + " " + lobby_team_number( level.gamemodulewinningteam );
+
+	printf( line );
 	level waittill( "stop_intermission" );
 	printf( "zombies_lobby: exit" );
 }
@@ -509,6 +664,9 @@ lobby_game_over()
 // server's own wait (t6Game.waits), so that the game starts with everyone or the server calls it off. The value is
 // at least those 90 seconds, because the game also drops a client that loads for longer, and at most 1800, the most
 // the game accepts.
+//
+// In Grief, the config also names the players of each team (t6Game.teams), for the server's script (t6Script). The
+// names are separated by slashes, which no name has (rooms.go: nameUnsafe).
 //
 // The second config, lobby_gts.cfg, has the game settings of the map, as Plutonium's server configs have them.
 func (g *game) t6Prepare(ctx context.Context) error {
@@ -567,6 +725,11 @@ demo_enabled 0
 sv_hostname "Room %s"
 sv_maprotation "execgts lobby_gts.cfg map %s"
 `, g.name, t.size, t.players, min(max(int(t.waits.Seconds()), 90), 1800), t.password, t.rcon, g.name, m.zone)
+	for i, names := range t.teams {
+		if len(names) > 0 {
+			cfg += fmt.Sprintf("set zombies_team_%d \"%s\"\n", i+1, strings.Join(names, "/"))
+		}
+	}
 	gts := fmt.Sprintf(`execgts gamesettings_default.cfg
 execgts gamesettings_%s.cfg
 ui_zm_gamemodegroup "%s"
@@ -836,7 +999,8 @@ func (rg *roomGame) t6Whose(code string, at *seat, name string) *seat {
 // sets the easter egg's record of the players in the game then, whom the script names by slot too (t6Egg).
 //
 // The game ends when the level ends: at game over, or 20 seconds after its last player left. At game over the room
-// gets the game's result, which the players' pages show while the players watch the game's end. Once the script
+// gets the game's result, which the players' pages show while the players watch the game's end. A game of Grief or
+// Turned has a winner then (result), and its rounds are no records (keepRounds). Once the script
 // reports that the end has played out, the server stops the game. That is a moment before the game would load the map
 // again for its players, who are to be back in their room instead. The game itself prints "map_rotate..." when it
 // rotates to its next map, which is the same map. That line ends the game too, for when the script did not report the
@@ -892,15 +1056,28 @@ func (l *lobby) t6Said(r *room, rg *roomGame, line string) {
 		return
 	case ours && verb == "over" && rg.ending == "" && over == "Game over.":
 		// The players watch the game's end. The script reports when the end has played out ("exit"). If it doesn't, the
-		// server stops the game anyway after t6EndTakes.
-		round, _ := strconv.Atoi(arg)
-		rg.ending = over
-		if round > 0 {
-			rg.ending = fmt.Sprintf("Game over on round %d.", round)
+		// server stops the game anyway after t6EndTakes. The script reports the round, and in Grief the team that won.
+		// Turned counts no rounds: its round is none.
+		fields := strings.Fields(arg)
+		round, won := 0, 0
+		if len(fields) > 0 {
+			round, _ = strconv.Atoi(fields[0])
 		}
+		if len(fields) > 1 {
+			won, _ = strconv.Atoi(fields[1])
+		}
+		versus := versusOf(r.mapName)
+		if versus == turned {
+			round = 0
+		}
+		if versus == grief && (won == 1 || won == 2) {
+			rg.won = won
+		}
+		res := l.result(r, rg, max(round, 0))
+		rg.ending = gameOverText(versus, round, rg.won, res)
 		// The result is what the page shows from now on. It is kept only when the script printed the players' lines.
 		// Otherwise the room shows only that it was game over.
-		if res := l.result(r, rg, max(round, 0)); len(res.Players) > 0 {
+		if len(res.Players) > 0 {
 			rg.result = res
 			l.keepRounds(r, rg, res)
 		}
@@ -913,6 +1090,22 @@ func (l *lobby) t6Said(r *room, rg *roomGame, line string) {
 		rg.cancel()
 	}
 	l.change()
+}
+
+// gameOverText says how a T6 game ended at game over, while its end plays out: the team that won a game of Grief
+// (won), the player who won a game of Turned (the first of res), or else the round it ended on, if any.
+func gameOverText(versus string, round, won int, res *gameResult) string {
+	switch {
+	case versus == grief && won > 0 && round > 0:
+		return fmt.Sprintf("Team %d won on round %d.", won, round)
+	case versus == grief && won > 0:
+		return fmt.Sprintf("Team %d won.", won)
+	case versus == turned && len(res.Players) > 0:
+		return res.Players[0].Name + " won."
+	case round > 0:
+		return fmt.Sprintf("Game over on round %d.", round)
+	}
+	return "Game over."
 }
 
 // t6Egg keeps the easter egg of rg's map for the players whose client is in one of the slots: the script's report

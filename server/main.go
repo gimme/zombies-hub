@@ -128,7 +128,7 @@ func run() int {
 	port := flag.Int("port", envInt("ZOMBIES_PORT", 3075), "the port players reach: UDP for the games (WebTransport, and Windows players), TCP for the web client and game files (ZOMBIES_PORT)")
 	publicPort := flag.Int("public-port", envInt("ZOMBIES_PUBLIC_PORT", 0), "the UDP port players reach WebTransport at, when a port forward or mapping makes it other than -port; 0: -port (ZOMBIES_PUBLIC_PORT)")
 	mapName := flag.String("map", env("ZOMBIES_MAP", "zombie_theater"), "the map a new room starts with (ZOMBIES_MAP)")
-	maxPlayers := flag.Int("max-players", envInt("ZOMBIES_MAX_PLAYERS", 4), "most players a room's host may set it to take, 1 to 8; a new room takes 4, or as near as this and -min-players allow. Past 4, the level's four characters and spawn points take more than one player each (ZOMBIES_MAX_PLAYERS)")
+	maxPlayers := flag.Int("max-players", envInt("ZOMBIES_MAX_PLAYERS", 4), "most players a room's host may set it to take, 1 to 8; a new room takes 4, or as near as this and -min-players allow. Past 4, the level's four characters and spawn points take more than one player each. A room on a Black Ops II map of Grief may take 8 whatever this is: four in each team (ZOMBIES_MAX_PLAYERS)")
 	minPlayers := flag.Int("min-players", envInt("ZOMBIES_MIN_PLAYERS", 2), "players a room's game needs to start, and the fewest a room's host may set it to take; 1 lets a player start one alone, for tests (ZOMBIES_MIN_PLAYERS)")
 	maxGames := flag.Int("max-games", envInt("ZOMBIES_MAX_GAMES", 4), "most games running at once (ZOMBIES_MAX_GAMES)")
 	loadTimeout := flag.Duration("load-timeout", envDuration("ZOMBIES_LOAD_TIMEOUT", 5*time.Minute), "how long a room's game waits for its players to load before it is called off (ZOMBIES_LOAD_TIMEOUT)")
@@ -160,8 +160,8 @@ func run() int {
 	}
 	*maxPlayers = min(max(*maxPlayers, 1), maxRoomSize)
 	// Each player of each game has a seat with a loopback address of its own (relay.go: acquire). There are 65,534 of
-	// these addresses.
-	*maxGames = min(*maxGames, 0xFFFE / *maxPlayers)
+	// these addresses. A game of Grief may have more players than the server's rooms hold otherwise (lobby.sizeFor).
+	*maxGames = min(*maxGames, 0xFFFE/max(*maxPlayers, griefSize))
 	downloads, rate, rateErr := parseRate(*downloadRate)
 	if rateErr != nil {
 		log.Printf("server: %v", rateErr)
@@ -296,7 +296,7 @@ func run() int {
 				name: code, wine: *wine, uid: gameUID, dir: t6Files, logDir: filepath.Join(*dataDir, "logs"),
 				home: filepath.Join(*dataDir, "game", strconv.Itoa(slices.Index(l.gamePorts, port)+1)),
 				ip:   "127.0.0.1", port: port, output: prefixed{"[" + code + "] ", output},
-				engine:       newT6Game(pluto, mapName, players, l.roomSize, l.loadTimeout, password),
+				engine:       newT6Game(pluto, mapName, players, l.sizeFor(mapName), l.loadTimeout, password),
 				startTimeout: max(5*time.Minute, *hangTimeout),
 			}
 			if *hangTimeout > 0 {

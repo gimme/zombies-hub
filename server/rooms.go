@@ -46,7 +46,8 @@ const defaultRoomSize = 4
 // a room is its host, and the host picks the game (its title: title.go) and the map, a map of that game. The others
 // may suggest a map of the room's game to the host (setMark). When the host leaves, the member who joined next becomes
 // the host. A room takes room.size players, four unless its host sets another size. The size is at least the number
-// of players a game needs (-min-players) and at most the number the server's rooms may hold (-max-players).
+// of players a game needs (-min-players) and at most the number the server's rooms may hold (-max-players), or 8 on a
+// T6 map of Grief (sizeFor).
 //
 // Each player in a room reports in their page that they are ready (POST /lobby/ready). Once all of them are ready,
 // the room's game starts after a countdown (checkReady). The countdown is called off when one of them is no longer
@@ -101,10 +102,11 @@ const defaultRoomSize = 4
 //	                    a map of that game (titleMap).
 //	POST /lobby/join    {"room"}: joins a room by its code
 //	POST /lobby/leave   {}
-//	POST /lobby/room    {"title", "map", "private", "mods", "size"}: the host picks the room's game by its title ("t6"),
-//	                    and the room goes to a map of it (titleMap); or picks the room's map (one the server has);
-//	                    makes the room private or public, sets the mods of its games (mods.go), or sets how many
-//	                    players it takes
+//	POST /lobby/room    {"title", "versus", "map", "private", "mods", "size"}: the host picks the room's game by its
+//	                    title ("t6"), and the room goes to a map of it (titleMap); or picks how its players play
+//	                    against each other ("versus": "" for co-op, "grief" or "turned"), and the room goes to a map of
+//	                    that (versusMap); or picks the room's map (one the server has); makes the room private or
+//	                    public, sets the mods of its games (mods.go), or sets how many players it takes
 //	POST /lobby/mark    {"map"}: a player who isn't the host suggests a map of the room's game for its next game, or
 //	                    none with ""
 //	POST /lobby/files   {"map", "done", "running", "got", "need"}: reports which game files of a map the player's
@@ -338,6 +340,7 @@ type roomGame struct {
 	// eggSeconds is when the map's easter egg was done, in seconds from round 1, or 0 when it is not done yet. The
 	// whole party gets this one time, however late the level credits one of its players.
 	eggSeconds int64
+	won        int    // a T6 game of Grief: the team that won it, 1 or 2, at game over (t6Said), or 0
 	ending     string // why it is being stopped, or "" while it is not
 	vacant     bool   // no one plays it or is on their way into it (checkGame), so the room's host may end it
 	// stats has each player's line of the scoreboard, by their seat's address ("bo1_lobby: stats"). The game reports
@@ -374,12 +377,16 @@ type playerStats struct {
 	Name  string `json:"name"`
 	Score int    `json:"score"` // all the points they earned
 	Cash  int    `json:"cash"`  // the points they have left to spend
-	// Team is their team, 1 or 2, in a game with Grief on (teamOf). The page adds up the cash of each team.
-	Team      int `json:"team,omitempty"`
-	Kills     int `json:"kills"`
-	Headshots int `json:"headshots"`
-	Downs     int `json:"downs"`
-	Revives   int `json:"revives"`
+	// Team is their team, 1 or 2, in a game with Grief on (teamOf), or on a T6 map of Grief, where the game says it.
+	// In a game with Grief on, the page adds up the cash of each team.
+	Team int `json:"team,omitempty"`
+	// Won is set where the game has a winner, which it named at game over: on the line of each player of the team that
+	// won a game of Grief on a T6 map, and on the line of the player who won a game of Turned.
+	Won       bool `json:"won,omitempty"`
+	Kills     int  `json:"kills"`
+	Headshots int  `json:"headshots"`
+	Downs     int  `json:"downs"`
+	Revives   int  `json:"revives"`
 	// Doors is the number of doors they bought, including debris. It is nil when the game reported no number, as in
 	// a report from a game built before the engine counted doors.
 	Doors *int `json:"doors,omitempty"`
@@ -596,6 +603,9 @@ type mapView struct {
 	// that the card writes after the name, if any (mapEntry).
 	Place string `json:"place,omitempty"`
 	Mode  string `json:"mode,omitempty"`
+	// Versus is how its players play against each other: "grief" or "turned", or "" on a co-op map (mapEntry). A room's
+	// grid shows the maps of the room's versus alone.
+	Versus string `json:"versus,omitempty"`
 }
 
 // pictureView is a picture of the set (pictures.go): its id (the page loads GET /pictures/<id>.png), its name, and
@@ -660,6 +670,7 @@ type roomView struct {
 	Of      string       `json:"of"` // the title of its map; a page can't play a t6 room's game (t6.go)
 	Private bool         `json:"private"`
 	Size    int          `json:"size"`           // the number of players it takes (room.size)
+	MaxSize int          `json:"maxSize"`        // the largest size its host may set on its map (sizeFor)
 	Mods    []string     `json:"mods,omitempty"` // the mods its games have (room.mods)
 	State   string       `json:"state"`          // open (no game), loading (players load in), playing, ending (it quits)
 	Members []memberView `json:"members"`
@@ -700,9 +711,9 @@ type memberView struct {
 	// A T5 game gives them the client slot of their place. A T6 game takes its players in the order of their places,
 	// and has them in their place's colour while everyone before them is in it (t6.go).
 	Place int `json:"place"`
-	// Team is their team, 1 or 2, while the room has Grief on (teamOf). A player with a seat in the room's game has
-	// their team in that game. While the room has no game, Team is the team its next game would give them with the
-	// room's current members.
+	// Team is their team, 1 or 2, while the room has Grief on (teamOf) or is on a T6 map of Grief. A player with a seat
+	// in the room's game has their team in that game. While the room has no game, Team is the team its next game would
+	// give them with the room's current members.
 	Team   int  `json:"team,omitempty"`
 	Host   bool `json:"host,omitempty"`
 	InGame bool `json:"inGame,omitempty"` // they are in the room's game
@@ -783,7 +794,7 @@ func (l *lobby) view(p *player) view {
 	have := l.maps()
 	for _, m := range mapTitles {
 		mv := mapView{Name: m.name, Title: m.title, Of: m.of, Have: slices.Contains(have, m.name),
-			List: l.files != nil && l.files.reads[m.name] != nil, Place: m.place, Mode: m.mode}
+			List: l.files != nil && l.files.reads[m.name] != nil, Place: m.place, Mode: m.mode, Versus: m.versus}
 		if l.mapDesc != nil {
 			mv.Desc = l.mapDesc(m.name)
 		}
@@ -801,7 +812,8 @@ func (l *lobby) view(p *player) view {
 	if r := p.room; r != nil {
 		of := l.title(r.mapName)
 		rv := &roomView{Code: r.code, Map: r.mapName, Of: of.id(), Private: r.private, Size: r.size,
-			Mods: r.mods, State: r.state(), Note: r.note, Host: r.members[0] == p, Result: l.withPlayers(r.result)}
+			MaxSize: l.sizeFor(r.mapName), Mods: r.mods, State: r.state(), Note: r.note, Host: r.members[0] == p,
+			Result: l.withPlayers(r.result)}
 		if r.game != nil && r.game.result != nil {
 			rv.Result = l.withPlayers(r.game.result) // game over, while the game quits
 		} else if r.game != nil && r.game.ending != "" {
@@ -811,7 +823,7 @@ func (l *lobby) view(p *player) view {
 		if !r.startsAt.IsZero() {
 			rv.StartsIn = max(time.Until(r.startsAt).Milliseconds(), 1)
 		}
-		teams := slices.Contains(r.mods, "grief")
+		teams := slices.Contains(r.mods, "grief") || versusOf(r.mapName) == grief
 		for i, m := range r.members {
 			s := r.seatOf(m)
 			mv := memberView{ID: m.id, Name: m.asked, Avatar: l.avatar(m), Place: r.placeOf(m), Host: i == 0,
@@ -858,6 +870,7 @@ func (l *lobby) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	var in struct {
 		Name    string    `json:"name"`
 		Title   string    `json:"title"`
+		Versus  *string   `json:"versus"`
 		Map     string    `json:"map"`
 		Private *bool     `json:"private"`
 		Mods    *[]string `json:"mods"`
@@ -909,7 +922,7 @@ func (l *lobby) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	case action == "leave":
 		l.leave(p)
 	case action == "room":
-		err = l.setRoom(p, in.Title, in.Map, in.Private, in.Mods, in.Size)
+		err = l.setRoom(p, in.Title, in.Versus, in.Map, in.Private, in.Mods, in.Size)
 	case action == "mark":
 		err = l.setMark(p, in.Map)
 	case action == "files":
@@ -1135,6 +1148,15 @@ func (l *lobby) newRoomSize() int {
 	return min(max(defaultRoomSize, l.minPlayers), l.roomSize)
 }
 
+// sizeFor returns the most players a room on mapName may take: griefSize on a T6 map of Grief, four in each team,
+// and otherwise the most that the server's rooms hold (-max-players).
+func (l *lobby) sizeFor(mapName string) int {
+	if versusOf(mapName) == grief {
+		return max(griefSize, l.roomSize)
+	}
+	return l.roomSize
+}
+
 func (l *lobby) join(p *player, code string) error {
 	r := l.rooms[code]
 	switch {
@@ -1200,13 +1222,18 @@ func (l *lobby) leave(p *player) {
 	l.change()
 }
 
-// setRoom changes the settings of p's room, for p as its host: its title (of), its map, whether it is private, its
-// mods, and how many players it takes (size, where 0 leaves it as it is). It changes only the settings that the call
-// names. The room's title is its map's, so a title is a change of the map: to the map that titleMap picks, or to the
-// map that the call names, which is of that title. A change of the title is allowed when a change of the map is, and
-// does what that does, and more: the marks of the other title's maps go. The size belongs to the room and not to its
+// setRoom changes the settings of p's room, for p as its host: its title (of), its versus (co-op, Grief or Turned:
+// mapEntry.versus), its map, whether it is private, its mods, and how many players it takes (size, where 0 leaves it
+// as it is). It changes only the settings that the call names. The room's title and versus are its map's, so a title
+// or a versus is a change of the map: to the map that titleMap or versusMap picks, or to the map that the call names,
+// which is of them. A change of the title or the versus is allowed when a change of the map is, and does what that
+// does, and more: the marks of the maps of another title or versus go. The size belongs to the room and not to its
 // game, so it may change while a game runs, as private may. The players who are ready stay ready after such a change.
-func (l *lobby) setRoom(p *player, of, mapName string, private *bool, mods *[]string, size int) error {
+//
+// The most players the room may take goes with its map (sizeFor). A map on which the room may take fewer than it has
+// can't be picked, and on one where it may take fewer than its size, its size becomes that many.
+func (l *lobby) setRoom(p *player, of string, versus *string, mapName string, private *bool, mods *[]string,
+	size int) error {
 	r := p.room
 	switch {
 	case r == nil:
@@ -1215,26 +1242,46 @@ func (l *lobby) setRoom(p *player, of, mapName string, private *bool, mods *[]st
 		return errors.New("Only the host picks the map.")
 	}
 	// Everything is checked before anything is changed, so that a call that is refused changes nothing.
-	if of != "" {
-		to := l.titleMap(r, of)
-		switch t := l.titleByID(of); {
-		case t == nil:
+	if of != "" || versus != nil {
+		if of == "" {
+			of = titleOf(cmp.Or(mapName, r.mapName))
+		}
+		t := l.titleByID(of)
+		if t == nil {
 			return fmt.Errorf("There is no game %s.", of)
+		}
+		to := l.titleMap(r, of)
+		if versus != nil {
+			if versusName(*versus) == "" {
+				return fmt.Errorf("There is no mode %s.", *versus)
+			}
+			to = l.versusMap(r, of, *versus)
+		}
+		switch {
+		case to == "" && versus != nil:
+			return fmt.Errorf("The server doesn't have %s maps of %s.", versusName(*versus), t.label())
 		case to == "":
 			return fmt.Errorf("The server doesn't have %s.", t.label())
 		case mapName == "":
 			mapName = to
 		case titleOf(mapName) != of:
 			return fmt.Errorf("%s is not a %s map.", mapTitle(mapName), t.label())
+		case versus != nil && versusOf(mapName) != *versus:
+			return fmt.Errorf("%s is not a %s map.", mapTitle(mapName), versusName(*versus))
 		}
 	}
 	var on []string
+	most := l.sizeFor(cmp.Or(mapName, r.mapName)) // the most players the room may take from now on
 	if mapName != "" {
 		if r.game != nil {
 			return errors.New("The map can't change while in game.")
 		}
 		if err := l.checkMap(mapName); err != nil {
 			return err
+		}
+		if len(r.members) > most {
+			return fmt.Errorf("The room has %d players, and %s takes %d.", len(r.members), versusName(versusOf(mapName)),
+				most)
 		}
 	}
 	if mods != nil {
@@ -1251,7 +1298,7 @@ func (l *lobby) setRoom(p *player, of, mapName string, private *bool, mods *[]st
 	}
 	if size != 0 {
 		switch {
-		case size < l.minPlayers || size > l.roomSize:
+		case size < l.minPlayers || size > most:
 			return fmt.Errorf("Room size can't be %d.", size)
 		case size < len(r.members):
 			return fmt.Errorf("The room has %d players already.", len(r.members))
@@ -1263,15 +1310,26 @@ func (l *lobby) setRoom(p *player, of, mapName string, private *bool, mods *[]st
 			r.had = map[string]string{}
 		}
 		r.had[was.id()] = r.mapName
+		r.had[was.id()+" "+versusOf(r.mapName)] = r.mapName
+		versusWas := versusOf(r.mapName)
 		r.mapName = mapName
-		if now.id() != was.id() {
-			// A mark is for a map of the room's title (setMark). The marks of the other title's maps go.
+		if now.id() != was.id() || versusOf(mapName) != versusWas {
+			// A mark is for a map of the room's title and versus (setMark). The marks of the other maps go.
 			for _, m := range r.members {
-				if m.mark != "" && titleOf(m.mark) != now.id() {
+				if m.mark != "" && (titleOf(m.mark) != now.id() || versusOf(m.mark) != versusOf(mapName)) {
 					m.mark = ""
 				}
 			}
+		}
+		if now.id() != was.id() {
 			log.Printf("server: room %s plays %s", r.code, now.label())
+		}
+		if versusOf(mapName) != versusWas {
+			log.Printf("server: room %s plays %s", r.code, versusName(versusOf(mapName)))
+		}
+		if r.size > most && size == 0 {
+			r.size = most
+			log.Printf("server: room %s takes %d players, as many as %s takes", r.code, most, mapTitle(mapName))
 		}
 		if !now.mods() && mods == nil && len(r.mods) > 0 {
 			r.mods = nil
@@ -1307,8 +1365,8 @@ func (l *lobby) checkMap(mapName string) error {
 }
 
 // setMark stores the map that p suggests to their room's host for its next game, or no map when mapName is "". The
-// map is of the room's title: the host picks the title. A mark changes nothing else: the players who are ready stay
-// ready.
+// map is of the room's title and versus: the host picks those. A mark changes nothing else: the players who are ready
+// stay ready.
 func (l *lobby) setMark(p *player, mapName string) error {
 	r := p.room
 	switch {
@@ -1325,6 +1383,9 @@ func (l *lobby) setMark(p *player, mapName string) error {
 		}
 		if of := l.title(r.mapName); titleOf(mapName) != of.id() {
 			return fmt.Errorf("%s is not a %s map.", mapTitle(mapName), of.label())
+		}
+		if versus := versusOf(r.mapName); versusOf(mapName) != versus {
+			return fmt.Errorf("%s is not a %s map.", mapTitle(mapName), versusName(versus))
 		}
 	}
 	p.mark = mapName
@@ -1608,12 +1669,13 @@ func (l *lobby) stop(r *room, why string) {
 
 // scored stores a player's line of the scoreboard as the game reported it (stats), by their seat's address. The
 // fields are all the points they earned, the points they have left to spend, their kills, headshots, downs and
-// revives, and the doors they bought. A game built before the engine counted doors leaves out the last field.
+// revives, and the doors they bought. A game built before the engine counted doors leaves out the doors. A T6 game
+// adds the player's team in Grief, or 0 (t6Script).
 func (rg *roomGame) scored(seat string, fields []string) {
-	if len(fields) != 6 && len(fields) != 7 {
+	if len(fields) < 6 || len(fields) > 8 {
 		return
 	}
-	var n [7]int
+	var n [8]int
 	for i, field := range fields {
 		n[i], _ = strconv.Atoi(field)
 	}
@@ -1621,8 +1683,11 @@ func (rg *roomGame) scored(seat string, fields []string) {
 		rg.stats = map[string]playerStats{}
 	}
 	st := playerStats{Score: n[0], Cash: n[1], Kills: n[2], Headshots: n[3], Downs: n[4], Revives: n[5]}
-	if len(fields) == 7 {
+	if len(fields) >= 7 {
 		st.Doors = &n[6]
+	}
+	if n[7] == 1 || n[7] == 2 {
+		st.Team = n[7]
 	}
 	rg.stats[seat] = st
 }
@@ -1635,28 +1700,50 @@ func gameID(r *room, rg *roomGame) string { return fmt.Sprintf("%s-%d", r.code, 
 // the player's team. The first team's lines come first, and within a team the most cash comes first, because cash is
 // what the teams play for. The result names the game's mods, which are the room's mods: they can't change while the
 // room has a game (setRoom). The caller holds l.mu.
+//
+// A T6 map of Grief or Turned has a winner instead (Won). In Grief, a team wins by living longer than the other, and
+// each line has the team that the game says, else the team of the player's place. The lines of the team that won come
+// first, and within a team the highest score. In Turned, the player with the most points that the game ranks them by
+// wins, which are the points left to spend, and the lines go by those.
 func (l *lobby) result(r *room, rg *roomGame, round int) *gameResult {
 	res := &gameResult{ID: gameID(r, rg), Map: r.mapName, Mods: slices.Clone(r.mods), Round: round,
 		Players: []playerStats{}, party: len(rg.seats), began: rg.began}
 	if rg.started {
 		res.Seconds = int64(time.Since(rg.round1).Seconds())
 	}
+	versus := versusOf(r.mapName)
 	teams := slices.Contains(r.mods, "grief")
 	for i, s := range rg.seats {
 		if st, ok := rg.stats[s.local.String()]; ok {
 			st.ID, st.Name = s.player.id, s.player.asked
-			if teams {
+			switch {
+			case teams:
 				st.Team = teamOf(i, len(rg.seats))
+			case versus == grief && st.Team == 0:
+				st.Team = teamOf(i, len(rg.seats))
+			case versus != grief:
+				st.Team = 0
 			}
+			st.Won = versus == grief && st.Team == rg.won
 			res.Players = append(res.Players, st)
 		}
 	}
+	won := func(st playerStats) int { return map[bool]int{true: 1}[st.Won] }
 	slices.SortStableFunc(res.Players, func(a, b playerStats) int {
-		if teams {
+		switch {
+		case teams:
 			return cmp.Or(a.Team-b.Team, b.Cash-a.Cash)
+		case versus == grief:
+			return cmp.Or(won(b)-won(a), a.Team-b.Team, b.Score-a.Score)
+		case versus == turned:
+			return b.Cash - a.Cash
 		}
 		return b.Score - a.Score
 	})
+	// A T6 game reports no result of Turned but at game over, which has the winner.
+	if versus == turned && len(res.Players) > 0 {
+		res.Players[0].Won = true
+	}
 	return res
 }
 

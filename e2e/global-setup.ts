@@ -15,7 +15,7 @@ const gameFiles = [
   ...['zombie_theater', 'zombie_pentagon', 'zombie_cosmodrome', 'zombie_coast', 'zombie_temple', 'zombie_moon',
     'zombie_cod5_prototype', 'zombie_cod5_asylum', 'zombie_cod5_sumpf', 'zombie_cod5_factory']
     .map((map) => `t5/zone/common/${map}.ff`),
-  ...['patch_zm', 'zm_transit', 'zm_nuked', 'zm_highrise', 'zm_prison', 'zm_buried', 'zm_tomb']
+  ...['patch_zm', 'zm_transit', 'zm_transit_dr', 'zm_nuked', 'zm_highrise', 'zm_prison', 'zm_buried', 'zm_tomb']
     .map((zone) => `t6/zone/all/${zone}.ff`),
   't6/binkw32.dll',
 ];

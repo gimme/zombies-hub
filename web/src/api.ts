@@ -62,8 +62,13 @@ export interface MapInfo {
   desc?: string;
   /** Where a Black Ops II map is (Green Run), which its card in the game's lobby has over its name (maps.ts: mapShot). */
   place?: string;
-  /** The mode that a Black Ops II map has alone, which its card has after its name (Survival). */
+  /** The mode that a Black Ops II map has alone, which its card has after its name (Survival, Grief, Turned). */
   mode?: string;
+  /**
+   * How its players play against each other: grief (in two teams) or turned (each for themselves). Missing on a co-op
+   * map, where they play together against the zombies. A room shows the maps of its versus alone (titles.ts).
+   */
+  versus?: string;
 }
 
 /** A picture a player may pick (server/rooms.go: pictureView). The page loads GET /pictures/<id>.png. */
@@ -129,6 +134,8 @@ export interface Room {
   of: string;
   private: boolean;
   size: number;
+  /** The largest size its host may set on its map: more on a map of Grief. */
+  maxSize: number;
   mods?: string[];
   /** open (no game), loading (players load in), playing, or ending (the game quits). */
   state: string;
@@ -184,6 +191,8 @@ export interface PlayerStats {
   score: number;
   cash: number;
   team?: number;
+  /** The game has a winner, which it named at game over, and they won it: on a map of Grief or Turned. */
+  won?: boolean;
   kills: number;
   headshots: number;
   downs: number;

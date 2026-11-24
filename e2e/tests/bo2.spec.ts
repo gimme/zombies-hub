@@ -356,6 +356,45 @@ test("a room's game counts as its players' pick: for their next room, the leader
   await expect(bea.locator('#mapkicker')).toHaveText('Black Ops II');
 });
 
+test("a room's host picks its mode, Grief or Turned: the grid has the maps of it, a room of Grief takes 8, and its " +
+  'players are in teams', async ({ player }) => {
+  const ann = await player('Ann');
+  const bob = await player('Bob');
+  const code = await makeRoom(ann);
+  // Black Ops has co-op alone: no mode to pick
+  await expect(ann.locator('#versussetting')).toBeHidden();
+  await ann.locator('#titlepick').getByRole('radio', { name: 'Black Ops II', exact: true }).click();
+  await expect(ann.locator('#maptitle')).toHaveText('TranZit');
+  const versus = ann.locator('#versussetting .seg');
+  await expect(versus.getByRole('radio')).toHaveText(['Co-op', 'Grief', 'Turned']);
+  await expect(versus.getByRole('radio', { name: 'Co-op' })).toHaveAttribute('aria-checked', 'true');
+  await versus.getByRole('radio', { name: 'Grief' }).click();
+  await expect(ann.locator('#maptitle')).toHaveText('Bus Depot');
+  await expect(ann.locator('#mapshot .words span')).toHaveText('Bus Depot / Grief');
+  await expect(ann.locator('#mapgrid').getByRole('radio')).toHaveText(
+    ['Bus Depot', 'Town', 'Farm', 'Cell Block', 'Borough']);
+  // a room of Grief takes up to 8, four in each team, on a server whose rooms take 4
+  await ann.locator('#sizesetting .seg button[data-value="8"]').click();
+  await expect(ann.locator('#count')).toHaveText('1 / 8');
+  await joinRoom(bob, code);
+  // the host's to pick: the others see it, and what it is
+  await expect(bob.locator('#versussetting .seg')).toBeHidden();
+  await expect(bob.locator('#versustext')).toHaveText('Grief');
+  await expect(bob.locator('#versusdesc')).toHaveText(/^Two teams\./);
+  await expect(bob.locator('#mapshot .words span')).toHaveText('Bus Depot / Grief');
+  await expect(ann.locator('#members li .what')).toHaveText(['Team 1 · Host', 'Team 2']);
+  // Turned: its maps, and the room takes 4 again
+  await versus.getByRole('radio', { name: 'Turned' }).click();
+  await expect(ann.locator('#maptitle')).toHaveText('Diner');
+  await expect(ann.locator('#mapgrid').getByRole('radio')).toHaveText(['Diner', 'Borough']);
+  await expect(ann.locator('#count')).toHaveText('2 / 4');
+  await expect(ann.locator('#members li .what')).toHaveText(['Host']);
+  // back in co-op, the map that the room had of it
+  await versus.getByRole('radio', { name: 'Co-op' }).click();
+  await expect(ann.locator('#maptitle')).toHaveText('TranZit');
+  await expect(ann.locator('#mapgrid').getByRole('radio', { name: 'Town', exact: true })).toHaveCount(1);
+});
+
 /**
  * Makes a Black Ops II room on Origins as Ann, the map of a map pack. Returns what her launcher says to the server as
  * it runs with her PC ready: which of the maps' zones her game folder has (internal/launcherapi: has).

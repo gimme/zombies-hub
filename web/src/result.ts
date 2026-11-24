@@ -2,7 +2,9 @@
 // record's game.
 //
 // The report has the round that the game reached, how long it lasted, and the scoreboard: a line for each player.
-// The best and the worst of each column are marked, and a stamp names the MVP (scoreboard.ts).
+// The best and the worst of each column are marked, and a stamp names the MVP (scoreboard.ts). A game of Grief or
+// Turned, on a Black Ops II map, has a winner, which the report names: the team that won Grief, or the player who won
+// Turned. Turned counts no rounds.
 import type { GameResult, Room } from './api';
 import { avatar } from './avatar';
 import { $, el } from './dom';
@@ -36,23 +38,27 @@ export function showResult(result: GameResult): void {
   }
   const map = mapInfo(result.map);
   mapShot($('resultshot'), result.map);
-  $('resultkicker').textContent = 'Game over · ' + map.title;
+  $('resultkicker').textContent = 'Game over · ' + map.title + (map.mode ? ' · ' + map.mode : '');
   const n = (x: number) => x.toLocaleString('en-US');
   $('resulttitle').textContent = result.round ? 'Round ' : 'Game over';
   if (result.round) $('resulttitle').append(el('span', '', n(result.round)));
-  // The totals of the party. A game with teams is played for cash (Grief), so its totals are the cash of each team,
-  // with the higher one marked.
+  // The totals of the party. A game with a winner names it, marked: the team that won, or the player. A game with
+  // teams and no winner is played for cash (the Grief mod), so its totals are the cash of each team, with the higher
+  // one marked.
   const teams = result.players.some((p) => p.team);
+  const winner = result.players.find((p) => p.won);
   const sum = (stat: 'cash' | 'score' | 'kills', team?: number) =>
     result.players.reduce((total, p) => total + (team && p.team !== team ? 0 : p[stat]), 0);
   const cash = [sum('cash', 1), sum('cash', 2)];
   const totals = $('resulttotals');
   totals.textContent = '';
-  const shown: [value: string, label: string, won?: boolean][] = teams
-    ? [[clock(result.seconds), 'Time'], [n(cash[0]), 'Team 1 cash', cash[0] > cash[1]],
-      [n(cash[1]), 'Team 2 cash', cash[1] > cash[0]]]
-    : [[clock(result.seconds), 'Time'], [n(sum('cash')), 'Team cash'], [n(sum('score')), 'Team score'],
-      [n(sum('kills')), 'Team kills']];
+  const shown: [value: string, label: string, won?: boolean][] = winner
+    ? [[clock(result.seconds), 'Time'], [winner.team ? 'Team ' + winner.team : winner.name, 'Winner', true]]
+    : teams
+      ? [[clock(result.seconds), 'Time'], [n(cash[0]), 'Team 1 cash', cash[0] > cash[1]],
+        [n(cash[1]), 'Team 2 cash', cash[1] > cash[0]]]
+      : [[clock(result.seconds), 'Time'], [n(sum('cash')), 'Team cash'], [n(sum('score')), 'Team score'],
+        [n(sum('kills')), 'Team kills']];
   for (const [value, label, won] of shown) {
     const t = el('div');
     t.append(el('b', won ? 'won' : '', value), el('span', 'label', label));

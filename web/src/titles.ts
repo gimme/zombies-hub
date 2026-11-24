@@ -1,13 +1,40 @@
 // web/src/titles.ts - the games that the server hosts, which the code calls titles (server/title.go), and what the
 // page shows of one title apart from the other: a room's maps, and the leaderboards' boards.
 //
-// A room plays one title, its map's. Its grid has the maps of that title alone (room.ts). The leaderboards show the
-// boards of one title at a time: its rounds, or its easter eggs where it has them, of one map or of all its maps
-// (boards.ts). Nothing here reads the page, so its tests run it as it is (titles.test.ts).
+// A room plays one title, its map's, and one versus (co-op, Grief or Turned), its map's too. Its grid has the maps of
+// that title and versus alone (room.ts). The leaderboards show the boards of one title at a time: its rounds, or its
+// easter eggs where it has them, of one map or of all its maps (boards.ts). The maps of Grief and Turned have no
+// boards. Nothing here reads the page, so its tests run it as it is (titles.test.ts).
 import type { KindBoards, Leaderboards, MapInfo, Title, TitleBoards } from './api';
 
-/** The maps of a title, in the view's order. */
-export const mapsOf = (maps: MapInfo[], of: string): MapInfo[] => maps.filter((m) => m.of === of);
+/** The maps of a title, in the view's order, and of one versus where it is given (versusOf). */
+export const mapsOf = (maps: MapInfo[], of: string, versus?: string): MapInfo[] =>
+  maps.filter((m) => m.of === of && (versus === undefined || (m.versus || '') === versus));
+
+/** A way to play against each other: its id, its name, and what a room says of it. */
+export interface Versus {
+  id: string;
+  name: string;
+  desc: string;
+}
+
+/**
+ * The ways to play against each other, which the code calls a versus (server/title.go: mapEntry.versus), in the order
+ * that a room offers them: co-op, where the players play together against the zombies, then Grief, in two teams, and
+ * Turned, each for themselves.
+ */
+export const VERSUS: Versus[] = [
+  { id: '', name: 'Co-op', desc: 'Everyone together against the zombies.' },
+  { id: 'grief', name: 'Grief', desc: 'Two teams. A team wins once the other is down and it lasts the round.' },
+  { id: 'turned', name: 'Turned', desc: 'One human, everyone else a zombie. The most points wins.' },
+];
+
+/** The versus of a map. */
+export const versusOf = (map: MapInfo): string => map.versus || '';
+
+/** The kinds of versus that the server has maps of in a title, which a room of the title may pick among. */
+export const versusesOf = (maps: MapInfo[], of: string): Versus[] =>
+  VERSUS.filter((v) => maps.some((m) => m.of === of && m.have && versusOf(m) === v.id));
 
 /** The name of a title, such as Black Ops II, or '' for one that the server does not host. */
 export const titleName = (titles: Title[], of: string): string => titles.find((t) => t.id === of)?.name || '';

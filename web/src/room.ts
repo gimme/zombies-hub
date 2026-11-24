@@ -1,9 +1,11 @@
 // web/src/room.ts - the room that the player is in.
 //
 // The room shows its game, its map, its options, its members, and one button. The game is one of those that the
-// server hosts (server/title.go), and the map is one of that game's. The options are whether it is private, how many
+// server hosts (server/title.go), and the map is one of that game's. The options are whether it is private, how its
+// players play against each other (its mode, which the code calls its versus: co-op, Grief or Turned), how many
 // players it takes, and its mods. While the room has no game running, the host picks the game, on a server of two,
-// then a map of it, and sets the options, and the others see them. The others may suggest a map of the room's game.
+// and the mode, and a map of those, and sets the options, and the others see them. The others may suggest a map of
+// the room's game and mode.
 //
 // A room on a Black Ops map has the button that opens Black Ops' options menu, under the room's button (main.ts:
 // settingsInit). A room on a Black Ops II map has none: the menu sets the game that the browser plays, and a Black Ops
@@ -36,7 +38,7 @@ import { modNames, modOn, modValue } from './mods';
 import { mayLeaveGame } from './question';
 import { bo1Settings } from './settings';
 import { store } from './storage';
-import { mapsOf, titleName } from './titles';
+import { mapsOf, titleName, versusesOf, versusOf } from './titles';
 import {
   launcherDownloads, launcherHere, launcherMacLine, launcherMissed, launcherOn, launcherOpening, launcherSeen,
   launcherSetup, launcherStep, onWindows, t6Console,
@@ -76,6 +78,7 @@ export function showRoom(v: View, room: Room): void {
   $('maptitle').textContent = map.title;
   showDesc($('mapdesc'), map.desc || '');
   showRoomTitle(v, room, open);
+  showRoomVersus(v, room, open);
   showRoomMaps(v, room);
   // Whether the room is private: a switch for the host, and a badge for the others.
   $('visibility').classList.toggle('hidden', !room.host);
@@ -127,7 +130,7 @@ function memberRow(m: Member, room: Room, open: boolean): HTMLLIElement {
   const who = el('div', 'who grow');
   const name = el('span', 'name', m.name);
   if (mine) name.append(el('span', 'sr', ' (you)'));
-  // A member has a team in a room with Grief on (server/mods.go: teamOf). On Windows says that they play a Black Ops
+  // A member has a team in a room with Grief on, or on a map of Grief (server/mods.go: teamOf). On Windows says that they play a Black Ops
   // game in the Windows client and not in their page. Every player of a Black Ops II game plays it outside their page,
   // on Windows or on a Mac, so the room says it of none.
   const what = [m.team && 'Team ' + m.team, m.host && 'Host', m.windows && room.of !== 't6' && 'On Windows',
@@ -382,13 +385,14 @@ export function tellHand(): void {
 }
 
 // The room's size (server/rooms.go: room.size), in the Settings tab: how many players it takes, which is 4 until the
-// host sets it. The host picks among the sizes that a room on this server may have, from the players that a game
-// needs to the most that a room holds. A size that the room has too many players for can't be picked. The others see
-// the size. Where the server's rooms have one size, there is nothing to pick, and no row. The options are made again
-// only when they change, so that an option keeps the focus as it is picked.
+// host sets it. The host picks among the sizes that a room on this server may have on its map, from the players that
+// a game needs to the most that a room holds there: 8 on a map of Grief, four in each team. A size that the room has
+// too many players for can't be picked. The others see the size. Where the room can have one size, there is nothing
+// to pick, and no row. The options are made again only when they change, so that an option keeps the focus as it is
+// picked.
 function showRoomSize(v: View, room: Room): void {
   const sizes = [];
-  for (let n = v.minPlayers; n <= v.size; n++) sizes.push(n);
+  for (let n = v.minPlayers; n <= (room.maxSize || v.size); n++) sizes.push(n);
   const row = $('sizesetting');
   row.classList.toggle('hidden', sizes.length < 2);
   const key = JSON.stringify(sizes);
@@ -547,13 +551,39 @@ function showRoomTitle(v: View, room: Room, open: boolean): void {
   optionShow(box.firstElementChild!, room.of);
 }
 
+// The room's mode (its versus: titles.ts), in the Settings tab, where the room's game has maps of more than one: how
+// its players play against each other. The host picks it while the room has no game, and the room goes to a map of
+// it (server/rooms.go: setRoom), which the grid then shows the maps of. The others see it, as they see the size, and
+// the row says what the mode is. The options are made again only when they change, so that an option keeps the focus
+// as it is picked.
+function showRoomVersus(v: View, room: Room, open: boolean): void {
+  const row = $('versussetting');
+  const versuses = versusesOf(v.maps, room.of);
+  row.classList.toggle('hidden', versuses.length < 2);
+  const key = JSON.stringify(versuses);
+  if (row.dataset.key !== key) {
+    row.dataset.key = key;
+    row.querySelector('.seg')?.remove();
+    const options = { name: 'Mode', options: versuses.map((x) => ({ value: x.id, label: x.name })) };
+    $('versustext').before(optionButtons(options, (versus) => ({ versus })));
+  }
+  const box = row.querySelector('.seg')!;
+  box.classList.toggle('hidden', !room.host);
+  for (const b of box.querySelectorAll('button')) b.disabled = !open;
+  const now = versuses.find((x) => x.id === versusOf(mapInfo(room.map)));
+  optionShow(box, now ? now.id : '');
+  $('versusdesc').textContent = now ? now.desc : '';
+  $('versustext').classList.toggle('hidden', room.host);
+  badgeSay($('versustext'), now ? now.name : '');
+}
+
 /**
- * Draws the room's grid of maps: those of the room's game. Each has the pictures of the players who suggest it on
- * it. While the room's game runs, none can be picked.
+ * Draws the room's grid of maps: those of the room's game and versus. Each has the pictures of the players who
+ * suggest it on it. While the room's game runs, none can be picked.
  */
 export function showRoomMaps(v: View, room: Room): void {
   const grid = $('mapgrid');
-  const maps = mapsOf(v.maps, room.of);
+  const maps = mapsOf(v.maps, room.of, versusOf(mapInfo(room.map)));
   showMaps(grid, maps, room.map, pickRoomMap, !onWindows(), room.state !== 'open');
   maps.forEach((m, i) => {
     const b = grid.children[i];

@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"cmp"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -32,9 +33,10 @@ import (
 // as a real one is (connect "\name\Ann": the name it plays under), answered with the slot it has: the first free one.
 // A client's "round 3"
 // is a round beginning, as the server's script in the game says it (t6Script), after each client's line of the
-// scoreboard (stats), its "egg" the map's main quest done, with every client in the game, and its "over" game over, on
-// round 7, with its end played out a moment later; its "rotate" is the server rotating its map with no word of the
-// script's. Any other packet comes back as it is.
+// scoreboard (stats, with a team: 1 in the even slots and 2 in the odd), its "egg" the map's main quest done, with
+// every client in the game, and its "over" game over, on round 7, with its end played out a moment later ("over 4 2"
+// is game over on round 4, and team 2 won); its "rotate" is the server rotating its map with no word of the script's.
+// Any other packet comes back as it is.
 func fakeT6(port string) {
 	say := func(text string) {
 		fmt.Printf("\x1b[38;2;255;255;255m\x1b[2K\x1b[38;2;243;111;26mPlutonium r1 > \x1b[38;2;255;255;255m%s\n", text)
@@ -103,12 +105,13 @@ func fakeT6(port string) {
 		stats := func(round int) {
 			for slot, address := range clients {
 				if address != "" {
-					say(fmt.Sprintf("zombies_lobby: stats %d %d %d %d %d %d %d %d", slot, 1000*(slot+1)+100*round,
-						500*(slot+1), 10*round+slot, round, slot, 1-slot, 2))
+					say(fmt.Sprintf("zombies_lobby: stats %d %d %d %d %d %d %d %d %d", slot, 1000*(slot+1)+100*round,
+						500*(slot+1), 10*round+slot, round, slot, 1-slot, 2, slot%2+1))
 				}
 			}
 		}
 		round, isRound := strings.CutPrefix(text, "round ")
+		over, isOver := strings.CutPrefix(text, "over")
 		if name, named := strings.CutPrefix(text, "connectReq "); oob && named {
 			names[from.String()], text = name, "connectReq"
 		}
@@ -146,9 +149,9 @@ func fakeT6(port string) {
 				}
 			}
 			say(line)
-		case oob && text == "over":
+		case oob && isOver:
 			stats(7)
-			say("zombies_lobby: over 7")
+			say("zombies_lobby: over " + cmp.Or(strings.TrimSpace(over), "7"))
 			go func() {
 				time.Sleep(300 * time.Millisecond)
 				say("zombies_lobby: exit")
@@ -306,7 +309,7 @@ func t6LobbyAndUpdater(t *testing.T) (*lobby, string, *plutoniumtest.Updater) {
 	l.t6().newGame = func(code, mapName string, port, players int, password string) *game {
 		return &game{name: code, wine: os.Args[0], dir: root, home: filepath.Join(root, "home", strconv.Itoa(port)),
 			logDir: filepath.Join(root, "logs"), ip: "127.0.0.1", port: port, output: io.Discard,
-			engine:       newT6Game(pluto, mapName, players, l.roomSize, l.loadTimeout, password),
+			engine:       newT6Game(pluto, mapName, players, l.sizeFor(mapName), l.loadTimeout, password),
 			startTimeout: time.Minute, quietTimeout: time.Minute}
 	}
 	certs := &certificates{}
@@ -1113,11 +1116,14 @@ func TestT6NeedsItsGameFiles(t *testing.T) {
 	}
 	dir := t.TempDir()
 	os.MkdirAll(filepath.Join(dir, "zone", "all"), 0o755)
-	for _, name := range []string{"binkw32.dll", "zone/all/patch_zm.ff", "zone/all/zm_transit.ff", "zone/all/zm_tomb.ff"} {
+	for _, name := range []string{"binkw32.dll", "zone/all/patch_zm.ff", "zone/all/zm_transit.ff", "zone/all/zm_tomb.ff",
+		"zone/all/zm_transit_dr.ff"} {
 		os.WriteFile(filepath.Join(dir, filepath.FromSlash(name)), nil, 0o644)
 	}
-	// in the page's order: the main maps, then those of the survival mode alone
-	want := []string{"zm_classic_transit", "zm_classic_tomb", "zm_standard_transit", "zm_standard_town", "zm_standard_farm"}
+	// in the page's order: the main maps, then those of the survival mode alone, then those of Grief and of Turned.
+	// The Diner is a zone of its own.
+	want := []string{"zm_classic_transit", "zm_classic_tomb", "zm_standard_transit", "zm_standard_town", "zm_standard_farm",
+		"zm_grief_transit", "zm_grief_town", "zm_grief_farm", "zm_cleansed_diner"}
 	if maps := t6Installed(dir); !slices.Equal(maps, want) {
 		t.Errorf("the T6 maps: %v", maps)
 	}
@@ -1129,6 +1135,224 @@ func TestT6NeedsItsGameFiles(t *testing.T) {
 	for _, m := range mapTitles {
 		if _, ok := t6Maps[m.name]; ok != (m.of == t6) {
 			t.Errorf("%s is of %s, and a T6 map: %v", m.name, m.of, ok)
+		}
+	}
+}
+
+// t6Versus is t6Lobby, whose game files have T6 maps of co-op, Grief and Turned.
+func t6Versus(t *testing.T) (*lobby, string) {
+	t.Helper()
+	l, target := t6Lobby(t)
+	l.maps = func() []string {
+		return []string{"zombie_theater", "zm_standard_town", "zm_grief_town", "zm_grief_farm", "zm_cleansed_diner"}
+	}
+	return l, target
+}
+
+// t6Playing has the room's members ready, and each one's game join the room's game from one address, in the order of
+// the tokens: the game gives them its slots in that order. It returns their games once the room plays.
+func t6Playing(t *testing.T, l *lobby, target string, tokens ...string) []*net.UDPConn {
+	t.Helper()
+	pagesOpen(l, tokens...)
+	for _, token := range tokens {
+		if err := do(l, token, "ready", "ready", "true"); err != "" {
+			t.Fatal(err)
+		}
+	}
+	waitView(t, l, tokens[0], "the server up", func(v view) bool { return v.Room.T6 != nil && v.Room.T6.Up })
+	pagesAt(l, "127.0.0.1", tokens...)
+	var games []*net.UDPConn
+	for range tokens {
+		game := windowsPlayer(t, target)
+		game.SetDeadline(time.Now().Add(5 * time.Second))
+		game.Write([]byte("\xff\xff\xff\xffconnectReq"))
+		if _, err := game.Read(make([]byte, 2048)); err != nil {
+			t.Fatal(err)
+		}
+		game.SetDeadline(time.Time{})
+		games = append(games, game)
+	}
+	waitView(t, l, tokens[0], "everyone in the game", func(v view) bool { return v.Room.State == "playing" })
+	return games
+}
+
+// A room's host picks how its players play against each other (its versus): the room goes to a map of Grief or of
+// Turned, which the server has, and its marks of other maps go. A room of Grief takes up to 8 players on a server whose
+// rooms take 4, and shows its members' teams. Back in co-op, its size is 4 again, which a room with more players than
+// that can't go back to. A versus again is the map the room last had of it.
+func TestRoomVersus(t *testing.T) {
+	l, _ := t6Versus(t)
+	a, b := l.hello("", "Ann").Token, l.hello("", "Bob").Token
+	do(l, a, "create", "map", "zm_standard_town")
+	do(l, b, "join", "room", l.viewOf(a).Room.Code)
+	if v := l.viewOf(a); v.Room.MaxSize != 4 {
+		t.Errorf("a co-op room's largest size: %d", v.Room.MaxSize)
+	}
+	if err := do(l, a, "room", "size", "8"); err != "Room size can't be 8." {
+		t.Errorf("a co-op room of 8, on a server of 4: %q", err)
+	}
+	do(l, b, "mark", "map", "zm_standard_town")
+	for _, tc := range []struct {
+		args []string
+		want string
+	}{
+		{[]string{"versus", "nope"}, "There is no mode nope."},
+		{[]string{"versus", "grief", "map", "zm_cleansed_diner"}, "Diner is not a Grief map."},
+		{[]string{"versus", "grief", "title", "t5"}, "The server doesn't have Grief maps of Black Ops."},
+	} {
+		if err := do(l, a, "room", tc.args...); err != tc.want {
+			t.Errorf("%v: %q, want %q", tc.args, err, tc.want)
+		}
+	}
+	if err := do(l, a, "room", "versus", "grief"); err != "" {
+		t.Fatal(err)
+	}
+	v := l.viewOf(a)
+	if v.Room.Map != "zm_grief_town" || v.Room.MaxSize != 8 || v.Room.Members[1].Mark != "" {
+		t.Fatalf("the room of Grief: %+v", v.Room)
+	}
+	if v.Room.Members[0].Team != 1 || v.Room.Members[1].Team != 2 {
+		t.Errorf("the teams of a room of Grief: %+v", v.Room.Members)
+	}
+	if err := do(l, b, "mark", "map", "zm_standard_town"); err != "Town is not a Grief map." {
+		t.Errorf("a mark of a co-op map in a room of Grief: %q", err)
+	}
+	if err := do(l, a, "room", "size", "8"); err != "" {
+		t.Fatal(err)
+	}
+	var more []string
+	for _, name := range []string{"Cid", "Dan", "Eve"} {
+		token := l.hello("", name).Token
+		if err := do(l, token, "join", "room", v.Room.Code); err != "" {
+			t.Fatal(err)
+		}
+		more = append(more, token)
+	}
+	if err := do(l, a, "room", "versus", ""); err != "The room has 5 players, and Co-op takes 4." {
+		t.Errorf("back to co-op with 5 players: %q", err)
+	}
+	do(l, more[2], "leave")
+	if err := do(l, a, "room", "versus", ""); err != "" {
+		t.Fatal(err)
+	}
+	if v := l.viewOf(a); v.Room.Map != "zm_standard_town" || v.Room.Size != 4 || v.Room.MaxSize != 4 {
+		t.Errorf("the room back in co-op: %+v", v.Room)
+	}
+	do(l, a, "room", "map", "zm_grief_farm")
+	do(l, a, "room", "versus", "turned")
+	if err := do(l, a, "room", "versus", "grief"); err != "" || l.viewOf(a).Room.Map != "zm_grief_farm" {
+		t.Errorf("Grief again: %q, %s", err, l.viewOf(a).Room.Map)
+	}
+}
+
+// A room's game of Grief, on a T6 map: the game takes 8 players, and puts each one in the team of their place, by the
+// name they play under; a round is no record; at game over, the room's report has the team that won, as the game says
+// it, first, with the teams that the game says; and the game sets no record, nor is its report kept.
+func TestT6Grief(t *testing.T) {
+	l, target := t6Versus(t)
+	a, b, c := l.hello("", "Ann").Token, l.hello("", "Bob").Token, l.hello("", "Cid").Token
+	do(l, a, "create", "map", "zm_grief_town")
+	do(l, b, "join", "room", l.viewOf(a).Room.Code)
+	do(l, c, "join", "room", l.viewOf(a).Room.Code)
+	games := t6Playing(t, l, target, a, b, c)
+	home := t6Home(l, a)
+	cfg, _ := os.ReadFile(filepath.Join(home, "storage", "t6", "lobby.cfg"))
+	gts, _ := os.ReadFile(filepath.Join(home, "storage", "t6", "gamesettings", "lobby_gts.cfg"))
+	for _, line := range []string{"sv_maxclients 8", "zombies_minplayers 3", `set zombies_team_1 "Ann/Bob"`,
+		`set zombies_team_2 "Cid"`, `sv_maprotation "execgts lobby_gts.cfg map zm_transit"`} {
+		if !strings.Contains(string(cfg), line+"\n") {
+			t.Errorf("the game's config lacks %s:\n%s", line, cfg)
+		}
+	}
+	for _, line := range []string{"execgts gamesettings_zgrief.cfg", `ui_zm_gamemodegroup "zencounter"`,
+		`g_gametype "zgrief"`, `ui_zm_mapstartlocation "town"`} {
+		if !strings.Contains(string(gts), line+"\n") {
+			t.Errorf("the game's settings lack %s:\n%s", line, gts)
+		}
+	}
+	games[0].Write([]byte("\xff\xff\xff\xffround 3"))
+	games[0].Write([]byte("\xff\xff\xff\xffover 4 2"))
+	res := waitView(t, l, a, "the room's report", func(v view) bool { return v.Room.Result != nil }).Room.Result
+	type line struct {
+		name string
+		team int
+		won  bool
+	}
+	var got []line
+	for _, p := range res.Players {
+		got = append(got, line{p.Name, p.Team, p.Won})
+	}
+	// the game says that Bob, in its second slot, is in team 2, and that team 2 won
+	if want := []line{{"Bob", 2, true}, {"Cid", 1, false}, {"Ann", 1, false}}; !slices.Equal(got, want) {
+		t.Errorf("the report's lines: %+v, want %+v", got, want)
+	}
+	if res.Round != 4 {
+		t.Errorf("the report's round: %d", res.Round)
+	}
+	waitView(t, l, a, "the room open", func(v view) bool { return v.Room.State == "open" })
+	for _, token := range []string{a, b, c} {
+		if rounds, eggs := recordsOf(l, token); len(rounds) != 0 || len(eggs) != 0 {
+			t.Errorf("records of a game of Grief: %+v, %+v", rounds, eggs)
+		}
+	}
+	l.mu.Lock()
+	boards, reports := l.leaderboards(l.playerOf(a)), len(l.reports)
+	l.mu.Unlock()
+	if maps := boards.of(t6).Rounds.Maps; len(maps) != 1 || maps[0].Map != "zm_standard_town" || reports != 0 {
+		t.Errorf("T6's boards, with maps of Grief and Turned: %+v, and %d reports", maps, reports)
+	}
+}
+
+// A room's game of Turned, on a T6 map: at game over, the room's report has no round, and the player with the most of
+// the points that the game ranks by won. The lines have no team, whatever the game says.
+func TestT6Turned(t *testing.T) {
+	l, target := t6Versus(t)
+	a, b := l.hello("", "Ann").Token, l.hello("", "Bob").Token
+	do(l, a, "create", "map", "zm_standard_town")
+	do(l, a, "room", "versus", "turned")
+	do(l, b, "join", "room", l.viewOf(a).Room.Code)
+	if v := l.viewOf(a); v.Room.Map != "zm_cleansed_diner" || v.Room.MaxSize != 4 || v.Room.Members[0].Team != 0 {
+		t.Fatalf("the room of Turned: %+v", v.Room)
+	}
+	games := t6Playing(t, l, target, a, b)
+	home := t6Home(l, a)
+	cfg, _ := os.ReadFile(filepath.Join(home, "storage", "t6", "lobby.cfg"))
+	gts, _ := os.ReadFile(filepath.Join(home, "storage", "t6", "gamesettings", "lobby_gts.cfg"))
+	if !strings.Contains(string(cfg), `sv_maprotation "execgts lobby_gts.cfg map zm_transit_dr"`) ||
+		strings.Contains(string(cfg), "zombies_team") {
+		t.Errorf("the game's config:\n%s", cfg)
+	}
+	if !strings.Contains(string(gts), `g_gametype "zcleansed"`) || !strings.Contains(string(gts), `"diner"`) {
+		t.Errorf("the game's settings:\n%s", gts)
+	}
+	games[0].Write([]byte("\xff\xff\xff\xffover 1"))
+	res := waitView(t, l, a, "the room's report", func(v view) bool { return v.Room.Result != nil }).Room.Result
+	if res.Round != 0 || len(res.Players) != 2 || res.Players[0].Name != "Bob" || !res.Players[0].Won ||
+		res.Players[1].Won || res.Players[0].Team != 0 {
+		t.Errorf("the report of a game of Turned: %+v", res)
+	}
+	if rounds, _ := recordsOf(l, a); len(rounds) != 0 {
+		t.Errorf("Ann's records of a game of Turned: %+v", rounds)
+	}
+}
+
+// How a T6 game says it ended, while its end plays out.
+func TestGameOverText(t *testing.T) {
+	ann := &gameResult{Players: []playerStats{{Name: "Ann"}}}
+	for _, tc := range []struct {
+		versus     string
+		round, won int
+		want       string
+	}{
+		{coop, 12, 0, "Game over on round 12."},
+		{coop, 0, 0, "Game over."},
+		{grief, 5, 2, "Team 2 won on round 5."},
+		{grief, 0, 1, "Team 1 won."},
+		{grief, 5, 0, "Game over on round 5."},
+		{turned, 0, 0, "Ann won."},
+	} {
+		if got := gameOverText(tc.versus, tc.round, tc.won, ann); got != tc.want {
+			t.Errorf("%q, round %d, team %d: %q, want %q", tc.versus, tc.round, tc.won, got, tc.want)
 		}
 	}
 }
