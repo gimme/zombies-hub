@@ -890,9 +890,12 @@ func (la *launcher) stay(ctx context.Context, srv *server, l link, play *launche
 	return la.stayWith(ctx, srv, l, g, dir, from, play.Game, play.Plutonium)
 }
 
-// aloneStarts is how long the page's button says that the player's game starts, when it starts for the player alone
-// (alone). No room's game says when it is in.
+// aloneStarts is how long the page's button says that the player's game launches, when it launches for the player
+// alone (alone). No room's game says when it is in.
 var aloneStarts = 15 * time.Second
+
+// launching is what the room's button says while the player's game launches (stayWith).
+const launching = "Launching the game"
 
 // stayWith is stay, from the start of the player's game g: from the folder from, which the run found as dir, into the
 // room's game to, with Plutonium of the revision rev. For a game alone, to is nil: the game is at its menu, with the
@@ -900,11 +903,12 @@ var aloneStarts = 15 * time.Second
 func (la *launcher) stayWith(ctx context.Context, srv *server, l link, g game, dir, from string, to *launcherapi.Game, rev int) error {
 	la.hide()
 	// The player's game runs from here until it is closed. The room's button shows what the launcher does with it
-	// until the server has it in the room's game: the game starts, or the game that runs joins the room's game. Once
+	// until the server has it in the room's game: the game launches, or the game that runs joins the room's game. Once
 	// the server has the player's game in, the launcher has nothing to report. When the player's game is out of the
 	// room's game again, the button then asks to join again (pressed). The page's button for a game alone says that
-	// the game starts for aloneStarts.
-	status, begun := "Starting the game", time.Now()
+	// the game launches for aloneStarts. The player's own game launches, where the room's game starts: the room says
+	// that the room's starts, beside its code, as the player's launches.
+	status, begun := launching, time.Now()
 	show := func(what string) {
 		if what != status {
 			status = what
@@ -925,7 +929,7 @@ func (la *launcher) stayWith(ctx context.Context, srv *server, l link, g game, d
 			show("")
 			asked = false
 		}
-		if to == nil && status == "Starting the game" && time.Since(begun) >= aloneStarts {
+		if to == nil && status == launching && time.Since(begun) >= aloneStarts {
 			show("")
 		}
 		again := false
@@ -964,7 +968,7 @@ func (la *launcher) stayWith(ctx context.Context, srv *server, l link, g game, d
 			return nil
 		}
 		to, rev = play.Game, play.Plutonium
-		status = "Starting the game" // also after "Updating Plutonium", which launch may have reported
+		status = launching // also after "Updating Plutonium", which launch may have reported
 		la.doing(ctx, srv, status)
 	}
 	if to != nil {

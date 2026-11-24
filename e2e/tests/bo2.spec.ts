@@ -272,9 +272,9 @@ test("Play offline starts Black Ops II on the player's PC, and says what the lau
   await expect(ann.locator('#playalone')).toHaveText('Updating Plutonium...');
   expect((await launcher('/launcher/files', { running: true, got: 50, need: 100 })).status).toBe(200);
   await expect(ann.locator('#playalone')).toHaveText('Downloading · 50%');
-  expect((await launcher('/launcher/files', { doing: 'Starting the game' })).status).toBe(200);
+  expect((await launcher('/launcher/files', { doing: 'Launching the game' })).status).toBe(200);
   expect((await ready()).status).toBe(200);
-  await expect(ann.locator('#playalone')).toHaveText('Starting the game...');
+  await expect(ann.locator('#playalone')).toHaveText('Launching the game...');
   expect((await launcher('/launcher/files', {})).status).toBe(200);
   await expect(ann.locator('#playalone')).toHaveText('Launch game');
   await expect(ann.locator('#playalone')).not.toHaveAttribute('aria-disabled', 'true');

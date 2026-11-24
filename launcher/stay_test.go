@@ -227,7 +227,7 @@ func TestStayingLauncherEndsForAnUnknownPlayer(t *testing.T) {
 	}
 }
 
-// The room's button says what a launcher that stays does with the player's game: the game starts, or the game that
+// The room's button says what a launcher that stays does with the player's game: the game launches, or the game that
 // runs joins the room's game. Once the server has the game in, the launcher says nothing, and when the game is out of
 // the room's game again, the button asks to join again, which has the game that runs join it.
 func TestStayingLauncherSaysWhatItDoes(t *testing.T) {
@@ -257,7 +257,7 @@ func TestStayingLauncherSaysWhatItDoes(t *testing.T) {
 		})
 	}
 	eventually(t, "the game started", func() bool { return g.count() == 1 })
-	says("the game starts", "Starting the game")
+	says("the game launches", "Launching the game")
 	set(func(play *launcherapi.Play) { play.InGame, play.Game = true, nil })
 	says("the game is in", "")
 	set(func(play *launcherapi.Play) { play.InGame = false }) // game over: the room is open

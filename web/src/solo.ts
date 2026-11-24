@@ -132,7 +132,7 @@ function showSoloTitle(v: View, both: boolean, of: string): void {
 /**
  * Draws Black Ops II in the page to play offline: what it is, and its button, which opens the launcher. The button
  * then says what the launcher does, from what the server says of it, as a room's does (room.ts: showRoomButton). The
- * launcher says that the game starts for a while after it started it, and then nothing: the button is Launch game
+ * launcher says that the game launches for a while after it launched it, and then nothing: the button is Launch game
  * again. A
  * page that can't reach its server hears nothing of the launcher: its button says that the game starts for a moment
  * after the click. What installs the launcher shows here as in a room (room.ts: showInstall).

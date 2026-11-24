@@ -111,10 +111,10 @@ func TestAloneFromTheTray(t *testing.T) {
 	if !strings.HasSuffix(lines[0], ` -lan +name "Ann"`) {
 		t.Errorf("the game alone started with %q", lines[0])
 	}
-	eventually(t, "the page's button says that the game starts", func() bool {
+	eventually(t, "the page's button says that the game launches", func() bool {
 		l.mu.Lock()
 		defer l.mu.Unlock()
-		return slices.ContainsFunc(l.reports, func(r launcherapi.Report) bool { return r.Doing == "Starting the game" })
+		return slices.ContainsFunc(l.reports, func(r launcherapi.Report) bool { return r.Doing == "Launching the game" })
 	})
 	// another press of Play offline while the game runs starts no second one
 	tl.solo <- struct{}{}
