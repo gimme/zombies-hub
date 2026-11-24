@@ -84,10 +84,6 @@ const quote = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const shaders = process.platform === 'win32' ? 'zombies-hub-shader-cache'
   : join(import.meta.dirname, '..', '..', 'build', 'shader-cache');
 
-/** Where the server of the container name, with its data in dir, keeps its copy of Plutonium (Server.plutonium). */
-const plutoniumOf = (name: string, dir: string): string =>
-  process.platform === 'win32' ? `${name}-plutonium` : join(dir, 'config', 'plutonium');
-
 let shadersGiven: Promise<unknown> | undefined;
 
 /**
@@ -110,9 +106,9 @@ export interface ServerOptions {
   /** Without NET_ADMIN, which the image's firewall needs: its games then reach the network. */
   noFirewall?: boolean;
   /**
-   * For Black Ops II games: on Windows, the server's copy of Plutonium and its games' homes are volumes,
-   * <container>-plutonium and <container>-homes, as in docker/server.sh. From a Windows folder, Wine runs no game of
-   * Plutonium's. The copy is downloaded once, into the volume, which stays for the next run.
+   * For Black Ops II games: the server keeps its copy of Plutonium in the volume <container>-plutonium, which stays
+   * for the next run, so that the copy is downloaded once. On Windows the games' homes are a volume too,
+   * <container>-homes, as in docker/server.sh: from a Windows folder, Wine runs no game of Plutonium's.
    */
   t6?: boolean;
 }
@@ -174,12 +170,13 @@ export class Server {
       ZOMBIES_PUBLIC_PORT: String(port), ...options.env,
     };
     const t6: string[] = [];
-    if (options.t6 && process.platform === 'win32') {
-      t6.push(...mount(plutoniumOf(name, dir), '/plutonium'), '-e', 'ZOMBIES_PLUTONIUM_DIR=/plutonium',
-        ...mount(`${name}-homes`, '/config/game'));
+    if (options.t6) {
+      const homes = process.platform === 'win32' ? ['/config/game'] : [];
+      t6.push(...mount(`${name}-plutonium`, '/plutonium'), '-e', 'ZOMBIES_PLUTONIUM_DIR=/plutonium',
+        ...homes.flatMap((path) => mount(`${name}-homes`, path)));
       // the volumes, as Docker makes them, are root's: the server's user (PUID:PGID) is given them
       await docker(['run', '--rm', '-u', '0', '--entrypoint', 'chown', ...t6, image, '99:100', '/plutonium',
-        '/config/game']);
+        ...homes]);
     }
     if (allStopping || stopAsked()) throw new Error(`no server is started as ${name}: the run is stopping`);
     const proc = spawn('docker', ['run', '--rm', '--name', name, '--network', 'bridge',
@@ -259,12 +256,9 @@ export class Server {
 
   private addressOf: Promise<string> | undefined;
 
-  /**
-   * Where the server keeps its copy of Plutonium, for the Black Ops II players to mount: on Windows a volume
-   * (ServerOptions.t6), elsewhere the folder plutonium in its data.
-   */
+  /** The volume that the server keeps its copy of Plutonium in, for the Black Ops II players (ServerOptions.t6). */
   get plutonium(): string {
-    return plutoniumOf(this.name, this.dir);
+    return `${this.name}-plutonium`;
   }
 
   /** Runs a command in the server's container, as the user given: its exit code and output. */
