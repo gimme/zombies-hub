@@ -120,8 +120,8 @@ func TestSeveralMods(t *testing.T) {
 	}
 }
 
-// A mod with options has one of their values: the first, the game's own, is the mod off; one yet to come, or that
-// isn't one of them, is refused, and so is a name that is neither a switch's nor an option's.
+// A mod with options has one of their values: the first, the game's own, is the mod off; one that isn't one of them
+// is refused, and so is a name that is neither a switch's nor an option's.
 func TestModOptions(t *testing.T) {
 	for _, c := range []struct {
 		names []string
@@ -132,8 +132,7 @@ func TestModOptions(t *testing.T) {
 		{[]string{"zombiecap=24"}, nil, ""},
 		{[]string{"zombiecap=32", "zombiecap=24"}, nil, ""}, // as it was named last
 		{[]string{"zombiecap=24", "grief", "zombiecap=32"}, []string{"grief", "zombiecap=32"}, ""},
-		{[]string{"zombiecap=40"}, nil, "Zombie Cap can't be 40 yet."},
-		{[]string{"zombiecap=48"}, nil, "Zombie Cap can't be 48 yet."},
+		{[]string{"zombiecap=40"}, nil, "Zombie Cap can't be 40."},
 		{[]string{"zombiecap=30"}, nil, "Zombie Cap can't be 30."},
 		{[]string{"zombiecap="}, nil, "Zombie Cap can't be ."},
 		{[]string{"zombiecap"}, nil, "There is no mod zombiecap."},
@@ -148,11 +147,28 @@ func TestModOptions(t *testing.T) {
 			t.Errorf("the mods named %v: %v, %q; want %v, %q", c.names, on, said, c.want, c.err)
 		}
 	}
-	// the page is told of each option, and of those it can't offer yet
+	// the page is told of each option, and of the titles whose games can have the mod
 	zombies := modList[slices.IndexFunc(modList, func(m mod) bool { return m.ID == "zombiecap" })]
-	if text, _ := json.Marshal(zombies.Options); string(text) !=
-		`[{"value":24},{"value":32},{"value":40,"soon":true},{"value":48,"soon":true}]` {
-		t.Errorf("the options the page is told: %s", text)
+	if text, _ := json.Marshal(zombies); !strings.Contains(string(text),
+		`"options":[{"value":24},{"value":32}],"titles":["t5","t6"]`) {
+		t.Errorf("the mod the page is told: %s", text)
+	}
+}
+
+// A title's games have the mods that are for it: Black Ops II has no mod of Grief, which is a mode of its own there.
+func TestModsOfTitle(t *testing.T) {
+	on := []string{"uniquewallweapons", "grief", "zombiecap=32"}
+	if kept, not := modsOf(t5, on); !slices.Equal(kept, on) || not != "" {
+		t.Errorf("the mods of a T5 game: %v, without %q", kept, not)
+	}
+	if kept, not := modsOf(t6, on); !slices.Equal(kept, []string{"uniquewallweapons", "zombiecap=32"}) || not != "Grief" {
+		t.Errorf("the mods of a T6 game: %v, without %q", kept, not)
+	}
+	if dvar, value := t6ModDvar("zombiecap=32"); dvar != "zombies_mod_zombiecap" || value != "32" {
+		t.Errorf("Zombie Cap's dvar in a T6 game: %s %s", dvar, value)
+	}
+	if dvar, value := t6ModDvar("uniquewallweapons"); dvar != "zombies_mod_uniquewallweapons" || value != "1" {
+		t.Errorf("Unique Wall Weapons' dvar in a T6 game: %s %s", dvar, value)
 	}
 }
 

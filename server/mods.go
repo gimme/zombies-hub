@@ -7,40 +7,60 @@ import (
 	"strings"
 )
 
-// mod is a setting that a room's host can choose for the room's games (the page's Mods tab). It is a dvar on the
-// game's command line. A mod with options has one of their values, and it is off at the first, which is the game's
-// own value. Any other mod is a switch: on or off.
+// mod is a setting that a room's host can choose for the room's games (the page's Mods tab). A mod with options has
+// one of their values, and it is off at the first, which is the game's own value. Any other mod is a switch: on or
+// off. A mod is for the games of some titles (Titles). In a Black Ops game it is a dvar on the engine's command line
+// (dvar, modArgs), and the engine implements it. In a Black Ops II game it is a dvar in the game's config, and the
+// server's script implements it (t6.go: t6ModDvar, t6Script).
 type mod struct {
 	ID      string      `json:"id"`
 	Name    string      `json:"name"`
 	Desc    string      `json:"desc"`
 	Options []modOption `json:"options,omitempty"`
-	dvar    string
+	Titles  []string    `json:"titles"` // the IDs of the titles whose games can have it
+	dvar    string      // the engine's dvar of it, in a Black Ops game
 }
 
-// modOption is one of the values of a mod with options. The page shows a value that is not available yet, but lets
-// no one pick it.
+// modOption is one of the values of a mod with options.
 type modOption struct {
-	Value int  `json:"value"`
-	Soon  bool `json:"soon,omitempty"` // not available yet: modsNamed refuses it
+	Value int `json:"value"`
 }
 
 var modList = []mod{
 	{ID: "uniquewallweapons", Name: "Unique Wall Weapons", Desc: "Only one player can hold each wall weapon at a time.",
-		dvar: "bo1_mod_uniquewallweapons"}, // bo1-zombies/src/clientscript/cscr_parser.cpp: s_scrUniqueWallWeapons
+		Titles: []string{t5, t6},
+		dvar:   "bo1_mod_uniquewallweapons"}, // bo1-zombies/src/clientscript/cscr_parser.cpp: s_scrUniqueWallWeapons
+	// Black Ops II has Grief as a mode of its own, on that mode's maps (mapEntry.versus).
 	{ID: "grief", Name: "Grief", Desc: "Two teams. Power-ups only help the team that takes them. " +
 		"Most cash at game over wins.",
-		dvar: "bo1_mod_grief"}, // s_scrGrief; teamOf returns a player's team
-	// A cap above the engine's 32 needs the players' clients to know of it. The options above 32 are marked Soon.
+		Titles: []string{t5},
+		dvar:   "bo1_mod_grief"}, // s_scrGrief; teamOf returns a player's team
+	// Both engines have 32 actors at most, so the cap goes no higher.
 	{ID: "zombiecap", Name: "Zombie Cap", Desc: "How many zombies can be alive at once.",
-		Options: []modOption{{Value: 24}, {Value: 32}, {Value: 40, Soon: true}, {Value: 48, Soon: true}},
+		Options: []modOption{{Value: 24}, {Value: 32}},
+		Titles:  []string{t5, t6},
 		dvar:    "bo1_mod_zombiecap"}, // s_scrZombieCap
+}
+
+// modsOf returns those of the mods in on, as modsNamed returns them, that the games of the title can have, and the
+// name of the first that they can't have, or "".
+func modsOf(title string, on []string) (kept []string, not string) {
+	for _, name := range on {
+		id, _, _ := strings.Cut(name, "=")
+		m := modList[slices.IndexFunc(modList, func(m mod) bool { return m.ID == id })]
+		if slices.Contains(m.Titles, title) {
+			kept = append(kept, name)
+		} else if not == "" {
+			not = m.Name
+		}
+	}
+	return kept, not
 }
 
 // modsNamed returns the mods a room has, from the mods named in names. A name is a mod's ID, with "=" and a value
 // for a mod with options ("zombiecap=32"). The result has each mod once, in modList's order, as it was named last.
-// A mod at its first option is off, and is left out. modsNamed returns an error for a name that is no mod's, for a
-// value that is not one of the mod's, and for a value that is not available yet.
+// A mod at its first option is off, and is left out. modsNamed returns an error for a name that is no mod's, and for
+// a value that is not one of the mod's.
 func modsNamed(names []string) ([]string, error) {
 	values := map[string]string{} // the mods that are on, by ID: a mod's value, or "" for a switch
 	for _, name := range names {
@@ -55,8 +75,6 @@ func modsNamed(names []string) ([]string, error) {
 			switch {
 			case o < 0:
 				return nil, fmt.Errorf("%s can't be %s.", m.Name, value)
-			case m.Options[o].Soon:
-				return nil, fmt.Errorf("%s can't be %s yet.", m.Name, value)
 			case o == 0:
 				delete(values, id)
 				continue
@@ -75,8 +93,8 @@ func modsNamed(names []string) ([]string, error) {
 	return on, nil
 }
 
-// modArgs returns the engine's command-line arguments for the mods a room has, as modsNamed returns them. A switch is
-// set to 1, and a mod with options to its value.
+// modArgs returns the engine's command-line arguments for the mods a Black Ops room has, as modsNamed returns them. A
+// switch is set to 1, and a mod with options to its value.
 func modArgs(on []string) []string {
 	var args []string
 	for _, m := range modList {

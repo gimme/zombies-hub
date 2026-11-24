@@ -291,12 +291,12 @@ func run() int {
 			Needs: plutonium.T6, Client: &http.Client{Timeout: 10 * time.Minute}, State: "zombies-server-files.json",
 			Logf: log.Printf}}
 		l.t6().pluto = pluto
-		l.t6().newGame = func(code, mapName string, port, players int, password string) *game {
+		l.t6().newGame = func(code, mapName string, port, players int, password string, mods []string) *game {
 			g := &game{
 				name: code, wine: *wine, uid: gameUID, dir: t6Files, logDir: filepath.Join(*dataDir, "logs"),
 				home: filepath.Join(*dataDir, "game", strconv.Itoa(slices.Index(l.gamePorts, port)+1)),
 				ip:   "127.0.0.1", port: port, output: prefixed{"[" + code + "] ", output},
-				engine:       newT6Game(pluto, mapName, players, l.sizeFor(mapName), l.loadTimeout, password),
+				engine:       newT6Game(pluto, mapName, players, l.sizeFor(mapName), l.loadTimeout, password, mods),
 				startTimeout: max(5*time.Minute, *hangTimeout),
 			}
 			if *hangTimeout > 0 {

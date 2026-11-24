@@ -108,11 +108,11 @@ export function showOnOff(badge: HTMLElement, on: boolean): void {
 
 /**
  * What a row of options picks from: numbers, such as a room's size, or names, such as a room's game. An option's
- * button says its label, or its value where it has none. An option with soon is yet to come, and can't be picked.
+ * button says its label, or its value where it has none.
  */
 export interface Options<V extends number | string = number> {
   name: string;
-  options: { value: V; label?: string; soon?: boolean }[];
+  options: { value: V; label?: string }[];
 }
 
 /**
@@ -128,8 +128,6 @@ export function optionButtons<V extends number | string>(of: Options<V>, set: (v
     b.type = 'button';
     b.setAttribute('role', 'radio');
     b.dataset.value = String(o.value);
-    b.disabled = !!o.soon;
-    if (o.soon) b.title = 'Not available yet';
     b.onclick = () => {
       optionSet(box, o.value);
       changeRoom(box, set(o.value));

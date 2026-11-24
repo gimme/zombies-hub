@@ -14,7 +14,6 @@ type title interface {
 	id() string    // its folder among the game files, and its id for the page: "t5"
 	label() string // its name in messages to players: "Black Ops II"
 
-	mods() bool   // its games take the room's mods
 	inPage() bool // a player's page plays its games; otherwise the player's own PC does
 
 	// free returns why no game of the title can start now, or nil when one can.

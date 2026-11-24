@@ -7,6 +7,14 @@
 //   set steer_clear 1        ends the round: none of its zombies are left, nor still to come
 //   set steer_cure <name>    moves the player onto Turned's cure, which they pick up as a player does
 //   set steer_timeup 1       runs Turned's clock out
+//   set steer_limit 1        prints how many zombies the level lets be alive at once:
+//                            zombies_steer: the zombies at once are <n>
+//   set steer_capture 1      on Origins, has the map set its limit as it does when a generator's capture starts or
+//                            ends, and prints the limit at once, before anything else runs:
+//                            zombies_steer: a capture leaves the round <n> zombies at once
+//   set steer_wall <name>    gives the player the gun of the wall buy nearest to them, and moves every player to that
+//                            wall buy, where the level decides who sees its prompt, and nothing downs them:
+//                            zombies_steer: <name> has <weapon> off the wall
 //   set steer_report 1       prints a line of each player's, then how many they are, and whether the level has
 //                            started, past its black screen at the start:
 //                            zombies_steer: <name> team <A|B|none> <up|down> <human|zombie> score <points>
@@ -62,6 +70,17 @@ steer_watch()
 			printf( "zombies_steer: the clock ran out" );
 		}
 
+		if ( steer_take( "steer_limit" ) != "" )
+			printf( "zombies_steer: the zombies at once are " + level.zombie_ai_limit );
+
+		if ( steer_take( "steer_capture" ) != "" )
+			level thread steer_capture();
+
+		wall = steer_take( "steer_wall" );
+
+		if ( wall != "" )
+			level thread steer_wall( wall );
+
 		if ( steer_take( "steer_report" ) != "" )
 			level thread steer_report();
 	}
@@ -93,6 +112,7 @@ steer_down( team )
 		if ( player.sessionstate != "playing" || player maps\mp\zombies\_zm_laststand::player_is_in_laststand() )
 			continue;
 
+		player disableinvulnerability(); // which steer_wall gave them
 		player dodamage( player.health + 1000, player.origin );
 		n++;
 	}
@@ -123,6 +143,96 @@ steer_cure( name )
 	}
 
 	printf( "zombies_steer: no cure for " + name );
+}
+
+// The map's function is by name, as only Origins has its script (maps/mp/zm_tomb_capture_zones.gsc). It waits only
+// while more zombies are alive than its limit, and none are.
+steer_capture()
+{
+	limit = GetFunction( "maps/mp/zm_tomb_capture_zones", "capture_event_handle_ai_limit" );
+	[[ limit ]]();
+	printf( "zombies_steer: a capture leaves the round " + level.zombie_ai_limit + " zombies at once" );
+}
+
+// A place to stand at the wall buy of the stub, on one of its sides, where the players may be: in a zone of the map
+// that is open (a player elsewhere dies at once: maps/mp/zombies/_zm.gsc: player_out_of_playable_area_monitor), and
+// in reach of the wall buy's trigger (_zm_unitrigger.gsc: get_closest_unitriggers).
+steer_wall_place( stub )
+{
+	sides = [];
+	sides[0] = anglestoright( stub.angles );
+	sides[1] = anglestoforward( stub.angles );
+
+	for ( i = 0; i < sides.size; i++ )
+	{
+		for ( way = -1; way <= 1; way += 2 )
+		{
+			place = stub.origin + sides[i] * ( 24 * way ) - ( 0, 0, 40 );
+
+			if ( maps\mp\zombies\_zm_utility::check_point_in_enabled_zone( place ) )
+				return place;
+		}
+	}
+
+	return undefined;
+}
+
+steer_wall( name )
+{
+	players = getplayers();
+	player = undefined;
+
+	for ( i = 0; i < players.size; i++ )
+	{
+		if ( tolower( players[i].name ) == tolower( name ) )
+			player = players[i];
+	}
+
+	// the wall buys of the zones that the players are in or next to, each the stub of a trigger
+	// (maps/mp/zombies/_zm_weapons.gsc: init_spawnable_weapon_upgrade, _zm_unitrigger.gsc: register_static_unitrigger)
+	wall = undefined;
+	at = undefined;
+
+	for ( i = 0; isdefined( player ) && isdefined( level.active_zone_names ) && i < level.active_zone_names.size; i++ )
+	{
+		stubs = level.zones[level.active_zone_names[i]].unitrigger_stubs;
+
+		for ( j = 0; isdefined( stubs ) && j < stubs.size; j++ )
+		{
+			if ( !isdefined( stubs[j].zombie_weapon_upgrade ) || weapontype( stubs[j].zombie_weapon_upgrade ) != "bullet" )
+				continue;
+
+			if ( isdefined( wall ) && distancesquared( player.origin, stubs[j].origin ) >= distancesquared( player.origin, wall.origin ) )
+				continue;
+
+			place = steer_wall_place( stubs[j] );
+
+			if ( isdefined( place ) )
+			{
+				wall = stubs[j];
+				at = place;
+			}
+		}
+	}
+
+	if ( !isdefined( wall ) )
+	{
+		printf( "zombies_steer: no wall buy for " + name );
+		return;
+	}
+
+	player maps\mp\zombies\_zm_weapons::weapon_give( wall.zombie_weapon_upgrade );
+
+	// Nothing downs the players there until the test does (steer_down): the level kills a player whom it finds outside
+	// the map (maps/mp/zombies/_zm.gsc: player_out_of_playable_area_monitor), and TranZit's lava burns.
+	for ( i = 0; i < players.size; i++ )
+	{
+		players[i] notify( "stop_player_out_of_playable_area_monitor" );
+		players[i] enableinvulnerability();
+		players[i] setorigin( at );
+	}
+
+	printf( "zombies_steer: " + player.name + " has " + wall.zombie_weapon_upgrade + " off the wall" );
 }
 
 steer_report()

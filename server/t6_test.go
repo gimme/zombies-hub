@@ -306,10 +306,10 @@ func t6LobbyAndUpdater(t *testing.T) (*lobby, string, *plutoniumtest.Updater) {
 		Needs: plutonium.T6, Client: updater.Client, State: "zombies-server-files.json"}}
 	root := t.TempDir()
 	l.t6().pluto = pluto
-	l.t6().newGame = func(code, mapName string, port, players int, password string) *game {
+	l.t6().newGame = func(code, mapName string, port, players int, password string, mods []string) *game {
 		return &game{name: code, wine: os.Args[0], dir: root, home: filepath.Join(root, "home", strconv.Itoa(port)),
 			logDir: filepath.Join(root, "logs"), ip: "127.0.0.1", port: port, output: io.Discard,
-			engine:       newT6Game(pluto, mapName, players, l.sizeFor(mapName), l.loadTimeout, password),
+			engine:       newT6Game(pluto, mapName, players, l.sizeFor(mapName), l.loadTimeout, password, mods),
 			startTimeout: time.Minute, quietTimeout: time.Minute}
 	}
 	certs := &certificates{}
@@ -365,8 +365,21 @@ func TestT6Room(t *testing.T) {
 	if v := l.viewOf(a); v.Room.Of != t6 || v.Room.Members[0].Missing || v.Room.T6 != nil {
 		t.Fatalf("the room before its game: %+v", v.Room)
 	}
-	if err := setMods(l, a, "grief"); err != "Black Ops II games have no mods." {
-		t.Errorf("a T6 room took a mod: %q", err)
+	// its mods are those of T6: Grief is a mode there. A room that goes to a T6 map keeps the mods that T6 has.
+	if err := setMods(l, a, "grief", "zombiecap=32"); err != "Black Ops II games can't have Grief." {
+		t.Errorf("a T6 room took Grief: %q", err)
+	}
+	if err := do(l, a, "room", "map", "zombie_theater"); err != "" {
+		t.Fatal(err)
+	}
+	if err := setMods(l, a, "uniquewallweapons", "grief", "zombiecap=32"); err != "" {
+		t.Fatal(err)
+	}
+	if err := do(l, a, "room", "map", "zm_standard_town"); err != "" {
+		t.Fatal(err)
+	}
+	if got := l.viewOf(b).Room.Mods; !slices.Equal(got, []string{"uniquewallweapons", "zombiecap=32"}) {
+		t.Errorf("the mods of a room that went to a T6 map: %v", got)
 	}
 	// ready with no game files in the page: a T6 game is no page's to play
 	pagesOpen(l, a, b)
@@ -388,8 +401,10 @@ func TestT6Room(t *testing.T) {
 	cfg, _ := os.ReadFile(filepath.Join(home, "storage", "t6", "lobby.cfg"))
 	gts, _ := os.ReadFile(filepath.Join(home, "storage", "t6", "gamesettings", "lobby_gts.cfg"))
 	// (it waits for its players as long as the server does, five minutes, where Plutonium's script would wait 90 s)
+	// and it sets a dvar for each of the room's mods, which the server's script reads
 	for _, line := range []string{`g_password "` + v.Room.T6.Password + `"`, "zombies_minplayers 2", "sv_connectTimeout 300",
-		`sv_maprotation "execgts lobby_gts.cfg map zm_transit"`} {
+		`sv_maprotation "execgts lobby_gts.cfg map zm_transit"`, `set zombies_mod_uniquewallweapons "1"`,
+		`set zombies_mod_zombiecap "32"`} {
 		if !strings.Contains(string(cfg), line+"\n") {
 			t.Errorf("the game's config lacks %s:\n%s", line, cfg)
 		}

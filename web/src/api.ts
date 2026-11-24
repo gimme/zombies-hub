@@ -83,7 +83,9 @@ export interface Mod {
   id: string;
   name: string;
   desc: string;
-  options?: { value: number; soon?: boolean }[];
+  options?: { value: number }[];
+  /** The ids of the titles whose games can have it. */
+  titles: string[];
 }
 
 /** The player who receives the view (server/rooms.go: youView). */

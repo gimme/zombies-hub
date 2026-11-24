@@ -66,7 +66,6 @@ func (l *lobby) t5() *t5Title {
 
 func (*t5Title) id() string    { return t5 }
 func (*t5Title) label() string { return "Black Ops" }
-func (*t5Title) mods() bool    { return true }
 func (*t5Title) inPage() bool  { return true }
 
 func (t *t5Title) free(*lobby) error {

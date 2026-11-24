@@ -38,8 +38,9 @@ import (
 //
 // The server puts a script in the game that reports how the game goes (t6Script). It reports each round, and the end
 // of the map's main quest, which set the players' records on the leaderboards. At game over it reports each player's
-// line of the scoreboard, which becomes the room's report of the game. Compared with a T5 room's game, a T6 room's
-// game has no stats or collectibles kept by the server, no mods, and no browser to play it in.
+// line of the scoreboard, which becomes the room's report of the game. The script also implements the room's mods
+// (mods.go). Compared with a T5 room's game, a T6 room's game has no stats or collectibles kept by the server, and no
+// browser to play it in.
 //
 // Several rooms play T6 at once, each on a Plutonium server of its own, and all from the server's one copy of
 // Plutonium (t6Copy). Besides its game's port, each Plutonium server opens a UDP port on every address: 3074, or the
@@ -130,9 +131,9 @@ var t6MapList = []mapEntry{
 
 // t6Title is the title (title.go) for Black Ops II.
 type t6Title struct {
-	// newGame makes the game for a room on the given port. The game waits for the given number of players. newGame is
-	// nil on a server without T6's game files, where no room plays a T6 map.
-	newGame func(code, mapName string, port, players int, password string) *game
+	// newGame makes the game for a room on the given port, with the room's mods. The game waits for the given number of
+	// players. newGame is nil on a server without T6's game files, where no room plays a T6 map.
+	newGame func(code, mapName string, port, players int, password string, mods []string) *game
 	// pluto is the server's copy of Plutonium, which the games run. The players' launchers match its revision
 	// (launcherPlay). It is nil on a server without T6's game files.
 	pluto *t6Copy
@@ -153,7 +154,6 @@ func (l *lobby) t6() *t6Title {
 
 func (*t6Title) id() string    { return t6 }
 func (*t6Title) label() string { return "Black Ops II" }
-func (*t6Title) mods() bool    { return false } // the engine implements the mods, and Plutonium's server has none
 func (*t6Title) inPage() bool  { return false }
 
 func (t *t6Title) free(*lobby) error {
@@ -166,8 +166,8 @@ func (t *t6Title) free(*lobby) error {
 // begin makes the Plutonium server that is r's game. In Grief, the server's script puts each player in the team of
 // their place (teamOf), as a Black Ops game with Grief on does, and as the room shows them.
 func (t *t6Title) begin(l *lobby, r *room, rg *roomGame) *game {
-	g := t.newGame(r.code, r.mapName, rg.port, len(rg.seats), r.password)
-	if r.teams() { // a T6 room has no mods: its map is one of Grief
+	g := t.newGame(r.code, r.mapName, rg.port, len(rg.seats), r.password, r.mods)
+	if r.teams() { // a T6 room has no mod of Grief: its map is one of Grief
 		for i, s := range rg.seats {
 			team := teamOf(i, len(rg.seats)) - 1
 			g.t6().teams[team] = append(g.t6().teams[team], s.player.name)
@@ -382,6 +382,7 @@ type t6Game struct {
 	// teams has the names that the players of each team play under, in a game of Grief, for the server's script to put
 	// them in their teams (t6Script). It is empty in a game of another mode.
 	teams [2][]string
+	mods  []string // the mods it has, as its room has them (room.mods), for the server's script (t6ModDvar)
 	// status is called with the clients that the game's status lists, each second that the game answers. A client is
 	// listed by the address the game sees it at, which is a seat's address.
 	status func([]t6Client)
@@ -402,9 +403,20 @@ type t6Client struct {
 	in      bool
 }
 
-func newT6Game(pluto *t6Copy, mapName string, players, size int, waits time.Duration, password string) *t6Game {
+func newT6Game(pluto *t6Copy, mapName string, players, size int, waits time.Duration, password string,
+	mods []string) *t6Game {
 	return &t6Game{pluto: pluto, mapName: mapName, players: players, size: size, waits: waits, password: password,
-		rcon: randomHex(16), send: make(chan string, 16)}
+		mods: mods, rcon: randomHex(16), send: make(chan string, 16)}
+}
+
+// t6ModDvar returns the dvar that tells the server's script of a mod that a T6 game has, and the dvar's value: 1 for
+// a switch, and its value for a mod with options. name is the mod as a room has it (modsNamed).
+func t6ModDvar(name string) (dvar, value string) {
+	id, value, valued := strings.Cut(name, "=")
+	if !valued {
+		value = "1"
+	}
+	return "zombies_mod_" + id, value
 }
 
 // t6Own lists what a T6 game's home has of its own in storage/t6. Everything else in the home is a link to the
@@ -426,6 +438,11 @@ var t6Own = []string{"main", "players", "demos", "gamesettings", "scripts", "lob
 //	zombies_lobby: exit                             the game's end has played out (the words on the screen, then the
 //	                                                view over the map: 20 seconds). The game loads the map again a
 //	                                                second and a half later.
+//	zombies_lobby: mod zombiecap 32                 the game has a mod, at that value
+//	zombies_lobby: wall m14_zm Bob                  Unique Wall Weapons hid a wall buy's prompt from a player, whom the
+//	                                                script names: the first time in the game, for each gun
+//
+// The server makes nothing of the last two, which are for the game's log.
 //
 // The server stops the game on "exit". The players' games then go back to their menus from the end of the game, and
 // not from the loading screen of the next game. The level's scripts (maps/mp/zombies/_zm.gsc and its neighbours) keep
@@ -457,12 +474,52 @@ var t6Own = []string{"main", "players", "demos", "gamesettings", "scripts", "lob
 //
 // The script waits for each of them on any map, and reports the first. A quest runs in its map's classic mode alone,
 // and not on Easy, so another map or mode never notifies one.
+//
+// The script implements the room's mods (mods.go), as the engine does in a T5 game. The config sets a dvar for each
+// mod that the game has (t6ModDvar).
+//
+// Zombie Cap (zombies_mod_zombiecap 32): the round's zombies spawn while fewer are alive than level.zombie_ai_limit
+// (maps/mp/zombies/_zm.gsc: round_spawning), which the level sets to 24. A map sets it again as it starts, and
+// Origins lowers it for a while, to keep that many actors for something else: by 2 while three robots walk, by 1 for
+// a step of its quest, and by the zombies of a generator's capture. Each is so many less than 24, so the mod adds
+// its 8 to each, and the zombies and what the map keeps room for are 32. The script watches the limit, and adds the
+// 8 to each value that the level sets. It tells the level's value from its own by the value being 24 or less. A
+// value above is its own, or its own that the level counted up or down (Origins' quest), and it leaves that.
+//
+// A generator's capture is not left to the watching, which is a frame late: as the capture starts, the map sets the
+// limit and at once deletes the round's zombies above it, one each network frame (maps/mp/zm_tomb_capture_zones.gsc:
+// capture_event_handle_ai_limit), and it would delete one or two above 24 less the capture's before the script had
+// added its 8. On Origins the script takes that function's place, and counts down from the mod's cap. It calls the
+// map's functions by name (GetFunction), because another map has no such script for it to refer to.
+//
+// The level also waits while it has 31 actors and corpses (level.zombie_actor_limit), one less
+// than the engine's 32 actors, and the script leaves that as it is: the zombies and every other actor are 31 at most,
+// so that an actor that the level spawns outside the round's zombies, such as a boss, still has room.
+//
+// Unique Wall Weapons (zombies_mod_uniquewallweapons 1): a gun off the wall has one holder at a time. As in a T5
+// game, the wall buy of a gun that another player holds shows a player no prompt, and can't be used. The level
+// decides each tenth of a second who sees a wall buy's prompt (maps/mp/zombies/_zm_magicbox.gsc:
+// decide_hide_show_hint, which a wall buy's trigger runs: _zm_weapons.gsc: weapon_spawn_think). The script takes that
+// function's place, with what it does and the mod's check besides: the function is also the box's. A gun is
+// another's when a player who is in the game holds it or its upgrade, or a gun that shares its ammo, or when it is in
+// Pack-a-Punch. A player who bled out holds nothing. Only guns: every player starts with grenades. A player with the
+// gun still sees the prompt, for its ammo. The purchase itself has no check, so two players who buy the same gun
+// within that tenth of a second both get it.
 const t6Script = `// zombies-server's (server/t6.go): the rounds, the scoreboard at each, the main quest done, game over, its end
-// played out, and in Grief each player's team
+// played out, in Grief each player's team, and the room's mods
 main()
 {
 	if ( getdvar( "g_gametype" ) == "zgrief" )
 		replaceFunc( GetFunction( "maps/mp/gametypes_zm/_globallogic_ui", "menuautoassign" ), ::lobby_autoassign, -1 );
+
+	if ( getdvarint( "zombies_mod_uniquewallweapons" ) > 0 )
+	{
+		replaceFunc( GetFunction( "maps/mp/zombies/_zm_magicbox", "decide_hide_show_hint" ), ::lobby_wall_hint, -1 );
+		printf( "zombies_lobby: mod uniquewallweapons 1" );
+	}
+
+	if ( getdvarint( "zombies_mod_zombiecap" ) > 24 && getdvar( "mapname" ) == "zm_tomb" )
+		replaceFunc( GetFunction( "maps/mp/zm_tomb_capture_zones", "capture_event_handle_ai_limit" ), ::lobby_capture_limit, -1 );
 }
 
 init()
@@ -470,6 +527,177 @@ init()
 	level thread lobby_rounds();
 	level thread lobby_egg();
 	level thread lobby_game_over();
+
+	if ( getdvarint( "zombies_mod_zombiecap" ) > 24 )
+	{
+		level thread lobby_zombie_cap( getdvarint( "zombies_mod_zombiecap" ) - 24 );
+		printf( "zombies_lobby: mod zombiecap " + getdvarint( "zombies_mod_zombiecap" ) );
+	}
+}
+
+// Zombie Cap: adds more to each limit that the level sets for the zombies alive at once, which is 24 or less. The
+// limit that the script set last is level.lobby_cap.
+lobby_zombie_cap( more )
+{
+	level endon( "end_game" );
+
+	for ( ;; )
+	{
+		if ( isdefined( level.zombie_ai_limit ) && level.zombie_ai_limit <= 24 )
+		{
+			if ( !isdefined( level.lobby_cap ) || level.zombie_ai_limit != level.lobby_cap )
+				level.zombie_ai_limit = level.zombie_ai_limit + more;
+		}
+
+		level.lobby_cap = level.zombie_ai_limit;
+		wait 0.05;
+	}
+}
+
+// Zombie Cap, on Origins: in place of the map's capture_event_handle_ai_limit (maps/mp/zm_tomb_capture_zones.gsc),
+// which does the same from a limit of 24.
+lobby_capture_limit()
+{
+	script = "maps/mp/zm_tomb_capture_zones";
+	needed = GetFunction( script, "calculate_capture_event_zombies_needed" );
+	to_delete = GetFunction( script, "get_zombie_to_delete" );
+	delete_it = GetFunction( script, "delete_zombie_for_capture_event" );
+	level.zombie_ai_limit = getdvarint( "zombies_mod_zombiecap" ) - [[ needed ]]();
+	level.lobby_cap = level.zombie_ai_limit;
+
+	while ( maps\mp\zombies\_zm_utility::get_current_zombie_count() > level.zombie_ai_limit )
+	{
+		zombie = [[ to_delete ]]();
+
+		if ( isdefined( zombie ) )
+			zombie thread [[ delete_it ]]();
+
+		maps\mp\zombies\_zm_utility::wait_network_frame();
+	}
+}
+
+// Unique Wall Weapons: whether the player holds the weapon, its upgrade, or a weapon that shares its ammo.
+lobby_wall_holds( weapon )
+{
+	if ( self maps\mp\zombies\_zm_weapons::has_weapon_or_upgrade( weapon ) )
+		return true;
+
+	if ( isdefined( level.weapons_using_ammo_sharing ) && level.weapons_using_ammo_sharing )
+		return isdefined( self maps\mp\zombies\_zm_weapons::get_shared_ammo_weapon( weapon ) );
+
+	return false;
+}
+
+// Unique Wall Weapons: whether the gun of a wall buy is another's than the player's: a player's who is in the game,
+// or in Pack-a-Punch.
+lobby_wall_taken( weapon, player )
+{
+	if ( !isdefined( weapon ) || weapontype( weapon ) != "bullet" )
+		return false;
+
+	if ( player lobby_wall_holds( weapon ) )
+		return false;
+
+	players = getplayers();
+
+	for ( i = 0; i < players.size; i++ )
+	{
+		if ( players[i] != player && players[i].sessionstate == "playing" && players[i] lobby_wall_holds( weapon ) )
+			return true;
+	}
+
+	machines = getentarray( "specialty_weapupgrade", "script_noteworthy" );
+
+	for ( i = 0; i < machines.size; i++ )
+	{
+		held = maps\mp\zombies\_zm_weapons::get_base_weapon_name( machines[i].current_weapon, 1 );
+
+		if ( isdefined( held ) && held == weapon )
+			return true;
+	}
+
+	return false;
+}
+
+// Unique Wall Weapons: reports the first time that a wall buy of the gun is hidden from a player.
+lobby_wall_hid( weapon, player )
+{
+	if ( !isdefined( level.lobby_wall_hid ) )
+		level.lobby_wall_hid = [];
+
+	if ( isdefined( level.lobby_wall_hid[weapon] ) )
+		return;
+
+	level.lobby_wall_hid[weapon] = 1;
+	printf( "zombies_lobby: wall " + weapon + " " + player.name );
+}
+
+// Unique Wall Weapons: in place of the game's decide_hide_show_hint (maps/mp/zombies/_zm_magicbox.gsc), which does
+// the same without lobby_wall_taken.
+lobby_wall_hint( endon_notify, second_endon_notify, onlyplayer )
+{
+	self endon( "death" );
+
+	if ( isdefined( endon_notify ) )
+		self endon( endon_notify );
+
+	if ( isdefined( second_endon_notify ) )
+		self endon( second_endon_notify );
+
+	if ( !isdefined( level._weapon_show_hint_choke ) )
+		level thread maps\mp\zombies\_zm_magicbox::weapon_show_hint_choke();
+
+	use_choke = 0;
+
+	if ( isdefined( level._use_choke_weapon_hints ) && level._use_choke_weapon_hints == 1 )
+		use_choke = 1;
+
+	for ( ;; )
+	{
+		last_update = gettime();
+
+		if ( isdefined( self.chest_user ) && !isdefined( self.box_rerespun ) )
+		{
+			user = self.chest_user;
+
+			if ( maps\mp\zombies\_zm_utility::is_placeable_mine( user getcurrentweapon() ) || user maps\mp\zombies\_zm_utility::hacker_active() )
+				self setinvisibletoplayer( user );
+			else
+				self setvisibletoplayer( user );
+		}
+		else
+		{
+			players = [];
+
+			if ( isdefined( onlyplayer ) )
+				players[0] = onlyplayer;
+			else
+				players = getplayers();
+
+			for ( i = 0; i < players.size; i++ )
+			{
+				if ( lobby_wall_taken( self.zombie_weapon_upgrade, players[i] ) )
+				{
+					self setinvisibletoplayer( players[i], 1 );
+					lobby_wall_hid( self.zombie_weapon_upgrade, players[i] );
+				}
+				else if ( players[i] maps\mp\zombies\_zm_magicbox::can_buy_weapon() )
+					self setinvisibletoplayer( players[i], 0 );
+				else
+					self setinvisibletoplayer( players[i], 1 );
+			}
+		}
+
+		if ( use_choke )
+		{
+			while ( level._weapon_show_hint_choke > 4 && gettime() < last_update + 150 )
+				wait 0.05;
+		}
+		else
+			wait 0.1;
+
+		level._weapon_show_hint_choke++;
+	}
 }
 
 lobby_number( value )
@@ -666,7 +894,8 @@ lobby_game_over()
 // the game accepts.
 //
 // In Grief, the config also names the players of each team (t6Game.teams), for the server's script (t6Script). The
-// names are separated by slashes, which no name has (rooms.go: nameUnsafe).
+// names are separated by slashes, which no name has (rooms.go: nameUnsafe). The config also sets a dvar for each mod
+// that the game has (t6ModDvar), which the script reads.
 //
 // The second config, lobby_gts.cfg, has the game settings of the map, as Plutonium's server configs have them.
 func (g *game) t6Prepare(ctx context.Context) error {
@@ -729,6 +958,10 @@ sv_maprotation "execgts lobby_gts.cfg map %s"
 		if len(names) > 0 {
 			cfg += fmt.Sprintf("set zombies_team_%d \"%s\"\n", i+1, strings.Join(names, "/"))
 		}
+	}
+	for _, name := range t.mods {
+		dvar, value := t6ModDvar(name)
+		cfg += fmt.Sprintf("set %s \"%s\"\n", dvar, value)
 	}
 	gts := fmt.Sprintf(`execgts gamesettings_default.cfg
 execgts gamesettings_%s.cfg

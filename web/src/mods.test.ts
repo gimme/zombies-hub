@@ -2,8 +2,9 @@ import { expect, test } from 'vitest';
 import type { Mod } from './api';
 import { modNames, modOn, modValue } from './mods';
 
-const grief: Mod = { id: 'grief', name: 'Grief', desc: '' };
-const cap: Mod = { id: 'cap', name: 'Zombie Cap', desc: '', options: [{ value: 24 }, { value: 32 }, { value: 48 }] };
+const grief: Mod = { id: 'grief', name: 'Grief', desc: '', titles: ['t5'] };
+const cap: Mod = { id: 'cap', name: 'Zombie Cap', desc: '', options: [{ value: 24 }, { value: 32 }, { value: 48 }],
+  titles: ['t5', 't6'] };
 
 test('a switch is on when the room names it', () => {
   expect(modValue(['grief'], grief)).toBe(true);

@@ -87,11 +87,8 @@ export function showRoom(v: View, room: Room): void {
   $('vistext').classList.toggle('hidden', room.host);
   showOnOff($('vistext'), room.private);
   showRoomSize(v, room);
-  // The mods are the engine's. A Black Ops II room has none, and no tab of them.
-  const t6 = room.of === 't6';
-  $('tabmods').classList.toggle('hidden', t6);
-  if (t6) showRoomTab(false);
-  showRoomMods(t6 ? [] : v.mods, room, open);
+  // The room's mods are those that the games of its title can have.
+  showRoomMods(v.mods.filter((m) => m.titles.includes(room.of)), room, open);
   showT6(v, room);
 
   // The list has a row for each seat of the room, with an empty row for each seat that no one has. The list, and

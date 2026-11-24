@@ -1294,8 +1294,9 @@ func (l *lobby) setRoom(p *player, of string, versus *string, mapName string, pr
 		if on, err = modsNamed(*mods); err != nil {
 			return err
 		}
-		if of := l.title(cmp.Or(mapName, r.mapName)); !of.mods() && len(on) > 0 {
-			return fmt.Errorf("%s games have no mods.", of.label())
+		t := l.title(cmp.Or(mapName, r.mapName))
+		if _, not := modsOf(t.id(), on); not != "" {
+			return fmt.Errorf("%s games can't have %s.", t.label(), not)
 		}
 	}
 	if size != 0 {
@@ -1331,9 +1332,10 @@ func (l *lobby) setRoom(p *player, of string, versus *string, mapName string, pr
 			r.size = most
 			log.Printf("server: room %s takes %d players, as many as %s takes", r.code, most, mapTitle(mapName))
 		}
-		if !now.mods() && mods == nil && len(r.mods) > 0 {
-			r.mods = nil
-			log.Printf("server: room %s has no mods, on a %s map", r.code, now.label())
+		// The room keeps the mods that the games of its new title can have.
+		if kept, not := modsOf(now.id(), r.mods); mods == nil && not != "" {
+			r.mods = kept
+			log.Printf("server: room %s has mods %v, on a %s map", r.code, kept, now.label())
 		}
 		l.unready(r) // this also calls off a countdown to a game on the old map
 	}
