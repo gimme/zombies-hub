@@ -29,7 +29,8 @@
 //	                                change at once without asking on a timer. A launcher whose player has been in no
 //	                                Black Ops II room for five minutes closes the call, until the player presses a
 //	                                room's button again
-//	POST /launcher/stopped          the launcher ends because its player quit it. The player's room then shows at once
+//	POST /launcher/stopped          the launcher ends because its player quit it, or because it can't play until the
+//	                                player installs it again (Report.Setup). The player's room then shows at once
 //	                                that no launcher runs, where the server otherwise waits a while for a launcher's
 //	                                next call. The server takes it from a launcher of any version, as it does the first
 //	POST /launcher/files            Report: how the launcher is doing, such as how far its download of the game files
@@ -152,6 +153,12 @@ type Report struct {
 	// Doing is what the launcher does now to prepare the PC, other than downloading, in a few words for the room's
 	// button ("Updating Plutonium"). It is "" when there is nothing to show.
 	Doing string `json:"doing,omitempty"`
+	// Setup is set when the launcher can't play because what installed it on the player's computer is older than the
+	// launcher needs: on a Mac, the script that runs it in Wine (launcher/mac.sh), which does not update itself as the
+	// launcher does. The launcher then ends, and Failed says so for a server that doesn't know this field. A server
+	// that does shows the line that installs the launcher again in the player's room, as it does for a launcher that
+	// it doesn't take, until the next report of a launcher of theirs.
+	Setup bool `json:"setup,omitempty"`
 }
 
 // Files is the list of a title's game files, as the server has them.

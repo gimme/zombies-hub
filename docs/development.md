@@ -100,6 +100,8 @@ The workflow `.github/workflows/launcher.yml` then checks the tag, vets and test
 
 The server takes launchers from a lowest version on: `MinVersion` in `internal/launcherapi/launcherapi.go`. A dev server also takes dev builds, of version 0. Raise `MinVersion` when the server needs something that older launchers don't do, and only once a release that does it is out. A launcher updates itself before it asks the server anything, so a server with the new code turns away only the launchers that found no later release they could take. The one call a launcher makes first, which says that it started (`POST /launcher/started`), the server takes from any version. It turns the others away, and the player's room then says that the launcher is too old, with the link to the latest one.
 
+On a Mac the launcher updates itself too, but the script that runs it there doesn't, nor plutonium-mac-aio, which it installs at the commit it names (`aio_commit`). Those change only when the player pastes the room's line into Terminal again. So the script has a version, `mac_version` in `launcher/mac.sh`, which it gives the launcher, and the launcher has the lowest version it plays with, `macNeeds` in `launcher/mac.go`. When a change to the script is one that the launcher or the game needs, such as another `aio_commit` for a later Plutonium, raise both in the same release. A launcher whose script is older then ends, and the player's room shows the line again, saying that the launcher needs an update.
+
 ## Commits
 
 Commits follow [Conventional Commits](https://www.conventionalcommits.org/): a short imperative subject, such as `fix(launcher): retry the update check`, and a body only when it adds something.

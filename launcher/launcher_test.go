@@ -1214,7 +1214,7 @@ func TestWatchTriesAgain(t *testing.T) {
 	if _, err := s.current(ctx); err != nil {
 		t.Fatalf("the first answer: %v", err)
 	}
-	s.fail(ctx, "Black Ops II isn't on this PC.")
+	s.fail(ctx, "Black Ops II isn't on this PC.", false)
 	failures := func() int {
 		l.mu.Lock()
 		defer l.mu.Unlock()

@@ -629,7 +629,9 @@ type youView struct {
 	// launcher has nothing to report.
 	LauncherDoing string `json:"launcherDoing,omitempty"`
 	// LauncherOld is set when the server refused their launcher for its version, until a launcher of theirs that the
-	// server takes calls (launcher.go: launcherFits). Their page then links to the launcher's latest release.
+	// server takes calls (launcher.go: launcherFits), and when their launcher said that it has to be installed again
+	// on their Mac, until its next report (launcherapi.Report: Setup). Their page then links to the launcher's latest
+	// release, or shows a Mac the line that installs it.
 	LauncherOld bool `json:"launcherOld,omitempty"`
 }
 
@@ -761,7 +763,8 @@ func (l *lobby) view(p *player) view {
 	v := view{You: youView{ID: p.id, Name: p.asked, Avatar: l.avatar(p), Picture: l.pictureShown(p),
 		DiscordAvatar: p.discordAvatar(), Windows: p.shown.windows, Ready: l.isReady(p),
 		Launcher: l.launcherOpen(p), LauncherReady: l.launcherOpen(p) && p.launcher.ready,
-		LauncherFailed: p.launcher.Failed, LauncherDoing: p.launcher.Doing, LauncherOld: p.launcher.old},
+		LauncherFailed: p.launcher.Failed, LauncherDoing: p.launcher.Doing,
+		LauncherOld: p.launcher.old || p.launcher.Setup},
 		Size: l.roomSize, MinPlayers: l.minPlayers, Mods: modList, Pictures: l.picturesShown, Rooms: []roomItem{},
 		Full: l.full(), DefaultMap: l.mapName("")}
 	if v.Pictures == nil {

@@ -24,6 +24,8 @@
 //     server that takes only later versions (launcherapi.MinVersion) so turns none of the older one's calls away, and
 //     the player's room has nothing to say of it. When the server doesn't take the launcher and there is no later
 //     release, the launcher ends, and says where the latest release is.
+//   - on a Mac, ends when the script that runs it there is older than the launcher needs (mac.go). The player's room
+//     then shows the line for Terminal that installs the launcher again.
 //   - asks the server what to play (launcherapi: GET /launcher/play), with the player's key and its own version. It
 //     keeps one such call open while the player is in a Black Ops II room, and the server answers when something
 //     changes for the player (server.go: watch). The launcher makes no call on a timer.
@@ -174,6 +176,8 @@ type launcher struct {
 	// programs has Black Ops II's own programs, the only programs the launcher accepts from a server. It maps each
 	// program's path, in lowercase, to its hash (programs.go).
 	programs map[string]string
+	// mac is the version of the script that started the launcher on a Mac (mac.go), or "" where none did.
+	mac string
 }
 
 // makerKey is the public half of the key that the launcher's maker signs its builds with (release.pub, which make
@@ -243,6 +247,7 @@ func main() {
 	la.key, _ = release.ParsePublic(makerKey)
 	la.version, _ = strconv.ParseInt(version, 10, 64)
 	la.programs = knownPrograms(t6ProgramList)
+	la.mac = os.Getenv(macEnv)
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer cancel()
 	la.quit = cancel
@@ -379,9 +384,10 @@ func (la *launcher) open(ctx context.Context, l link) (srv *server, stop func())
 // next game on the link's server, and plays again. It has no window, so it reports what goes wrong to the server,
 // which shows it in the player's page (launcherapi.Report). It ends when the player quits it from the tray, when
 // another build replaces it, when the server no longer knows the player (they signed out, and their page starts the
-// launcher again), or when the server doesn't take this launcher's version. The next link then starts the installed
-// launcher, which may be a newer one. When the player quits it, it tells the server so (server.bye), and the room's
-// button opens a launcher again at once.
+// launcher again), when the server doesn't take this launcher's version, or when the script that runs it on a Mac is
+// too old for it (mac.go). The next link then starts the installed launcher, which may be a newer one. When the
+// player quits it, or the script is too old, it tells the server so (server.bye), and the room's button opens a
+// launcher again at once.
 //
 // While its player is in a Black Ops II room, it has one call open to the server (open). While nothing changes for
 // its player, it does nothing else: it makes no call on a timer, to the server or to Plutonium. Once its player has
@@ -394,10 +400,12 @@ func (la *launcher) serve(ctx context.Context, url string) int {
 		return 1
 	}
 	srv, stop := la.open(ctx, l)
-	// A launcher that its player quits tells the server so, once its call to the server is closed (stop).
+	// A launcher that its player quits tells the server so, once its call to the server is closed (stop), as does one
+	// that can't play on this Mac until the player installs it again (setup).
+	setup := false
 	defer func() {
 		stop()
-		if ctx.Err() != nil && !la.handed {
+		if (ctx.Err() != nil || setup) && !la.handed {
 			srv.bye()
 		}
 	}()
@@ -409,13 +417,14 @@ func (la *launcher) serve(ctx context.Context, url string) int {
 		err := la.play(ctx, url, srv, func(err error) {
 			la.say("%v", err)
 			if ctx.Err() == nil {
-				srv.fail(ctx, sentence(err))
+				srv.fail(ctx, sentence(err), errors.Is(err, errSetup))
 			}
 		})
+		setup = errors.Is(err, errSetup)
 		switch {
 		case ctx.Err() != nil || la.handed:
 			return 0
-		case ends(err):
+		case ends(err) || setup:
 			return 1
 		}
 		if !la.idle(ctx, srv) {
@@ -592,7 +601,7 @@ func (la *launcher) play(ctx context.Context, url string, srv *server, failed fu
 	}
 	srv.start()
 	if la.stays {
-		srv.fail(ctx, "") // a new try: the last try's failure is no longer reported
+		srv.fail(ctx, "", false) // a new try: the last try's failure is no longer reported
 	}
 	play, err := srv.current(ctx)
 	switch {
@@ -600,6 +609,10 @@ func (la *launcher) play(ctx context.Context, url string, srv *server, failed fu
 		return la.tooOld()
 	case err != nil:
 		return err
+	case macOld(la.mac):
+		// On a Mac, the script that runs the launcher may be older than this build needs: it does not update itself,
+		// as the launcher just did (mac.go).
+		return errSetup
 	}
 	files()
 	la.say("You are %s on %s.", play.Player, l.host)

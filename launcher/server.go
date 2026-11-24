@@ -48,8 +48,10 @@ type server struct {
 	next chan struct{}     // closed when there is another answer or error, and then replaced
 	// renew ends the call that watch has open, or its wait before the next call, so that watch asks again at once.
 	renew func()
-	// failed is what the launcher's last try failed at, as the server was told (fail), or "".
+	// failed is what the launcher's last try failed at, as the server was told (fail), or "". setup marks a failure
+	// for which the player has to install the launcher again (launcherapi.Report: Setup).
 	failed string
+	setup  bool
 	// has is which of the server's zones the game folder has that the player's game starts from, with commas between
 	// them (launcherapi.Play: Zones). copied is set once the launcher knows the folder. Each call that asks what to
 	// play then sends has (setHas).
@@ -366,8 +368,9 @@ func (s *server) hello(ctx context.Context) {
 	}
 }
 
-// bye tells the server that the launcher ends because its player quit it (launcherapi: POST /launcher/stopped), for
-// the player's room to show at once that no launcher runs. The call that the launcher had open is closed by then.
+// bye tells the server that the launcher ends because its player quit it, or because it can't play until the player
+// installs it again (launcherapi: POST /launcher/stopped), for the player's room to show at once that no launcher
+// runs. The call that the launcher had open is closed by then.
 // The answer doesn't matter: a server that has no such call, or can't be reached now, takes the launcher as stopped
 // once it has heard no more of it for a while. A launcher that the server never heard of says nothing.
 func (s *server) bye() {
@@ -404,14 +407,14 @@ func (s *server) report(ctx context.Context, r launcherapi.Report) {
 }
 
 // fail records what the launcher's try failed at, and reports it to the server, whose page shows it. With "", it
-// takes the last failure back, for a new try. It sends nothing to a server that the player has not agreed to play on
-// (start).
-func (s *server) fail(ctx context.Context, text string) {
+// takes the last failure back, for a new try. setup marks a failure for which the player has to install the launcher
+// again (launcherapi.Report: Setup). It sends nothing to a server that the player has not agreed to play on (start).
+func (s *server) fail(ctx context.Context, text string, setup bool) {
 	s.mu.Lock()
-	s.failed = text
+	s.failed, s.setup = text, setup && text != ""
 	s.mu.Unlock()
 	if s.started.Load() {
-		s.report(ctx, launcherapi.Report{Failed: text})
+		s.report(ctx, launcherapi.Report{Failed: text, Setup: setup && text != ""})
 	}
 }
 
@@ -425,9 +428,12 @@ func (s *server) failure() string {
 // again reports the last failure to the server once more. watch calls it when the server answers again after calls
 // that failed: the server may have missed the report, or forgotten it.
 func (s *server) again() {
-	if text := s.failure(); text != "" {
+	s.mu.Lock()
+	text, setup := s.failed, s.setup
+	s.mu.Unlock()
+	if text != "" {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		s.report(ctx, launcherapi.Report{Failed: text})
+		s.report(ctx, launcherapi.Report{Failed: text, Setup: setup})
 	}
 }

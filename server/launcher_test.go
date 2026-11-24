@@ -315,6 +315,38 @@ func TestLauncherStopped(t *testing.T) {
 	}
 }
 
+// A launcher that has to be installed again on its player's Mac says so, and ends. The room then shows the line that
+// installs it, as for a launcher too old for the server, and not the failure: until the next report of a launcher of
+// the player's.
+func TestLauncherSetup(t *testing.T) {
+	l, _ := t6Lobby(t)
+	h := &web{lobby: l, publicPort: 4000}
+	ann := l.hello("", "Ann")
+	playOf(t, h, ann.Key)
+	report := func(body string) {
+		t.Helper()
+		if rsp, _ := asLauncher(h, http.MethodPost, "/launcher/files", ann.Key, body); rsp.StatusCode != http.StatusOK {
+			t.Fatalf("a report: %s", rsp.Status)
+		}
+	}
+	report(`{"failed":"This Mac's Zombies Launcher needs an update.","setup":true}`)
+	if rsp, _ := asLauncher(h, http.MethodPost, "/launcher/stopped", ann.Key, ""); rsp.StatusCode != http.StatusOK {
+		t.Fatalf("stopped: %s", rsp.Status)
+	}
+	if you := l.viewOf(ann.Token).You; you.Launcher || !you.LauncherOld || you.LauncherFailed != "" {
+		t.Errorf("a launcher that has to be installed again, once it ended: %+v", you)
+	}
+	// the next launcher of hers
+	if rsp, _ := asLauncher(h, http.MethodPost, "/launcher/started", ann.Key, ""); rsp.StatusCode != http.StatusOK {
+		t.Fatalf("started: %s", rsp.Status)
+	}
+	playOf(t, h, ann.Key)
+	report(`{}`)
+	if you := l.viewOf(ann.Token).You; !you.Launcher || you.LauncherOld {
+		t.Errorf("the launcher after one that had to be installed again: %+v", you)
+	}
+}
+
 // Where players sign in with Discord, a key is good while its player has a session.
 func TestLauncherNeedsASession(t *testing.T) {
 	d := newFakeDiscord(t)

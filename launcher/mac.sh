@@ -60,6 +60,11 @@
 set -eu
 set -o pipefail
 
+# The script's version, which it gives the launcher as it starts it (wine_env). The launcher updates itself and the
+# script does not, so a launcher that needs a later script ends, and the room shows the line that runs the latest one
+# (launcher/mac.go). Raise it, and macNeeds there, when a change here is one that the launcher or the game needs, as
+# another commit of plutonium-mac-aio is.
+mac_version=1
 # plutonium-mac-aio, pinned: setup runs its scripts and its Wine, and those check their own downloads by hash.
 aio_repo=https://github.com/LuidgiAlt/plutonium-mac-aio
 aio_commit=0b2a40463a2e4f22c43ca547329658bb4ea7cec4
@@ -177,6 +182,8 @@ wine_env() {
     export WINEDEBUG="${WINEDEBUG:--all}"
     # Wine updates the prefix by itself at its next start after another commit's Wine, and would ask then (no_mono).
     export WINEDLLOVERRIDES="$no_mono"
+    # For the launcher: Wine passes the Mac's variables on to the programs it runs (dlls/ntdll/unix/env.c).
+    export ZOMBIES_LAUNCHER_MAC=$mac_version
     # MoltenVK, which Wine loads for each program, prints only its errors. It otherwise lists the GPU's features each
     # time, a hundred lines in wine.log.
     export MVK_CONFIG_LOG_LEVEL=1

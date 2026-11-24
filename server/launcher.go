@@ -251,8 +251,9 @@ func (h *web) serveLauncherStarted(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte("{}\n"))
 }
 
-// serveLauncherStopped answers POST /launcher/stopped, which a launcher sends as it ends because its player quit it.
-// The player's room then says at once that no launcher runs, and its button opens one again. A launcher that ends
+// serveLauncherStopped answers POST /launcher/stopped, which a launcher sends as it ends because its player quit it,
+// or because it has to be installed again (launcherapi.Report: Setup). The player's room then says at once that no
+// launcher runs, and its button opens one again. A launcher that ends
 // without the call, as one that was killed does, counts as running for launcherQuiet more. Like the call that says a
 // launcher started, the server takes this one from a launcher of any version.
 func (h *web) serveLauncherStopped(w http.ResponseWriter, r *http.Request) {
@@ -574,6 +575,15 @@ func (l *lobby) setLauncher(p *player, rep launcherapi.Report) {
 	rep.Got = min(max(rep.Got, 0), rep.Need)
 	rep.Failed, rep.Doing = logLine(rep.Failed, 300), logLine(rep.Doing, 40)
 	was := p.launcher
+	// A launcher that has to be installed again says why in Failed, for a server that doesn't know Setup. This one
+	// shows the room the line that installs it instead (youView: LauncherOld), as for a launcher that it doesn't take.
+	// The room has it until the next report of a launcher of the player's: the launcher ends.
+	if rep.Setup {
+		if !was.Setup {
+			log.Printf("server: %s's launcher has to be installed again on their Mac: %s", p.asked, rep.Failed)
+		}
+		rep.Failed = ""
+	}
 	if rep.Failed != "" && rep.Failed != was.Failed {
 		log.Printf("server: %s's launcher failed: %s", p.asked, rep.Failed)
 	}
@@ -604,12 +614,13 @@ func (l *lobby) launcherStopped(p *player, last launcherapi.Report) {
 	}
 }
 
-// launcherQuit records that p's launcher ended because its player quit it (serveLauncherStopped). It no longer counts
+// launcherQuit records that p's launcher ended because its player quit it, or because it has to be installed again
+// (serveLauncherStopped). It no longer counts
 // as running, where a launcher that only makes no more calls does for launcherQuiet more. The launcher may still be
 // closing the call that the server holds of it: it then counts as running until that call ends (serveLauncherPlay).
 // The caller holds l.mu.
 func (l *lobby) launcherQuit(p *player) {
-	log.Printf("server: %s's launcher was quit", p.asked)
+	log.Printf("server: %s's launcher stopped", p.asked)
 	if p.launcher.held > 0 {
 		p.launcher.quit = true
 		return

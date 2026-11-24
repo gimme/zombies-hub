@@ -271,7 +271,8 @@ function gameButton(v: View, room: Room): RoomButton {
  * line that installs the launcher, and the line that joins by hand. The line that installs the launcher is there in a
  * browser that has never seen a launcher of the player's run, after a click of the room's button that started no
  * launcher (windows.ts: launcherMissed), and when the server refused the player's launcher as too old. That launcher
- * can't say so itself, because the server takes no report from it. On a Mac the line is one for Terminal.
+ * can't say so itself, because the server takes no report from it. On a Mac the line is one for Terminal, and it is
+ * there too when the launcher said that the script that runs it is too old for it.
  */
 export function showT6(v: View, room: Room): void {
   const box = $('t6box');
@@ -291,7 +292,8 @@ export function showT6(v: View, room: Room): void {
   // launcherMacLine), which the box shows in place of the link. The same line brings an old launcher up to date.
   const line = launcherMacLine();
   const get = !byHand && (!launcherHere || old || launcherMissed);
-  const why = old ? 'Your Zombies Launcher is too old for this server.'
+  // A Mac's launcher is old also when the script that runs it is (launcher/mac.go), which is no matter of the server.
+  const why = old ? (line ? 'Your Zombies Launcher needs an update.' : 'Your Zombies Launcher is too old for this server.')
     : launcherMissed ? 'Nothing happened?' : 'First time?';
   $('t6get').classList.toggle('hidden', !get || !!line);
   $('t6why').textContent = why;

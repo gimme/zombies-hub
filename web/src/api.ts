@@ -94,7 +94,10 @@ export interface You {
   launcherReady?: boolean;
   launcherFailed?: string;
   launcherDoing?: string;
-  /** The server refused their launcher as too old for it, and takes only a newer one. */
+  /**
+   * The server refused their launcher as too old for it, and takes only a newer one; or their launcher said that the
+   * script that runs it on their Mac is too old for it.
+   */
   launcherOld?: boolean;
 }
 

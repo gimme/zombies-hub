@@ -183,7 +183,7 @@ test("a launcher too old for the server is turned away, and the room links to th
     await expect(ann.locator('#ready')).toHaveText('Connect');
   });
 
-test('a Mac is shown the line that installs the launcher from Terminal', async ({ player }) => {
+test('a Mac is shown the line that installs the launcher from Terminal', async ({ server, player }) => {
   const ann = await player('Ann', { query: 'mac=1' }); // a Mac's page, on this PC
   await ann.locator('#make').click();
   await ann.locator('#titlepick').getByRole('radio', { name: 'Black Ops II', exact: true }).click();
@@ -209,6 +209,27 @@ test('a Mac is shown the line that installs the launcher from Terminal', async (
   await expect(ann.locator('#t6machow')).toHaveText(
     'Nothing happened? Install Zombies Launcher with this line in Terminal:', { timeout: 10000 });
   await expect(ann.locator('#ready')).toHaveText('Connect');
+
+  // a launcher that the Mac's script is too old for (launcher/mac.go) says so, and ends: the room shows the line again,
+  // and not the launcher's failure, until the next launcher of hers reports
+  await expect(ann.locator('#playbat')).toHaveText(/ [0-9a-f]{16}$/);
+  const key = ((await ann.locator('#playbat').textContent()) || '').split(' ').pop();
+  const launcher = (path: string, body?: object) => fetch(server.url + path, {
+    method: 'POST', headers: { Authorization: 'Key ' + key, 'Zombies-Launcher-Version': '1' },
+    body: body && JSON.stringify(body),
+  });
+  expect((await launcher('/launcher/started')).status).toBe(200);
+  await expect(ann.locator('#t6mac')).toBeHidden();
+  expect((await launcher('/launcher/files', { failed: "This Mac's Zombies Launcher needs an update.", setup: true })).status)
+    .toBe(200);
+  expect((await launcher('/launcher/stopped')).status).toBe(200);
+  await expect(ann.locator('#t6machow')).toHaveText(
+    'Your Zombies Launcher needs an update. Install the new one with this line in Terminal:');
+  await expect(ann.locator('#ready')).toHaveText('Connect');
+  await expect(ann.locator('#roomnote')).toBeHidden();
+  expect((await launcher('/launcher/started')).status).toBe(200);
+  expect((await launcher('/launcher/files', {})).status).toBe(200);
+  await expect(ann.locator('#t6mac')).toBeHidden();
 });
 
 /**
