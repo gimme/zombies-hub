@@ -190,7 +190,7 @@ body.signin #music, body.signin #boardsopen { display: none; }
 @keyframes spin { to { transform: rotate(360deg); } }
 #note { padding: 12px 16px; }
 
-/* the lobby: making a room, joining one, or playing offline */
+/* the lobby: making a room, joining one, or playing locally */
 .stack { flex: 1 1 360px; min-width: 0; display: flex; flex-direction: column; gap: 28px; }
 .start { display: flex; flex-direction: column; gap: 22px; padding: 30px; }
 .start h1 { font-size: 44px; }
@@ -230,7 +230,7 @@ ul.rooms { gap: 12px; }
 /* where a room private to the player (it has no code) has no Join */
 .rooms .private { text-align: center; font-size: 14px; color: var(--muted); }
 
-/* a room, and playing offline, which has its map card and side panel */
+/* a room, and playing locally, which has its map card and side panel */
 .main { flex: 999 1 600px; min-width: 0; display: flex; flex-direction: column; gap: 20px; }
 .mapcard { display: flex; flex-direction: column; gap: 22px; padding: 24px; }
 .mapinfo { display: flex; flex-wrap: wrap; gap: 24px; }
@@ -277,6 +277,29 @@ ul.rooms { gap: 12px; }
    and as the leaderboards' kinds of board are */
 .titlepick { display: flex; padding-top: 22px; border-top: 1px solid rgba(255, 255, 255, 0.08); }
 .titlepick:not(.hidden) + .mapgrid { margin-top: -8px; padding-top: 0; border-top: none; }
+/* In Play local the game is picked first, at the top of its card: the rest of the card is that game's
+   (showSoloTitle). The maps under a game's words so have their own line over them. */
+#solotitles { padding-top: 0; border-top: none; }
+/* Black Ops II's card there has no picture and no maps: its words are as tall as they are, with what folds out */
+#solo[data-of=t6] .mapinfo .text { height: auto; }
+/* under Black Ops II's words (showSoloOwn): how to get to Plutonium's online servers, as steps that fold out under
+   their line, no wider than they read well; a Mac's first step has a line for Terminal */
+#soloown { flex: none; display: flex; flex-direction: column; gap: 10px; margin-top: 6px; }
+/* a line that folds out what is under it: a label's letters, with a mark that turns down as it opens */
+button.fold { align-self: flex-start; display: flex; align-items: center; gap: 8px; height: auto; padding: 0;
+  border: none; border-radius: 4px; background: none; color: var(--muted); font-size: 12px; font-weight: 600;
+  letter-spacing: 0.14em; text-transform: uppercase; }
+button.fold:hover, button.fold[aria-expanded=true] { color: var(--fg); }
+button.fold svg { flex: none; transition: transform 0.15s; }
+button.fold[aria-expanded=true] svg { transform: rotate(90deg); }
+@media (prefers-reduced-motion: reduce) { button.fold svg { transition: none; } }
+/* words that say more when the pointer is on them (inWords) */
+.hint { text-decoration: underline dotted; text-underline-offset: 3px; cursor: help; }
+#soloown ol { max-width: 68ch; margin: 0; font-size: 14px; line-height: 1.5; color: var(--muted); }
+#soloown .codeline { margin-top: 8px; color: var(--fg); }
+#soloown ol { padding-left: 1.4em; display: flex; flex-direction: column; gap: 4px; }
+/* its links, and the one in the game's words over it, are the page's white, as the launcher's are (#t6install) */
+#soloown a, #solodesc a { color: var(--fg); }
 .options .tabs { display: flex; gap: 4px; padding: 6px 6px 0; border-bottom: 1px solid rgba(255, 255, 255, 0.08); }
 .tab { height: 44px; padding: 0 18px; border: none; border-radius: 0; border-bottom: 2px solid transparent;
   background: none; display: flex; align-items: center; gap: 8px; }
@@ -333,7 +356,7 @@ ul.rooms { gap: 12px; }
    room's panel is first: its players and Ready, what a player in the room comes to do. Its row wraps upwards
    (wrap-reverse), so that its second line, the panel's, is over its first, at whatever width it wraps; side by side
    the two are as they were, their tops level (flex-end: the row's lines go up, so its end is its top). The page to
-   play offline wraps downwards, its Play under its maps, which are picked first. */
+   play locally wraps downwards, its Play under its maps, which are picked first. */
 #inside .cols { flex-wrap: wrap-reverse; align-items: flex-end; }
 #solohead { font-size: 30px; }
 /* the button of Black Ops' options menu (settingsInit), under the main button of a view of Black Ops: a gear and the
@@ -386,14 +409,14 @@ ul.members { gap: 8px; }
    line has all of the box's width but the button's, and where it is longer it scrolls, cut off before the button */
 .codeline { display: flex; align-items: center; gap: 4px; padding-right: 5px; border-radius: 8px;
   background: rgba(0, 0, 0, 0.4); border: 1px solid var(--line); }
-#playbat, #t6console, #t6macline { flex: 1; min-width: 0; padding: 10px 4px 10px 12px; font: 13px/1.4 ui-monospace, Consolas, monospace;
+#playbat, #t6console, #t6macline, #soloown .codeline span { flex: 1; min-width: 0; padding: 10px 4px 10px 12px; font: 13px/1.4 ui-monospace, Consolas, monospace;
   white-space: nowrap; overflow-x: auto; user-select: all; scrollbar-width: thin; }
 .codeline button.copy { flex: none; width: 30px; height: 28px; padding: 0; border: none; border-radius: 6px;
   background: rgba(255, 255, 255, 0.08); color: var(--muted); }
 .codeline button.copy:hover { background: rgba(255, 255, 255, 0.14); color: var(--fg); }
 .codeline button.copy.copied { color: var(--fg); }
 /* a room on a Black Ops II map (showT6): what a player needs for its game, which their own Plutonium plays, and
-   the line that joins it. What installs the launcher (#t6install) is in Play offline instead while that shows Black
+   the line that joins it. What installs the launcher (#t6install) is in Play local instead while that shows Black
    Ops II (placeInstall). */
 #t6box, #t6install { display: flex; flex-direction: column; gap: 12px; }
 #t6box p, #t6install p, #t6handrow { font-size: 14px; line-height: 1.45; color: var(--muted); }

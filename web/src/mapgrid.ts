@@ -1,4 +1,4 @@
-// web/src/mapgrid.ts - what a room and the page to play offline both show of maps: the grid to pick a map from, and
+// web/src/mapgrid.ts - what a room and the page to play locally both show of maps: the grid to pick a map from, and
 // the card of the picked map.
 import type { MapInfo } from './api';
 import { el } from './dom';

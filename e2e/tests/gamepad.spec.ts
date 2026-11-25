@@ -1,5 +1,5 @@
 // The gamepad in the lobby (web/src/padnav.ts): B goes back, the d-pad moves the focus along the lobby and its top, A
-// presses, the right stick scrolls, and Start opens Black Ops' options menu from the page to play offline and from a
+// presses, the right stick scrolls, and Start opens Black Ops' options menu from the page to play locally and from a
 // Black Ops room, and closes it, back on the button that opens it. A room shows the gamepad on its player, its button
 // is the gamepad's to go to even while it is off, B calls its countdown off, and B on its map asks to leave. A
 // refusal of the lobby shows over the page, and goes at a click and by itself.
@@ -152,7 +152,7 @@ test('the gamepad goes through the lobby, and into a room and out', async ({ pla
   await refuse();
   await expect(max.locator('#notice')).toBeHidden({ timeout: 10_000 });
 
-  // down to Play solo, A opens the maps on the one picked, and A on it goes to Play, which A presses
+  // down to Play local's Go, A opens the maps on the one picked, and A on it goes to Play, which A presses
   for (let i = 0; i < 8 && (await padView(max)).focus !== 'soloopen'; i++) await press(max, PAD.DOWN, () => true);
   expect((await padView(max)).focus).toBe('soloopen');
   await press(max, PAD.A, (v) => v.views === 'solo' && v.picked);

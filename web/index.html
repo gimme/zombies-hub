@@ -137,8 +137,8 @@
             </div>
           </section>
           <section class="panel start" id="soloentry">
-            <h1 class="display">Play offline</h1>
-            <button type="button" class="big" id="soloopen">Play solo</button>
+            <h1 class="display">Play local</h1>
+            <button type="button" class="big" id="soloopen">Go</button>
           </section>
         </div>
         <section class="browse">
@@ -150,20 +150,36 @@
         <div class="cols">
           <div class="main">
             <section class="panel mapcard">
+              <!-- the game to play locally, where the page offers two (src/solo.ts: showSoloTitle): first, as the
+                   rest of the card is that game's -->
+              <div class="titlepick hidden" id="solotitles"></div>
               <div class="mapinfo">
                 <img id="soloimg" alt="">
                 <div class="text">
                   <div class="label" id="solokicker">Map</div>
-                  <div class="about"><h1 class="display" id="solotitle"></h1><p id="solodesc"></p></div>
+                  <div class="about">
+                    <h1 class="display" id="solotitle"></h1><p id="solodesc"></p>
+                    <!-- for Black Ops II: how to get to Plutonium's online servers, which Launch game does not,
+                         with Plutonium's own launcher. The steps fold out under its line (src/solo.ts:
+                         showSoloOwn) -->
+                    <div id="soloown" class="hidden">
+                      <button type="button" class="fold" id="soloownopen" aria-expanded="false"
+                        aria-controls="soloownsteps">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                          stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                          <path d="m9 6 6 6-6 6"/></svg>
+                        <span>For Plutonium's online servers</span>
+                      </button>
+                      <ol id="soloownsteps" class="hidden"></ol>
+                    </div>
+                  </div>
                 </div>
               </div>
-              <!-- the game to play offline, where the page offers two (src/solo.ts: showSoloTitle) -->
-              <div class="titlepick hidden" id="solotitles"></div>
-              <div class="mapgrid" id="solomaps" role="radiogroup" aria-label="The map to play offline"></div>
+              <div class="mapgrid" id="solomaps" role="radiogroup" aria-label="The map to play locally"></div>
             </section>
           </div>
           <aside class="panel side">
-            <h2 class="display" id="solohead">Play offline</h2>
+            <h2 class="display" id="solohead">Play local</h2>
             <button type="button" class="primary big" id="playalone" aria-disabled="true">Play</button>
             <p id="solonote" class="files hidden"></p>
             <!-- where to install the launcher, for Black Ops II: the room's, which moves here (src/room.ts: placeInstall) -->
@@ -264,7 +280,7 @@
             </button>
             <button type="button" class="big hidden" id="endgame" title="No one is playing it">End the game</button>
             <section id="t6box" class="hidden">
-              <!-- where to install the launcher; Play offline shows it too, for Black Ops II (src/room.ts: placeInstall) -->
+              <!-- where to install the launcher; Play local shows it too, for Black Ops II (src/room.ts: placeInstall) -->
               <div id="t6install">
                 <p id="t6get" class="hidden"><span id="t6why">First time?</span> <a id="t6setup">Install Zombies
                   Launcher</a>. <button type="button" class="what" aria-expanded="false" aria-controls="t6about"

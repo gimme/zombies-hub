@@ -135,7 +135,7 @@ const defaultRoomSize = 4
 // server doesn't know.
 type lobby struct {
 	roomSize    int                 // the most players a room may take (room.size), and its game's sv_maxclients
-	minPlayers  int                 // players a room's game needs, at least 1 (a player alone can play offline)
+	minPlayers  int                 // players a room's game needs, at least 1 (a player alone can play locally)
 	defaultMap  string              // the map of a new room
 	maps        func() []string     // returns the Zombies maps that the game files have
 	mapDesc     func(string) string // returns a map's description in the game's map select, or "" (mapart.go)
@@ -644,7 +644,7 @@ type youView struct {
 	// release, or shows a Mac the line that installs it.
 	LauncherOld bool `json:"launcherOld,omitempty"`
 	// LauncherDownloading is set while their launcher downloads the game files, and LauncherGot is how much of that
-	// download it has, from 0 to 1 (player.downloading). A room shows it on their member too. The lobby's Play offline,
+	// download it has, from 0 to 1 (player.downloading). A room shows it on their member too. The lobby's Play local,
 	// which has no room, shows it here.
 	LauncherDownloading bool    `json:"launcherDownloading,omitempty"`
 	LauncherGot         float64 `json:"launcherGot,omitempty"`

@@ -159,7 +159,7 @@ export interface MainButton {
 }
 
 /**
- * Sets a view's main button: the room's Ready, or Play on the page to play offline. A button that is off is
+ * Sets a view's main button: the room's Ready, or Play on the page to play locally. A button that is off is
  * aria-disabled, not disabled (dom.ts: isOff). It looks the same and does nothing, but it can keep the focus while
  * it says how far a download is, and still has it when it turns to Ready. A disabled button can't have the focus:
  * the browser took it away as the download began, and the player had to find the button again.

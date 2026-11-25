@@ -11,13 +11,13 @@ export const mapInfo = (name: string): MapInfo =>
 export const t5Maps = (maps: MapInfo[]): MapInfo[] => maps.filter((m) => m.of !== 't6');
 
 /**
- * Whether the server has any map of a title. The page to play offline asks it of the maps, which a page that is
+ * Whether the server has any map of a title. The page to play locally asks it of the maps, which a page that is
  * offline still has (session.ts: goOffline).
  */
 export const hasTitle = (maps: MapInfo[], of: string | undefined): boolean => maps.some((m) => m.of === of && m.have);
 
 /**
- * The map that the player picked to play offline (solo.ts), which the browser's storage keeps. It is the server's
+ * The map that the player picked to play locally (solo.ts), which the browser's storage keeps. It is the server's
  * default map until they pick one, or when the server lacks their pick, and the first map that a browser can play
  * when the server lacks that too. It is '' when there is none.
  */
@@ -31,8 +31,8 @@ export function soloMapName(v: View): string {
 /**
  * The game that the player last picked, by its title's id, which the browser's storage keeps: the game of a room that
  * they came into, made or joined, or whose host picked another game (room.ts: rememberRoomTitle), or a game that they
- * picked on the leaderboards (boards.ts) or in Play offline (solo.ts). The room they make next is of it (main.ts), and
- * the leaderboards outside a room and Play offline show it. '' until they pick one.
+ * picked on the leaderboards (boards.ts) or in Play local (solo.ts). The room they make next is of it (main.ts), and
+ * the leaderboards outside a room and Play local show it. '' until they pick one.
  */
 export const lastTitle = {
   get: (): string => store.get('zombies-title'),

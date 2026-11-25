@@ -1,7 +1,7 @@
 // A player plays a map alone, in their browser: the page runs the game itself, as single player did, on no game of the
 // server's. A new player, Eve turns the shadows off in the lobby's settings menu first, which plays the game's menu
 // sounds as the game's menu does, as the lobby's music plays at the game's level for her volumes; the maps to play
-// offline close and open with the sounds of the game's large menus (web/src/sounds.ts: menuSound). Her first game has
+// locally close and open with the sounds of the game's large menus (web/src/sounds.ts: menuSound). Her first game has
 // the shadows off (it sets the recommended settings, then runs her config again: bo1-zombies/src/qcommon/common.cpp,
 // Com_CheckSetRecommended), and draws with their 4x anti-aliasing. Her loading movie starts as the game loads the map
 // (bo1_web_movieAtLoad), and she skips it (play.ts: loadingMovie). Restart Level starts the map again; her brightness
@@ -93,7 +93,7 @@ test('a player plays a map alone, twice, with the settings they changed', async 
   await eve.page.click('.om-back');
 
   // Back to the lobby plays a button's sound under the mouse once more, not a click, and the large menu's closing;
-  // Play solo plays its click, and the menu's opening
+  // Play local's Go plays its click, and the menu's opening
   const back = await heardWhile(eve, async () => {
     await eve.page.click('#soloback');
     await eve.page.waitForSelector('#solo.hidden', { state: 'attached', timeout: 10_000 });
@@ -109,7 +109,7 @@ test('a player plays a map alone, twice, with the settings they changed', async 
   });
   const at = open.indexOf('uin_navigation_menu_lg_open');
   expect(at >= 1 && open[at - 1] === 'uin_navigation_click' && count(open, 'uin_navigation_menu_lg_open') === 1,
-    `Play solo's sounds: ${open.join(', ')}`).toBe(true);
+    `Go's sounds: ${open.join(', ')}`).toBe(true);
 
   eve.lobbyMemory = await eve.memory();
   eve.note(`before the first game, ${Player.gb(eve.lobbyMemory)}`);

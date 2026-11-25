@@ -232,22 +232,45 @@ test('a Mac is shown the line that installs the launcher from Terminal', async (
   await expect(ann.locator('#t6mac')).toBeHidden();
 });
 
-test("Play offline starts Black Ops II on the player's PC, and says what the launcher does", async ({ server, player }) => {
+test("Play local starts Black Ops II on the player's PC, and says what the launcher does", async ({ server, player }) => {
   const ann = await player('Ann');
-  await expect(ann.locator('#soloopen')).toHaveText('Play solo');
+  await expect(ann.locator('#soloopen')).toHaveText('Go');
   await ann.locator('#soloopen').click();
-  // the server hosts both games: Black Ops is picked first, and Black Ops II is one click away
+  // the server hosts both games: Black Ops is picked first, and Black Ops II is one click away, at the top of the card
   const titles = ann.locator('#solotitles');
+  await expect(ann.locator('#solo .mapcard > :first-child')).toHaveAttribute('id', 'solotitles');
   await expect(titles.getByRole('radio', { name: 'Black Ops', exact: true })).toHaveAttribute('aria-checked', 'true');
   await expect(ann.locator('#solomaps')).toBeVisible();
+  await expect(ann.locator('#soloown')).toBeHidden(); // Plutonium is Black Ops II's
   await titles.getByRole('radio', { name: 'Black Ops II', exact: true }).click();
   await expect(titles.getByRole('radio', { name: 'Black Ops II', exact: true })).toHaveAttribute('aria-checked', 'true');
   await expect(ann.locator('#solotitle')).toHaveText('Black Ops II');
-  await expect(ann.locator('#solodesc')).toHaveText('Launches the game on this PC through Plutonium.');
+  await expect(ann.locator('#solodesc')).toHaveText(
+    'Launches the game on this PC through Plutonium, in LAN mode. Offline, and no account needed.');
   await expect(ann.locator('#solodesc').getByRole('link', { name: 'Plutonium' }))
     .toHaveAttribute('href', 'https://plutonium.pw/');
   await expect(ann.locator('#solomaps')).toBeHidden();
   await expect(ann.locator('#settings')).toBeHidden(); // Black Ops' options
+  // how to get to those servers, folded under the game's words until she opens it: a PC's steps, with Plutonium's
+  // own guide, and a hint on the game folder that says where the launcher shows it
+  const own = ann.locator('#soloown');
+  const fold = own.getByRole('button', { name: "For Plutonium's online servers" });
+  await expect(fold).toHaveAttribute('aria-expanded', 'false');
+  await expect(own.getByRole('list')).toBeHidden();
+  await fold.click();
+  await expect(fold).toHaveAttribute('aria-expanded', 'true');
+  await expect(own.getByRole('listitem')).toHaveText([
+    "Download and run Plutonium's own launcher.",
+    'Sign in with a free Plutonium account.',
+    'At Black Ops II, press Setup, choose your game folder, then press Play.',
+  ]);
+  await expect(own.getByText('game folder', { exact: true }))
+    .toHaveAttribute('title', "Zombies Launcher's tray menu shows the folder it uses.");
+  await expect(own.getByRole('link', { name: "Plutonium's own launcher" }))
+    .toHaveAttribute('href', 'https://plutonium.pw/docs/install/');
+  await expect(own.getByRole('link', { name: 'free Plutonium account' }))
+    .toHaveAttribute('href', 'https://forum.plutonium.pw/register');
+  await expect(own.locator('.codeline')).toHaveCount(0); // a Mac's line for Terminal
   // where to get the launcher, as in a room
   await expect(ann.locator('#t6get')).toHaveText('First time? Install Zombies Launcher.');
   await expect(ann.locator('#t6setup')).toHaveAttribute('href', setup);
@@ -287,7 +310,7 @@ test("Play offline starts Black Ops II on the player's PC, and says what the lau
   expect((await launcher('/launcher/stopped')).status).toBe(200);
   await expect(ann.locator('#playalone')).toHaveText('Launch game');
   // the browser keeps the pick, which is the game of the rooms too: the room she makes next is of Black Ops II, and a
-  // pick for a room is Play offline's
+  // pick for a room is Play local's
   await ann.reload();
   await expect(ann.locator('#solotitle')).toHaveText('Black Ops II');
   await ann.locator('#soloback').click();
@@ -300,7 +323,7 @@ test("Play offline starts Black Ops II on the player's PC, and says what the lau
   await expect(titles.getByRole('radio', { name: 'Black Ops', exact: true })).toHaveAttribute('aria-checked', 'true');
   await titles.getByRole('radio', { name: 'Black Ops II', exact: true }).click();
   await expect(ann.locator('#solotitle')).toHaveText('Black Ops II');
-  // and the leaderboards' game: they open on Black Ops II, and a pick there is Play offline's
+  // and the leaderboards' game: they open on Black Ops II, and a pick there is Play local's
   await ann.locator('#boardsopen').click();
   const boardTitles = ann.locator('#boardtitles');
   await expect(boardTitles.getByRole('radio', { name: 'Black Ops II', exact: true }))
@@ -334,7 +357,32 @@ test("Play offline starts Black Ops II on the player's PC, and says what the lau
   await expect(bea.locator('#playalone')).toHaveText('Launch game');
 });
 
-test("a room's game counts as its players' pick: for their next room, the leaderboards and Play offline", async ({ player }) => {
+test("Play local says a Mac's own way to Plutonium's online servers: plutonium-mac-aio's line", async (
+  { player }) => {
+  const ann = await player('Ann', { query: 'mac=1' }); // a Mac's page, on this PC
+  await ann.locator('#soloopen').click();
+  await ann.locator('#solotitles').getByRole('radio', { name: 'Black Ops II', exact: true }).click();
+  await expect(ann.locator('#solodesc')).toHaveText(
+    'Launches the game on this Mac through Plutonium, in LAN mode. Offline, and no account needed.');
+  const own = ann.locator('#soloown');
+  await own.getByRole('button', { name: "For Plutonium's online servers" }).click();
+  await expect(own.getByRole('listitem')).toHaveText([
+    /^With Zombies Launcher installed, start Plutonium's own launcher from Terminal:/,
+    'Sign in with a free Plutonium account.',
+    'At Black Ops II, press Setup, enter your game folder, then press Play.',
+  ]);
+  await expect(own.getByText('game folder', { exact: true }))
+    .toHaveAttribute('title', "Zombies Launcher's menu in the menu bar shows the folder it uses.");
+  // plutonium-mac-aio's own line, in the folder that the launcher's setup has it in (launcher/mac.sh: aio)
+  await expect(own.locator('.codeline')).toHaveText('~/plutonium-mac-aio/launch.sh');
+  // the steps are made once, and stay open: a view of the lobby later, they are the same three
+  await ann.locator('#playalone').click();
+  await expect(ann.locator('#t6mac')).toBeVisible({ timeout: 15000 });
+  await expect(own.getByRole('listitem')).toHaveCount(3);
+  await expect(own.getByRole('list')).toBeVisible();
+});
+
+test("a room's game counts as its players' pick: for their next room, the leaderboards and Play local", async ({ player }) => {
   const ann = await player('Ann');
   const bea = await player('Bea');
   const code = await makeRoom(ann);

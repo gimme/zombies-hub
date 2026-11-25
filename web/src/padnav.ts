@@ -10,7 +10,7 @@
 //   - A presses the control that has the focus. In a text field, A is Enter (activate).
 //   - B goes back (back).
 //   - Start opens the options menu, and closes it, as the game's Start does with its menu. It opens the menu where the
-//     view has the button for it: a room on a Black Ops map, or the page to play offline (settingsButton). The
+//     view has the button for it: a room on a Black Ops map, or the page to play locally (settingsButton). The
 //     options menu has a cursor of its own, which takes the presses while the menu is open (settings.ts: pad).
 //   - The right stick scrolls (scroll).
 //
@@ -283,7 +283,7 @@ const usable = (e: Element & { disabled?: boolean }) =>
   !e.disabled && e.getClientRects().length > 0 && getComputedStyle(e).visibility !== 'hidden';
 
 // Returns the button of the view that shows which opens the options menu, or undefined where the view has none: the
-// page to play offline's, or the room's on a Black Ops map (main.ts: settingsInit).
+// one of the page to play locally, or the room's on a Black Ops map (main.ts: settingsInit).
 const settingsButton = (): HTMLElement | undefined => [$('settings'), $('roomsettings')].find(usable);
 
 // Returns the controls that the focus can go to, in the page's order.
@@ -296,7 +296,7 @@ const focused = (list: HTMLElement[]): HTMLElement | null => {
 };
 
 // Returns the grid of maps of the view that shows, or null. A room has one, which its host picks from while the room
-// has no game. The page to play offline has the other. No grid counts while a question shows.
+// has no game. The page to play locally has the other. No grid counts while a question shows.
 const maps = (): HTMLElement | null =>
   [$('mapgrid'), $('solomaps')].find((g) => g.getClientRects().length && !asking()) || null;
 
@@ -482,7 +482,7 @@ function enter(way: Way, list: HTMLElement[]): HTMLElement | null {
 // row, whose one control is at the far right, to the buttons of Room size under it.
 //
 // Out of its own group, or in no group, the focus goes first to the next row of what is in line with it. It goes to
-// another column only when nothing is in line. Up from the maps to play offline goes to the header above them, not to
+// another column only when nothing is in line. Up from the maps to play locally goes to the header above them, not to
 // Back to the lobby, which ends a little above them in the column beside.
 //
 // The span kept. While the focus goes on up or down, it keeps the span across the way of the control where it began
@@ -599,7 +599,7 @@ function activate(e: HTMLElement): void {
 //   - the player is ready in a room: they are no longer ready
 //   - the view has maps, and the focus is not on them: the focus goes back to the picked map
 //   - the leaderboards show: they go back to what showed before them
-//   - the page to play offline shows: it goes back to the lobby
+//   - the page to play locally shows: it goes back to the lobby
 //   - a room shows: the player leaves it once they say so (question.ts: askLeave). B is then on the maps, or the room
 //     shows no maps, because it is another player's or has a game.
 //   - the results of a game show: their Back button is clicked

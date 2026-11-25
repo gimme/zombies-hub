@@ -7,7 +7,7 @@
 //
 // Each game that the server hosts has boards of its own. The player picks first the game, on a server of two, then
 // the kind of board that the game has (Rounds, Easter eggs), which stays as they pick another game, then a map, or all
-// of them (titles.ts: pickBoard). The game is the one they last picked, here, in Play offline, or by being in a room
+// of them (titles.ts: pickBoard). The game is the one they last picked, here, in Play local, or by being in a room
 // of it, which the browser keeps (maps.ts: lastTitle). In a room, the boards open on the room's game, until they pick
 // another.
 //

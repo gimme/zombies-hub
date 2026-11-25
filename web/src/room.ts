@@ -294,7 +294,7 @@ export function showT6(v: View, room: Room): void {
 }
 
 /**
- * Puts what installs the launcher (#t6install) into box: the room's box for Black Ops II, or Play offline's (solo.ts).
+ * Puts what installs the launcher (#t6install) into box: the room's box for Black Ops II, or Play local's (solo.ts).
  * The two never show at once, so the page has it once, and draws it wherever it is (showInstall).
  */
 export function placeInstall(box: HTMLElement): void {
@@ -339,7 +339,7 @@ export function showInstall(v: View, wanted: boolean): void {
   const kind = line ? 'mac' : 'pc';
   if (about.dataset.of !== kind) {
     about.dataset.of = kind;
-    about.replaceChildren(...(line ? ABOUT_MAC : ABOUT_PC).map(part => typeof part === 'string' ? part : site(part)));
+    about.replaceChildren(...inWords(line ? ABOUT_MAC : ABOUT_PC));
   }
   for (const b of $('t6install').querySelectorAll('button.what')) b.setAttribute('aria-expanded', String(aboutShown));
 }
@@ -348,7 +348,7 @@ export function showInstall(v: View, wanted: boolean): void {
 // site. The words name no game, as the launcher is to start more than one. A Mac's are of what the line for Terminal
 // installs (launcher/mac.sh). The app that removes the launcher there is "run": opened, it could be taken for the
 // launcher's menu in the menu bar.
-type Words = (string | [name: string, href: string])[];
+export type Words = (string | [name: string, href: string] | { text: string; hint: string })[];
 export const PLUTONIUM: [string, string] = ['Plutonium', 'https://plutonium.pw/'];
 const ABOUT_PC: Words = ['Zombies Launcher is a small program that helps start the game on this PC and connects it ' +
   'to the room. It also installs the required game client (', PLUTONIUM, ').'];
@@ -357,6 +357,18 @@ const ABOUT_MAC: Words = ['This script installs Zombies Launcher: a small progra
   'compatibility tool (', ['plutonium-mac-aio', 'https://github.com/LuidgiAlt/plutonium-mac-aio'], '). That can ' +
   'take a few minutes. To uninstall the launcher, run the "Zombies Launcher" app.'];
 let aboutShown = false; // whether the "?" was clicked, and shows it
+
+/**
+ * Words for the page: their text, each site they name as a link to it, and words with a hint, which shows when the
+ * pointer is on them.
+ */
+export const inWords = (words: Words): (string | HTMLElement)[] => words.map((part) => {
+  if (typeof part === 'string') return part;
+  if (Array.isArray(part)) return site(part);
+  const span = el('span', 'hint', part.text);
+  span.title = part.hint;
+  return span;
+});
 
 /** A link to a site, which opens in a tab of its own: the page stays. */
 export function site([name, href]: [string, string]): HTMLAnchorElement {
@@ -624,7 +636,7 @@ export function roomInit(): void {
     b.onclick = () => {
       aboutShown = !aboutShown;
       if (view && view.room) showT6(view, view.room);
-      else if (view) showInstall(view, true); // in Play offline
+      else if (view) showInstall(view, true); // in Play local
     };
   }
   $('leave').onclick = async () => (await mayLeaveGame()) && act('leave');

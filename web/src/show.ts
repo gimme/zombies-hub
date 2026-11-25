@@ -2,11 +2,11 @@
 //
 // The server describes the lobby to the player as a view (api.ts: View), and sends a new one each time something
 // changes (session.ts: listen). show takes a view and draws every part of the page from it: the player's name and
-// picture, the list of rooms, the page to play offline, the room, how its last game went, and the leaderboards. It
+// picture, the list of rooms, the page to play locally, the room, how its last game went, and the leaderboards. It
 // also does what the view asks of the page: join the room's game, or leave it.
 //
-// The URL says which room the player is in (?room=), for a reload or a link, and whether the page to play offline
-// (?offline=1) or the leaderboards (?boards=1) show. Going into each of them is a step in the browser's history, which
+// The URL says which room the player is in (?room=), for a reload or a link, and whether the page to play locally
+// (?local=1) or the leaderboards (?boards=1) show. Going into each of them is a step in the browser's history, which
 // Back goes back from (the popstate listener below).
 import type { View } from './api';
 import { setBackdrop } from './backdrop';
@@ -67,7 +67,7 @@ export function show(v: View): void {
   // lobby takes a new name.
   showName(v.you.name, offline || (!!room && room.state !== 'open'));
   showPictures(v);
-  // In a room, the page to play offline closes. Another tab of the player's may have joined the room.
+  // In a room, the page to play locally closes. Another tab of the player's may have joined the room.
   if (room) closeSolo();
   roomSounds(room);
   if ((room ? room.code : '') !== shownRoom) {
@@ -81,7 +81,7 @@ export function show(v: View): void {
     const said = urlRoom(url);
     if (room) url.searchParams.set('room', room.code);
     else url.searchParams.delete('room');
-    if (room) url.searchParams.delete('offline');
+    if (room) url.searchParams.delete('local');
     url.searchParams.delete('autostart');
     if (room && !from && said !== room.code) {
       history.pushState(null, '', url);
@@ -190,7 +190,7 @@ window.addEventListener('popstate', () => {
   soloFollowUrl(url);
   boardsFollowUrl(url);
   // The view that the step closed or opened plays its sound: the leaderboards, which are over whatever shows, or the
-  // page to play offline, which a room does not show.
+  // page to play locally, which a room does not show.
   if (boardsOpen !== was.boards) menuSound(boardsOpen);
   else if (soloOpen !== was.solo && !(view && view.room)) menuSound(soloOpen);
   // Back from a room leaves the room, as Leave room does, and asks first when the player has a seat in its game. A
@@ -222,7 +222,7 @@ window.addEventListener('popstate', () => {
 
 /**
  * Goes to the lobby's front, at a click on the page's title: out of the leaderboards, out of the page to play
- * offline, or out of the room, as Leave room does. A click with Ctrl or another modifier opens the front in a new
+ * locally, or out of the room, as Leave room does. A click with Ctrl or another modifier opens the front in a new
  * tab, as a link does.
  */
 export function openHome(e: MouseEvent): void {

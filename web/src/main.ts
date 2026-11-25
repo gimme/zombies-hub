@@ -19,7 +19,7 @@
 //   ?room=KXQM            joins that room. A room's link has it.
 //   ?autostart=1          plays at once: makes a private room and says that the player is ready, which starts its
 //                         game. With ?room=, it only joins the room.
-//   ?offline=1            shows the page to play offline (solo.ts)
+//   ?local=1              shows the page to play locally (solo.ts)
 //   ?boards=1             shows the leaderboards (boards.ts)
 //   &name=Ann             the player's name. It is kept for the next visit, as a name that is typed in is.
 //   ?mac=1                shows a Mac's page on a PC, and ?mac=0 a PC's on a Mac: a Black Ops II room's line that
@@ -158,7 +158,7 @@ function makePlayer(host: Host): void {
   }));
 }
 
-// Makes the buttons work that open Black Ops' options menu (settings.ts): the one of the page to play offline, and
+// Makes the buttons work that open Black Ops' options menu (settings.ts): the one of the page to play locally, and
 // the one of a room on a Black Ops map. The views show them (solo.ts, room.ts). The menu changes the player's config,
 // which the browser's store keeps for the next game. A game starts once the changes are saved (game.ts: startEngine).
 // When the menu closes, the focus is back on the button that opened it.

@@ -1,12 +1,13 @@
-// A map played alone, from the lobby's Play offline: no room and no game on the server; at game over the page is back
-// in the lobby, which says so for a moment and offers to play again. Play offline is Black Ops, and has its options
+// A map played alone, from the lobby's Play local: no room and no game on the server; at game over the page is back
+// in the lobby, which says so for a moment and offers to play again. Play local is Black Ops, and has its options
 // menu under Play.
 import { expect, said, test } from '../fixtures';
 
-test("Play offline has Black Ops' options menu, which closes back to its button", async ({ player }) => {
+test("Play local has Black Ops' options menu, which closes back to its button", async ({ player }) => {
   const eve = await player('Eve');
   await expect(eve.locator('#settings')).toBeHidden();
   await eve.locator('#soloopen').click();
+  await expect(eve).toHaveURL(/[?&]local=1(&|$)/); // the view's own URL, which a reload keeps
   const button = eve.locator('#solo #settings');
   await expect(button).toHaveText('Black Ops settings');
   await button.click();

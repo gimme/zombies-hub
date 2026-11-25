@@ -187,7 +187,7 @@ export function playSound(name: string, gesture = false, level = 1): void {
 
 /**
  * Plays the sound of one of the game's large menus opening or closing. A view of the lobby that opens over it as such
- * a menu does plays them: the maps to play offline, like the game's Zombies map select (levels_zombie, in frontend.ff
+ * a menu does plays them: the maps to play locally, like the game's Zombies map select (levels_zombie, in frontend.ff
  * and patch.ff), and the leaderboards, like the game's (menu_leaderboards). The game's menu plays
  * uin_navigation_menu_lg_open when it opens, and uin_navigation_menu_lg_close when Esc or its Back closes it, after
  * uin_navigation_over (soundsInit: BACK). The page plays them when the player opens such a view (gesture: the click on

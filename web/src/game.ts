@@ -2,7 +2,7 @@
 //
 // The page plays one of three games:
 //   - its room's game: the engine joins the server at the player's seat (joinUnlessElsewhere, playHere)
-//   - a map alone from the lobby, Play offline: the engine runs the game itself, on no server (playAlone)
+//   - a map alone from the lobby, Play local: the engine runs the game itself, on no server (playAlone)
 //   - a map alone on a page of its own, ?map=, which shows no lobby (playMapAlone)
 //
 // The engine says when its game ends, and why (bo1-zombies/src/client_mp/cl_main_mp.cpp: CL_GameEnded): game over, the
@@ -46,7 +46,7 @@ export interface LastEnd {
 
 /**
  * How the player's last game ended, or null. The room says it once the page is back (room.ts), or the page to play
- * offline does (solo.ts). A page that had to reload as its game ended kept it in the session's storage.
+ * locally does (solo.ts). A page that had to reload as its game ended kept it in the session's storage.
  */
 export let lastEnd: LastEnd | null = null;
 try {
@@ -308,7 +308,7 @@ async function joinGame(room: Room): Promise<void> {
 /** Whether this page plays a map alone. */
 export let solo = false;
 
-/** Plays the map that the player picked to play offline (maps.ts: soloMapName). */
+/** Plays the map that the player picked to play locally (maps.ts: soloMapName). */
 export async function playAlone(): Promise<void> {
   const name = view ? soloMapName(view) : '';
   if (!name || started) return;
