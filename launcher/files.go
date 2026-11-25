@@ -154,7 +154,7 @@ func (la *launcher) gameFiles(ctx context.Context, srv *server, l link, play *la
 		} else if own, _, err := la.askFiles(l.host, nil, dir); err != nil || own != "" {
 			return own, err
 		}
-		return "", errors.New("Couldn't find Black Ops II on this PC. Install it from Steam, then join from the room's page again.")
+		return "", errors.New("Couldn't find Black Ops II on this PC. Install it from Steam, then try again.")
 	}
 	list, err := srv.files(ctx)
 	if err != nil {

@@ -5,7 +5,7 @@
 //	zombies-launcher://<host>[:<port>]/play?key=<key>[&tls=0]
 //	zombies-launcher://<host>[:<port>]/play?solo=1&name=<name>[&key=<key>][&tls=0]
 //
-// The second is the lobby's Play offline: the launcher starts Black Ops II at its menu, for the player to play alone
+// The second is the lobby's Play local: the launcher starts Black Ops II at its menu, for the player to play alone
 // under their name, and joins no room's game. Its key is there when the page could reach its server, and the
 // launcher then calls the server as for a room, which shows how far the launcher is. Without it the launcher calls
 // no server: the page was the browser's copy, and the PC plays from what it has. An older launcher takes the link for

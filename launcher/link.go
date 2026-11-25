@@ -13,7 +13,7 @@ import (
 )
 
 // link has what a link on the server's page names (launcherapi): the server, and the player's key on that server. A
-// link of the page's Play offline asks to play alone (solo), under the player's name. Such a link has no key when the
+// link of the page's Play local asks to play alone (solo), under the player's name. Such a link has no key when the
 // page has no server: it was the browser's copy of the page. The launcher then calls no server.
 type link struct {
 	base string // the address of the server's page: https://host[:port], or http:// for a server on plain HTTP
@@ -41,7 +41,7 @@ var (
 	linkKey  = regexp.MustCompile(`^[0-9a-f]{8,64}$`)
 )
 
-var errLink = errors.New("The launcher doesn't recognise this link. Join from the room's page again.")
+var errLink = errors.New("The launcher doesn't recognise this link. Try again from the page.")
 
 // parseLink parses a link strictly, because what the link names goes into the addresses that the launcher calls and
 // onto the game's command line. Any page can have a link of the launcher's scheme, and Windows passes the launcher

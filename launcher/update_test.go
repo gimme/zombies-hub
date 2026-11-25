@@ -246,8 +246,8 @@ func TestTooOldForTheServer(t *testing.T) {
 	tl.again("")
 	setup := launcherapi.LatestFile(releases.url(), launcherapi.Setup)
 	if code := tl.run(context.Background(), []string{l.link()}); code != 1 || len(tl.started) != 0 ||
-		!strings.Contains(tl.out.String(), "This launcher is too old for this server. Install the new one, then join "+
-			"from the room's page again: "+setup) {
+		!strings.Contains(tl.out.String(), "This launcher is too old for this server. Install the new one, then try "+
+			"again: "+setup) {
 		t.Errorf("too old: %d, started %+v\n%s", code, tl.started, tl.out)
 	}
 	// a launcher that stays ends, so that the next link starts the launcher that is installed then

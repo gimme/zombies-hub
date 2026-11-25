@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -23,7 +24,7 @@ func ownCopy(t *testing.T, tl *testLauncher) string {
 	return dir
 }
 
-// The lobby's Play offline starts the game at its menu, under the player's name as the server has it, and joins no
+// The lobby's Play local starts the game at its menu, under the player's name as the server has it, and joins no
 // room's game. Any complete copy of Plutonium does: the launcher contacts Plutonium's updater only for a PC that has
 // none, and not when the server's copy is of another revision.
 func TestAlone(t *testing.T) {
@@ -46,17 +47,22 @@ func TestAlone(t *testing.T) {
 		}
 	}
 	run("a PC without Plutonium", true)
+	// Plutonium's own launcher, which has not run on this PC, finds the game's folder set
+	config := filepath.Join(tl.plutonium, plutoniumConfig)
+	if said, _ := json.Marshal(map[string]string{"t6Path": own}); read(t, config) != string(said) {
+		t.Errorf("Plutonium's settings: %s, and not %s", read(t, config), said)
+	}
 	*tl.revision = 2
 	l.mu.Lock()
 	l.play.Plutonium = 2
 	l.mu.Unlock()
 	run("a copy of another revision than the server's", false)
-	if !strings.Contains(tl.out.String(), "Black Ops II is starting at its menu, for you to play solo as Ann.") {
+	if !strings.Contains(tl.out.String(), "Black Ops II is starting at its menu, for you to play as Ann.") {
 		t.Errorf("what the launcher said:\n%s", tl.out)
 	}
 }
 
-// A link of Play offline from a page that has no server: the launcher calls no server and asks nothing of one, but
+// A link of Play local from a page that has no server: the launcher calls no server and asks nothing of one, but
 // starts the game alone under the link's name, from what the PC has.
 func TestAloneWithNoServer(t *testing.T) {
 	l := newFakeServer(t)
@@ -77,7 +83,7 @@ func TestAloneWithNoServer(t *testing.T) {
 	}
 }
 
-// A launcher in the tray, for its player's rooms, starts their game alone when they press Play offline, and stays with
+// A launcher in the tray, for its player's rooms, starts their game alone when they press Play local, and stays with
 // it: a room's game that they then ready up for joins from the game that runs, through its console.
 func TestAloneFromTheTray(t *testing.T) {
 	l := newFakeServer(t)
@@ -116,7 +122,7 @@ func TestAloneFromTheTray(t *testing.T) {
 		defer l.mu.Unlock()
 		return slices.ContainsFunc(l.reports, func(r launcherapi.Report) bool { return r.Doing == "Launching the game" })
 	})
-	// another press of Play offline while the game runs starts no second one
+	// another press of Play local while the game runs starts no second one
 	tl.solo <- struct{}{}
 	time.Sleep(50 * time.Millisecond)
 	// the room's game, which the game that runs joins from its menu

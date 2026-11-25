@@ -207,7 +207,7 @@ type testLauncher struct {
 	games     []*fakeGame
 	gameStays bool
 	button    chan struct{} // gets a value each time the player presses the room's button
-	solo      chan struct{} // gets a value each time the player presses the lobby's Play offline
+	solo      chan struct{} // gets a value each time the player presses the lobby's Play local
 	// the stand-in for Plutonium's updater, and the revision it serves
 	updater  *plutoniumtest.Updater
 	revision *int
@@ -353,7 +353,7 @@ func TestParseLink(t *testing.T) {
 			host: "10.0.50.11", key: "0123456789abcdef"},
 		"zombies-launcher://tower/play?key=0123456789abcdef&tls=1": {base: "https://tower", host: "tower", tls: true,
 			key: "0123456789abcdef"},
-		// the lobby's Play offline: with the key, or with none from a page that has no server
+		// the lobby's Play local: with the key, or with none from a page that has no server
 		"zombies-launcher://10.0.50.11:3075/play?solo=1&name=Ann&tls=0": {base: "http://10.0.50.11:3075",
 			host: "10.0.50.11", solo: true, name: "Ann"},
 		"zombies-launcher://zombies.example.com/play?solo=1&name=Ann+B%22&key=0123456789abcdef": {
@@ -676,6 +676,11 @@ func TestPlayWaitsForTheGame(t *testing.T) {
 	}
 	if len(tl.started) != 1 || !strings.Contains(tl.started[0].line, `t6zm "`+own+`" -lan +name "Ann" +set password pw`) {
 		t.Errorf("started: %+v", tl.started)
+	}
+	// the game's folder is noted for Plutonium's own launcher, which has not run on this PC
+	config := read(t, filepath.Join(tl.plutonium, plutoniumConfig))
+	if said, _ := json.Marshal(map[string]string{"t6Path": own}); config != string(said) {
+		t.Errorf("Plutonium's settings: %s, and not %s", config, said)
 	}
 	if out := tl.out.String(); !strings.Contains(out, "Waiting for room ABCD's game") || strings.Count(out, "Waiting") != 1 ||
 		!strings.Contains(out, "your own copy, in "+own) {

@@ -147,7 +147,7 @@ func (la *launcher) startFrom(dir string) (string, error) {
 	case !la.state.chosen:
 		return dir, nil
 	case la.state.dir == "":
-		return "", errors.New("The downloaded game files were deleted. Join from the room's page again.")
+		return "", errors.New("The downloaded game files were deleted. Try again from the page.")
 	}
 	return la.state.dir, nil
 }

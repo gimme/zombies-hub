@@ -11,7 +11,7 @@
 //	zombies-launcher.exe zombies-launcher://<host>[:<port>]/play?key=<key>[&tls=0]
 //	                                     what a link runs: play the game of the player's room
 //	zombies-launcher.exe zombies-launcher://<host>[:<port>]/play?solo=1&name=<name>[&key=<key>][&tls=0]
-//	                                     what the lobby's Play offline runs: start the game for the player alone
+//	                                     what the lobby's Play local runs: start the game for the player alone
 //	zombies-launcher.exe uninstall       remove it from the PC
 //
 // Started by a link, the launcher:
@@ -104,7 +104,7 @@ type launcher struct {
 	start func(exe, commandLine, dir string) (game, error)
 	// pressed gets a value each time the player asks to join again with the room's button. The button opens a link.
 	// That link starts another launcher, which finds this launcher running, signals it, and ends (main). solos gets a
-	// value each time the player asks to play alone, with the lobby's Play offline, in the same way.
+	// value each time the player asks to play alone, with the lobby's Play local, in the same way.
 	pressed, solos <-chan struct{}
 	// clicked is set for a run that the player started with the room's button: the launcher's first, and each one
 	// after a press. Such a run may ask the player about a copy of the game that lacks the room's map (askMissing). A
@@ -474,14 +474,14 @@ func (la *launcher) renew(ctx context.Context, url string, files, giveUp func())
 	}
 	giveUp()
 	if err := la.rerun(la.installed(), url); err != nil {
-		return false, fmt.Errorf("The launcher updated itself, but the new one couldn't be started: %v\nJoin from the room's page again.", err)
+		return false, fmt.Errorf("The launcher updated itself, but the new one couldn't be started: %v\nTry again from the page.", err)
 	}
 	la.handed = true
 	return true, nil
 }
 
 // idle waits for something to play. It makes no call: it waits for the next answer of the call that is open to the
-// server (server.watch), or for the player to press the room's button (pressed) or the lobby's Play offline (solos).
+// server (server.watch), or for the player to press the room's button (pressed) or the lobby's Play local (solos).
 // It returns true when the player is in a Black Ops II room whose game the player's game isn't in, or when the player
 // presses either, and solo when they asked to play alone. It does not return for the room's game that the player's
 // game just left: the player has to ask for that one. After a try that failed, it returns only when the player
@@ -828,6 +828,7 @@ func (la *launcher) launch(ctx context.Context, srv *server, l link, play *launc
 	}
 	la.started(g)
 	la.launched = true
+	la.tellPlutonium(dir)
 	la.say("")
 	la.say("Black Ops II is starting, and joins the room's game as %s.", to.Name)
 	return g, dir, nil
@@ -977,7 +978,7 @@ func (la *launcher) stayWith(ctx context.Context, srv *server, l link, g game, d
 	return nil
 }
 
-// alone prepares the PC and starts the player's game at its menu, for them to play alone: the lobby's Play offline
+// alone prepares the PC and starts the player's game at its menu, for them to play alone: the lobby's Play local
 // (launcherapi). Their game joins no server's, so any revision of Plutonium does. The PC's copy does as it is, and
 // the launcher contacts Plutonium only when the copy is not complete, as before the PC's first game (havePlutonium).
 // A PC that has played so plays alone with no internet. The game files are found as for a room's game (gameFiles).
@@ -1011,8 +1012,9 @@ func (la *launcher) alone(ctx context.Context, srv *server, l link, play *launch
 	}
 	la.started(g)
 	la.launched = true
+	la.tellPlutonium(from)
 	la.say("")
-	la.say("Black Ops II is starting at its menu, for you to play solo as %s.", gameName(play.Player))
+	la.say("Black Ops II is starting at its menu, for you to play as %s.", gameName(play.Player))
 	if srv == nil {
 		return nil
 	}

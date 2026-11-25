@@ -12,7 +12,7 @@
 #
 #   setup [<Black Ops II folder>]   install the launcher, or bring it up to date; with no command, the script does this
 #   folder <Black Ops II folder>    point the launcher at a copy of the game
-#   link <link>                     start the launcher with a link, as a room's Connect button or Play offline does
+#   link <link>                     start the launcher with a link, as a room's Connect button or Play local does
 #   game [<name>]                   start Black Ops II by hand, without the launcher
 #   check <host>[:<port>]           see whether the launcher reaches a server, from Terminal and through the app
 #   log                             show the end of the launcher's log and of Wine's
@@ -30,6 +30,14 @@
 # On a Mac that has none, setup downloads it, at the commit below. Its own setup.sh then downloads its Wine and makes
 # the Wine prefix, prefix/. setup tells it to leave Plutonium out (AIO_SKIP_PLUTONIUM): its way to get Plutonium asks
 # for a Plutonium account, and the launcher downloads Plutonium itself, as on Windows.
+#
+# Plutonium's own launcher plays in the same prefix, on the same copy of Plutonium, for a player who signs in to
+# Plutonium for its online servers: plutonium-mac-aio's launch.sh starts it, as its README says, and the launcher's
+# page says so too. As on Windows, the two keep the one copy up to date between them (internal/plutonium:
+# Copy.State). launch.sh starts Plutonium's updater, which brings all of Plutonium up to date and then opens its
+# launcher, when Plutonium's folder has it. A setup that left Plutonium out has put none there, and launch.sh would
+# start Plutonium's launcher as it is, on the files that this launcher downloaded, which nothing else updates. So
+# setup fetches the updater (get_updater).
 #
 # Of the launcher, setup makes:
 #   - the folder ~/Library/Application Support/Zombies Launcher, which is where a Mac's apps keep what is theirs. All
@@ -77,6 +85,9 @@ name=zombies-launcher-mac.sh
 script_url=$latest/$name
 icon_url=$latest/zombies-launcher.png
 scheme=zombies-launcher
+# Plutonium's updater (get_updater), where plutonium-mac-aio's manifest.txt has it. It has no checksum there either:
+# Plutonium changes the file as it updates it.
+updater_url=https://cdn.plutonium.pw/updater/plutonium.exe
 app_name="Zombies Launcher" # the launcher's name, and its folder's (update.go: appName)
 # What macOS shows when it asks whether the app may use the microphone. An AppleScript app's own text says that the
 # script needs it to run, which the game does not.
@@ -314,6 +325,23 @@ aio_setup() {
     [ -x "$engine/lib/wine/x86_64-unix/wine" ] || die "plutonium-mac-aio's setup left no Wine in $engine"
 }
 
+# get_updater puts Plutonium's updater into Plutonium's folder, where plutonium-mac-aio's launch.sh looks for it
+# (start_target), unless Plutonium has put one there. The folders have to be set. It is a download from Plutonium, over
+# HTTPS, as the files are that the launcher downloads of Plutonium.
+get_updater() {
+    local to=$plutonium/plutonium.exe
+    if [ -f "$to" ] || [ -f "$plutonium/launcher/plutonium.exe" ]; then
+        return 0
+    fi
+    mkdir -p "$plutonium"
+    if ! curl -fsSL --retry 2 --connect-timeout 20 -o "$to.part" "$updater_url" ||
+        [ "$(head -c 2 "$to.part")" != MZ ]; then
+        rm -f "$to.part"
+        return 1
+    fi
+    mv -f "$to.part" "$to"
+}
+
 # keep_script puts this script into the launcher's folder, where the app runs it. The script is a file, or it is the
 # text that "bash -c" was given, which is how the line of a room's page runs it. A script that reached bash another
 # way, as through a pipe, is fetched again from where that line has it.
@@ -549,6 +577,7 @@ cmd_setup() {
     folders
     link_folder
     get_launcher
+    get_updater || true # the launcher needs none: it is for plutonium-mac-aio's launch.sh
     if [ -n "$t6" ]; then
         set_folder "$t6"
     elif ! t6_folder > /dev/null && has_t6 "$steam"; then

@@ -272,7 +272,7 @@ func (p *process) join(line string) error {
 }
 
 // presses returns two channels, each of which gets a value each time the player asks something of their launcher (id)
-// while it runs: join, to join again (the room's button), and solo, to play alone (the lobby's Play offline). Each
+// while it runs: join, to join again (the room's button), and solo, to play alone (the lobby's Play local). Each
 // waits for a Windows event. The launcher that another link of theirs starts sets the event (press) before it ends.
 func presses(id string) (join, solo <-chan struct{}) {
 	return pressesOf(id, "join"), pressesOf(id, "solo")

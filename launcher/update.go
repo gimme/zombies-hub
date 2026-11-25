@@ -226,9 +226,9 @@ func (la *launcher) tooOld() error {
 	setup := launcherapi.LatestFile(la.releases, launcherapi.Setup)
 	if la.version <= 0 {
 		return oldError("This launcher is a dev build, and this server only accepts released launchers. Install the " +
-			"latest release, then join from the room's page again: " + setup)
+			"latest release, then try again: " + setup)
 	}
-	return oldError(errOld.Error() + " Install the new one, then join from the room's page again: " + setup)
+	return oldError(errOld.Error() + " Install the new one, then try again: " + setup)
 }
 
 // oldError is errOld, with what the player can do about it.
