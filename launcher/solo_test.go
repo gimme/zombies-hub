@@ -20,7 +20,7 @@ func ownCopy(t *testing.T, tl *testLauncher) string {
 	dir := filepath.Join(t.TempDir(), "Black Ops II")
 	write(t, filepath.Join(dir, "zone", "all", "patch_zm.ff"), "the patch")
 	write(t, filepath.Join(dir, "binkw32.dll"), "bink")
-	tl.copies = func() []string { return []string{dir} }
+	tl.copies = func(*title) []string { return []string{dir} }
 	return dir
 }
 

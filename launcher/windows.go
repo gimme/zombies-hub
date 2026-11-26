@@ -18,6 +18,7 @@ import (
 	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/registry"
 
+	"zombies/internal/boiii"
 	"zombies/internal/launcherapi"
 )
 
@@ -113,21 +114,24 @@ func regStrings(root registry.Key, path, name string) []string {
 	return out
 }
 
-// steamCopies returns the folders where Steam may have installed Black Ops II. The game is three Steam apps (Zombies,
-// the campaign, multiplayer), and the registry has an install folder for each. The other folders are the one in the
-// key of the game's own installer, and the game's folder in each library of the installed Steam.
-func steamCopies() []string {
+// steamCopies returns the folders where Steam may have installed the title t. A game is one Steam app or more (Black
+// Ops II is three: Zombies, the campaign, multiplayer), and the registry has an install folder for each. The other
+// folders are the one in the key of the game's own installer, which Black Ops II has, and the game's folder in each
+// library of the installed Steam.
+func steamCopies(t *title) []string {
 	var dirs []string
-	for _, app := range []string{"212910", "202970", "202990"} {
+	for _, app := range t.apps {
 		dirs = append(dirs, regStrings(registry.LOCAL_MACHINE,
 			`SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Steam App `+app, "InstallLocation")...)
 	}
-	dirs = append(dirs, regStrings(registry.LOCAL_MACHINE, `SOFTWARE\Activision\Black Ops II`, "InstallPath")...)
+	if t == titleT6 {
+		dirs = append(dirs, regStrings(registry.LOCAL_MACHINE, `SOFTWARE\Activision\Black Ops II`, "InstallPath")...)
+	}
 	steam := regStrings(registry.CURRENT_USER, `Software\Valve\Steam`, "SteamPath")
 	steam = append(steam, regStrings(registry.LOCAL_MACHINE, `SOFTWARE\Valve\Steam`, "InstallPath")...)
 	steam = append(steam, `C:\Program Files (x86)\Steam`)
 	for _, s := range steam {
-		dirs = append(dirs, steamLibraries(filepath.FromSlash(s))...)
+		dirs = append(dirs, steamLibraries(filepath.FromSlash(s), t.folder)...)
 	}
 	return dirs
 }
@@ -159,7 +163,7 @@ func startProgram(exe, commandLine, dir string) (game, error) {
 		return nil, &os.PathError{Op: "start", Path: exe, Err: err}
 	}
 	windows.CloseHandle(pi.Thread)
-	p := &process{pid: pi.ProcessId, h: pi.Process}
+	p := &process{pid: pi.ProcessId, h: pi.Process, boiii: strings.EqualFold(filepath.Base(exe), boiii.Exe)}
 	if job, err := windows.CreateJobObject(nil, nil); err == nil {
 		if windows.AssignProcessToJobObject(job, p.h) == nil {
 			p.job = job
@@ -171,10 +175,12 @@ func startProgram(exe, commandLine, dir string) (game, error) {
 }
 
 // process is a program that the launcher started. pid is its process's ID, and h its process. job is the job that has
-// the process and the programs it starts, when Windows gave it one.
+// the process and the programs it starts, when Windows gave it one. boiii marks BOIII, whose console is a window of
+// its own (boiii_windows.go).
 type process struct {
 	pid    uint32
 	h, job windows.Handle
+	boiii  bool
 }
 
 // jobAccounting is Windows' JOBOBJECT_BASIC_ACCOUNTING_INFORMATION.
@@ -236,6 +242,9 @@ type keyEvent struct {
 // launcher attaches to the game's for the moment it types. A launcher that a link started has no console of its own
 // (-H=windowsgui). One started from a terminal has that terminal's, and can't attach to another.
 func (p *process) join(line string) error {
+	if p.boiii {
+		return p.typeWindow(line)
+	}
 	if r, _, err := attachConsole.Call(uintptr(p.pid)); r == 0 {
 		return fmt.Errorf("attaching to the game's console: %w", err)
 	}

@@ -14,6 +14,9 @@ import (
 //go:embed t6-programs.txt
 var t6ProgramList string
 
+//go:embed t7-programs.txt
+var t7ProgramList string
+
 // programEnds are the endings of the names of the files that Windows, or an installer, runs.
 var programEnds = []string{".exe", ".dll", ".cab", ".inf", ".bat", ".cmd", ".com", ".scr", ".msi", ".ps1", ".vbs",
 	".js", ".jar", ".lnk", ".sys", ".ocx", ".cpl", ".hta", ".wsf", ".reg"}
@@ -40,4 +43,13 @@ func knownPrograms(list string) map[string]string {
 		}
 	}
 	return known
+}
+
+// ownPrograms returns the programs that the launcher takes from a server, of each title that it starts, by the
+// title's id: the lists that the launcher has built in.
+func ownPrograms() map[string]map[string]string {
+	return map[string]map[string]string{
+		titleT6.id: knownPrograms(t6ProgramList),
+		titleT7.id: knownPrograms(t7ProgramList),
+	}
 }

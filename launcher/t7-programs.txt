@@ -1,0 +1,7 @@
+# Black Ops III's own programs, as Steam installs them: the files of the game that a PC runs rather than reads, each
+# by the hash of its contents (the first 32 hex digits of its SHA-256) and its path in the game's folder. The
+# launcher takes a program from a server only when it is one of these (programs.go). They are the game's last build,
+# which is the one that BOIII runs.
+51ca63bbc660e0826943c60da67606f6 blackops3.exe
+b1a06f7aa52439a948a152bfd3301d9b d3dcompiler_46.dll
+71af8666392acad2080a816b9f1196fe steam_api64.dll

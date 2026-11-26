@@ -20,6 +20,25 @@ type config struct {
 	// T6Files is the folder where the launcher keeps the game files it downloads, when the player named another
 	// folder than t6 in the launcher's own folder.
 	T6Files string `json:"t6Files,omitempty"`
+	// T7 and T7Files are the same two folders of Black Ops III.
+	T7      string `json:"t7,omitempty"`
+	T7Files string `json:"t7Files,omitempty"`
+}
+
+// own returns where the config has the folder of the player's own copy of a title (T6, T7), and files where it has
+// the folder of the title's game files that the launcher downloads (T6Files, T7Files), each to read or to set.
+func (c *config) own(t *title) *string {
+	if t == titleT7 {
+		return &c.T7
+	}
+	return &c.T6
+}
+
+func (c *config) files(t *title) *string {
+	if t == titleT7 {
+		return &c.T7Files
+	}
+	return &c.T6Files
 }
 
 // The run and the tray's menu (menu.go) both change the config, each on a goroutine of its own. Each change loads the

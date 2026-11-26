@@ -104,7 +104,7 @@ func updatingLauncher(t *testing.T, public string, releases *fakeReleases) (tl *
 	own := filepath.Join(t.TempDir(), "Black Ops II")
 	write(t, filepath.Join(own, "zone", "all", "patch_zm.ff"), "the patch")
 	write(t, filepath.Join(own, "binkw32.dll"), "bink")
-	tl.copies = func() []string { return []string{own} }
+	tl.copies = func(*title) []string { return []string{own} }
 	l = newFakeServer(t)
 	l.play = launcherapi.Play{Player: "Ann"}
 	return tl, installed, l

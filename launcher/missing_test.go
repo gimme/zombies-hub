@@ -48,13 +48,13 @@ func withoutPack(t *testing.T, dir string) string {
 // or has it download the server's game files, which it then plays from.
 func TestCopyWithoutTheRoomsMap(t *testing.T) {
 	root := t.TempDir()
-	own := withoutPack(t, filepath.Join(root, "Games", t6Folder))
-	whole := withoutPack(t, filepath.Join(root, "Whole", t6Folder))
+	own := withoutPack(t, filepath.Join(root, "Games", titleT6.folder))
+	whole := withoutPack(t, filepath.Join(root, "Whole", titleT6.folder))
 	write(t, filepath.Join(whole, filepath.FromSlash(tomb)), "Origins")
 	l := packs(t, transit, "")
 	tl := newTestLauncher(t, "")
 	d := answer(tl, true)
-	tl.copies = func() []string { return []string{own} }
+	tl.copies = func(*title) []string { return []string{own} }
 	run := func(what, from string, asked int) {
 		t.Helper()
 		tl.again("")
@@ -112,7 +112,7 @@ func TestCopyWithoutTheRoomsMap(t *testing.T) {
 	// a build without task dialogs asks yes or no
 	tl = newTestLauncher(t, "")
 	d = answer(tl, false)
-	tl.copies = func() []string { return []string{own} }
+	tl.copies = func(*title) []string { return []string{own} }
 	d.confirms = []bool{true}
 	run("yes, in a build without task dialogs", filepath.Join(tl.home, "t6"), 1)
 	if c := configOf(tl); c.T6 != "none" {
@@ -124,18 +124,18 @@ func TestCopyWithoutTheRoomsMap(t *testing.T) {
 	l.mu.Unlock()
 	tl = newTestLauncher(t, "")
 	d = answer(tl, true)
-	tl.copies = func() []string { return []string{own} }
+	tl.copies = func(*title) []string { return []string{own} }
 	run("a server that sends no game files", own, 0)
 }
 
 // While the player's copy lacks the room's map, the room's button says Download. A press of it starts the launcher's
 // run again, and that run asks. A run that the launcher starts by itself, for the room's next game, asks nothing.
 func TestMissingMapAsksWhenPressed(t *testing.T) {
-	own := withoutPack(t, filepath.Join(t.TempDir(), "Games", t6Folder))
+	own := withoutPack(t, filepath.Join(t.TempDir(), "Games", titleT6.folder))
 	l := packs(t, tomb, "-")
 	tl := newTestLauncher(t, "")
 	d := answer(tl, true)
-	tl.copies = func() []string { return []string{own} }
+	tl.copies = func(*title) []string { return []string{own} }
 	d.choices = []int{-1, 0} // Cancel in the run that the player's link started, then Download at their press
 	_, _, quit := stayWithTray(t, tl, l.link(), false)
 	eventually(t, "the launcher said that the folder has TranZit alone", func() bool { return l.said() == transit })
@@ -156,7 +156,7 @@ func TestMissingMapAsksWhenPressed(t *testing.T) {
 	l = packs(t, tomb, "one")
 	tl = newTestLauncher(t, "")
 	d = answer(tl, true)
-	tl.copies = func() []string { return []string{own} }
+	tl.copies = func(*title) []string { return []string{own} }
 	g, _, quit := stayWithTray(t, tl, l.link(), false)
 	eventually(t, "the game started", func() bool { return g.count() == 1 })
 	l.mu.Lock()

@@ -22,8 +22,10 @@ import (
 	"zombies/internal/plutonium"
 )
 
-// The game files that the launcher downloads are in a folder of the launcher's own. sync keeps that folder the same
-// as the server's copy of Black Ops II, file by file. Each file is downloaded into a .part file next to its place.
+// The game files that the launcher downloads are in a folder of the launcher's own, one for each title. sync keeps
+// such a folder the same as the server's copy of the title, file by file: all of the copy, or where the server sends
+// the title in packs (launcherapi.File), the packs that the run wants. Each file is downloaded into a .part file next
+// to its place.
 // The download goes on from where an earlier run stopped, when the server still has the same contents. The .part
 // file replaces the file only once its contents have the hash in the server's list. A file in the folder records
 // what the folder has (syncState): each file's size and modification time as the launcher left it, and the hash it
@@ -55,6 +57,7 @@ type syncer struct {
 	la     *launcher
 	ctx    context.Context // the run's context
 	server *server
+	of     *title // the title whose game files it downloads
 	dir    string
 	state  syncState
 
@@ -68,11 +71,18 @@ type syncer struct {
 	reporting chan struct{} // holds a token while no report is being sent
 }
 
-// sync makes dir the same as the server's game files. It downloads the files that the folder lacks or has with other
-// contents, and removes the files of an earlier sync that the server no longer has. It reports how far it is, in the
-// window and to the server. got reports whether it downloaded anything.
-func (la *launcher) sync(ctx context.Context, srv *server, dir string, list *launcherapi.Files) (got bool, err error) {
-	s := &syncer{la: la, ctx: ctx, server: srv, dir: dir, reporting: make(chan struct{}, 1)}
+// sync makes dir the same as the server's game files of the run's title, which list lists. It downloads the files
+// that the folder lacks or has with other contents, and removes the files of an earlier sync that the server no
+// longer has. It reports how far it is, in the window and to the server. got reports whether it downloaded anything.
+//
+// packs names the packs of the list to download (launcherapi.File), or is nil for all of them. The files of the other
+// packs stay as the folder has them: maps that the player has not played, or parts of them. zones are the title's
+// maps' zones, by which the launcher tells that the folder has a map (hasZone). A map's zone is the last of its pack
+// to be downloaded, so that a folder has it only once it has the rest of the map.
+func (la *launcher) sync(ctx context.Context, srv *server, dir string, list *launcherapi.Files, packs map[string]bool,
+	zones []string) (got bool, err error) {
+	t := la.title()
+	s := &syncer{la: la, ctx: ctx, server: srv, of: t, dir: dir, reporting: make(chan struct{}, 1)}
 	s.reporting <- struct{}{}
 	if data, err := os.ReadFile(filepath.Join(dir, syncFile)); err == nil {
 		json.Unmarshal(data, &s.state)
@@ -92,18 +102,22 @@ func (la *launcher) sync(ctx context.Context, srv *server, dir string, list *lau
 		}
 		seen[strings.ToLower(f.Path)] = true
 		// The launcher accepts a program from a server only when it is one of the game's own (programs.go).
-		if isProgram(f.Path) && la.programs[strings.ToLower(f.Path)] != f.Hash {
-			return false, fmt.Errorf("The server's game files include a program that isn't part of Black Ops II, which the "+
-				"launcher won't download: %q. With the game installed from Steam, nothing needs downloading.", f.Path)
+		if isProgram(f.Path) && la.programs[t.id][strings.ToLower(f.Path)] != f.Hash {
+			return false, fmt.Errorf("The server's game files include a program that isn't part of %s, which the "+
+				"launcher won't download: %q. With the game installed from Steam, nothing needs downloading.", t.name, f.Path)
 		}
 	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return false, err
 	}
-	// Find the files of the list that the folder lacks or has with other contents.
+	// Find the files of the list, of the packs to download, that the folder lacks or has with other contents.
 	var todo []launcherapi.File
-	unknown := 0
+	unknown, wanted := 0, 0
 	for _, f := range list.Files {
+		if packs != nil && !packs[f.Pack] {
+			continue
+		}
+		wanted++
 		st, err := os.Stat(s.path(f.Path))
 		if err != nil || !st.Mode().IsRegular() || st.Size() != f.Size {
 			todo = append(todo, f)
@@ -149,11 +163,22 @@ func (la *launcher) sync(ctx context.Context, srv *server, dir string, list *lau
 	for _, f := range todo {
 		s.need += f.Size
 	}
+	// a map's zone comes last, after the rest of what the run downloads
+	last := func(f launcherapi.File) bool { return f.Pack != "" && slices.Contains(zones, f.Path) }
+	slices.SortStableFunc(todo, func(a, b launcherapi.File) int {
+		switch {
+		case last(a) == last(b):
+			return 0
+		case last(b):
+			return -1
+		}
+		return 1
+	})
 	if free, ok := freeBytes(dir); ok && uint64(s.need) > free {
 		return false, fmt.Errorf("The game files need %.1f GB, but the drive of %s has only %.1f GB free.", float64(s.need)/1e9,
 			dir, float64(free)/1e9)
 	}
-	la.say("Downloading %d of the game's %d files: %s.", len(todo), len(list.Files), megabytes(s.need))
+	la.say("Downloading %d of the game's %d files: %s.", len(todo), wanted, megabytes(s.need))
 	defer func() {
 		// Send the last report, once the report before it has been sent. It shows the server that no download runs
 		// now, however this one went.
@@ -413,7 +438,7 @@ func (s *syncer) request(ctx context.Context, f launcherapi.File, part string, h
 	defer cancel()
 	watchdog := time.AfterFunc(stalled, cancel)
 	defer watchdog.Stop()
-	req, err := s.server.request(ctx, http.MethodGet, "/launcher/t6/files/"+f.Path, nil)
+	req, err := s.server.request(ctx, http.MethodGet, "/launcher/"+s.of.id+"/files/"+f.Path, nil)
 	if err != nil {
 		return fatalError{err}
 	}

@@ -15,7 +15,9 @@ func unregister() error { return errWindows }
 
 func removeLater(exe, dir string) error { return errWindows }
 
-func steamCopies() []string { return nil }
+func steamCopies(*title) []string { return nil }
+
+func steamInstalled() bool { return false }
 
 func startProgram(exe, commandLine, dir string) (game, error) { return nil, errWindows }
 

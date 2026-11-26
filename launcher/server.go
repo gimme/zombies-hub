@@ -53,10 +53,14 @@ type server struct {
 	failed string
 	setup  bool
 	// has is which of the server's zones the game folder has that the player's game starts from, with commas between
-	// them (launcherapi.Play: Zones). copied is set once the launcher knows the folder. Each call that asks what to
+	// them (launcherapi.Title: Zones). copied is set once the launcher knows the folder. Each call that asks what to
 	// play then sends has (setHas).
 	copied bool
 	has    string
+	// of is the id of the title that the launcher is at, which ready and has are of (at). Each call that asks what to
+	// play sends it, when it is another than Black Ops II: a server from before the launcher started any other title
+	// takes no such word.
+	of string
 	// resting is set while the launcher has no call open (rest). wake is closed when watch is to ask again (resume).
 	resting bool
 	wake    chan struct{}
@@ -149,8 +153,11 @@ func (s *server) ask(ctx context.Context, seen string) (*launcherapi.Play, error
 		q.Set("ready", "1")
 	}
 	s.mu.Lock()
-	copied, has := s.copied, s.has
+	copied, has, of := s.copied, s.has, s.of
 	s.mu.Unlock()
+	if of != "" && of != launcherapi.T6 {
+		q.Set("of", of)
+	}
 	if copied {
 		q.Set("has", has)
 	}
@@ -328,6 +335,28 @@ func (s *server) setReady(ready bool) {
 	}
 }
 
+// at records the title that the launcher is at, for the server: what the launcher said of the PC and of the game
+// folder while it was at another title is not of this one, so it is forgotten here, as the server forgets it. The
+// next call that asks what to play says the title.
+func (s *server) at(t *title) {
+	s.mu.Lock()
+	changed := s.of != t.id && !(s.of == "" && t == titleT6)
+	if changed {
+		s.copied, s.has = false, ""
+	}
+	s.of = t.id
+	s.mu.Unlock()
+	if changed {
+		s.setReady(false)
+		s.mu.Lock()
+		renew := s.renew
+		s.mu.Unlock()
+		if renew != nil {
+			renew()
+		}
+	}
+}
+
 // setHas records which of the server's zones the game folder has that the player's game starts from, and tells the
 // server at once, as setReady does. The room then says whether the player's copy of the game has its map.
 func (s *server) setHas(zones []string) {
@@ -342,10 +371,11 @@ func (s *server) setHas(zones []string) {
 	}
 }
 
-// files asks for the list of Black Ops II's game files.
-func (s *server) files(ctx context.Context) (*launcherapi.Files, error) {
+// files asks for the list of a title's game files. The server's first list of them reads them all, which takes
+// minutes for Black Ops III.
+func (s *server) files(ctx context.Context, t *title) (*launcherapi.Files, error) {
 	var files launcherapi.Files
-	if err := s.get(ctx, "/launcher/t6/files", 20*time.Minute, &files); err != nil {
+	if err := s.get(ctx, "/launcher/"+t.id+"/files", 30*time.Minute, &files); err != nil {
 		return nil, err
 	}
 	return &files, nil

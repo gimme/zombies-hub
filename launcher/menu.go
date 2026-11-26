@@ -9,16 +9,16 @@ import (
 
 // The launcher's icon in the tray has a menu (serve), which the tray shows when the player clicks the icon. Besides
 // opening the server's page and quitting, the menu is where the player sees and changes the game files that the
-// launcher uses. A greyed line says which folder the game starts from. "Choose Black Ops II folder…" points the
+// launcher uses. A greyed line says which folder a game starts from. "Choose Black Ops II folder…" points the
 // launcher at the player's own copy in Windows' folder picker, with the same check as the run's question (pickOwn).
 // "Delete downloaded Black Ops II files…" deletes the files that the launcher downloaded, as uninstalling does.
 // Nothing of this runs until the player clicks an item, so a PC where the launcher finds the game sees nothing new.
 //
-// Each line of the group names its game. The launcher starts one game, Black Ops II, and keeps its folders under
-// that game's names in the config (config.T6, config.T6Files). A game that the launcher may start one day has its
-// own folders there, and its own lines here.
+// Each line of a group names its game. The launcher starts two (title.go), and keeps each one's folders under that
+// game's names in the config (config.own, config.files). The menu has the group of the game that the launcher is at,
+// and of a game that the PC has a copy or downloaded files of: a player of one game sees nothing of the other.
 //
-// The group is in the menu of a launcher with no window (boxes), which is what a link starts. A launcher in a
+// The groups are in the menu of a launcher with no window (boxes), which is what a link starts. A launcher in a
 // terminal asks there for folders. The menu runs beside the run, on goroutines of its own. It changes the config only
 // with rewrite (config.go), and it shares with the run what gameState has, under stateLock.
 
@@ -29,7 +29,7 @@ type menuItem struct {
 	do   func()
 }
 
-// gameState is what the run and the tray's menu know of the game files.
+// gameState is what the run and the tray's menu know of a title's game files.
 type gameState struct {
 	known bool   // the run, or a look at the PC, set dir
 	dir   string // the folder that the game starts from, or "" when the launcher has none yet
@@ -40,15 +40,23 @@ type gameState struct {
 	files  string // the folder of the game files that the launcher downloaded, or "" when it has none
 	bytes  int64  // their size
 	game   game   // the game that the launcher started last
-	// getting is set while the run finds the game files, which may take a download. busy is set while one of the
-	// menu's items is at work: a second click does nothing then.
-	getting, busy bool
+	// getting is set while the run finds the game files, which may take a download.
+	getting bool
 }
 
-func (la *launcher) share(f func(s *gameState)) {
+// share runs f on what the run and the menu know of the game files of the title t.
+func (la *launcher) share(t *title, f func(s *gameState)) {
 	la.stateLock.Lock()
 	defer la.stateLock.Unlock()
-	f(&la.state)
+	if la.states == nil {
+		la.states = map[string]*gameState{}
+	}
+	s := la.states[t.id]
+	if s == nil {
+		s = &gameState{}
+		la.states[t.id] = s
+	}
+	f(s)
 }
 
 // menu returns what the tray's menu has, for a launcher that stays: open opens the server's page. The tray calls it
@@ -61,28 +69,35 @@ func (la *launcher) menu(host string, open func()) func() []menuItem {
 	return func() []menuItem {
 		items := []menuItem{{text: appName + ": " + host}, {}, {text: "Open the page", do: open}, {}}
 		if la.boxes {
-			var s gameState
-			la.share(func(now *gameState) { s = *now })
-			items = append(items, menuItem{text: s.line()}, menuItem{text: "Choose Black Ops II folder…", do: la.chooseFolder})
-			if s.files != "" {
-				items = append(items, menuItem{text: fmt.Sprintf("Delete downloaded Black Ops II files (%s)…", megabytes(s.bytes)),
-					do: la.deleteFiles})
+			at := la.title()
+			for _, t := range titles {
+				var s gameState
+				la.share(t, func(now *gameState) { s = *now })
+				if t != at && s.dir == "" && s.files == "" {
+					continue // a game that the player doesn't play here, and that the PC has nothing of
+				}
+				items = append(items, menuItem{text: s.line(t)},
+					menuItem{text: "Choose " + t.name + " folder…", do: func() { la.chooseFolder(t) }})
+				if s.files != "" {
+					items = append(items, menuItem{text: fmt.Sprintf("Delete downloaded %s files (%s)…", t.name, megabytes(s.bytes)),
+						do: func() { la.deleteFiles(t) }})
+				}
+				items = append(items, menuItem{})
 			}
-			items = append(items, menuItem{})
 		}
 		return append(items, menuItem{text: "Quit", do: la.quit})
 	}
 }
 
-// line is the menu's line that says which game files the game starts from.
-func (s gameState) line() string {
+// line is the menu's line that says which game files the title t starts from.
+func (s gameState) line(t *title) string {
 	switch {
 	case s.dir != "" && s.own:
-		return "Black Ops II: your copy, " + short(s.dir)
+		return t.name + ": your copy, " + short(s.dir)
 	case s.dir != "":
-		return fmt.Sprintf("Black Ops II: downloaded, %s, %s", megabytes(s.bytes), short(s.dir))
+		return fmt.Sprintf("%s: downloaded, %s, %s", t.name, megabytes(s.bytes), short(s.dir))
 	}
-	return "Black Ops II: no game files yet"
+	return t.name + ": no game files yet"
 }
 
 // short returns a folder's path for a line of the menu: whole, or without its middle when it is long.
@@ -94,39 +109,41 @@ func short(path string) string {
 	return string(r[:20]) + "…" + string(r[len(r)-39:])
 }
 
-// look finds the game files as a run does (gameFiles), but changes nothing and asks nothing. It is for the menu to
-// show before the run has found them.
+// look finds each title's game files as a run does (gameFiles), but changes nothing and asks nothing. It is for the
+// menu to show before the run has found them.
 func (la *launcher) look() {
 	la.cfgLock.Lock()
 	c := la.readConfig()
 	la.cfgLock.Unlock()
-	dir, files := c.ownCopy(la.copies), c.downloads(la.home)
-	_, bytes, ok := synced(files)
-	if dir == "" && ok && hasT6(files) {
-		dir = files
-	}
-	la.share(func(s *gameState) {
-		if !s.known {
-			s.known, s.dir, s.own = true, dir, dir != files
-			s.files, s.bytes = "", 0
-			if ok {
-				s.files, s.bytes = files, bytes
-			}
+	for _, t := range titles {
+		dir, files := c.ownCopy(t, la.copies), c.downloads(t, la.home)
+		_, bytes, ok := synced(files)
+		if dir == "" && ok && t.has(files) {
+			dir = files
 		}
-	})
+		la.share(t, func(s *gameState) {
+			if !s.known {
+				s.known, s.dir, s.own = true, dir, dir != files
+				s.files, s.bytes = "", 0
+				if ok {
+					s.files, s.bytes = files, bytes
+				}
+			}
+		})
+	}
 }
 
-// finding and found mark the run's search for the game files (gameFiles), for the menu. found records the folder
-// that the game starts from, dir, or "" when the run found none, and what the launcher has downloaded. A folder that
-// the player chose in the menu meanwhile stays the one the game's next start uses.
+// finding and found mark the run's search for the game files of its title (gameFiles), for the menu. found records
+// the folder that the game starts from, dir, or "" when the run found none, and what the launcher has downloaded. A
+// folder that the player chose in the menu meanwhile stays the one the game's next start uses.
 func (la *launcher) finding() {
-	la.share(func(s *gameState) { s.getting, s.chosen = true, false })
+	la.share(la.title(), func(s *gameState) { s.getting, s.chosen = true, false })
 }
 
 func (la *launcher) found(dir string) {
 	files := la.downloads()
 	_, bytes, ok := synced(files)
-	la.share(func(s *gameState) {
+	la.share(la.title(), func(s *gameState) {
 		s.getting, s.known = false, true
 		if !s.chosen {
 			s.dir, s.own = dir, dir != files
@@ -138,48 +155,54 @@ func (la *launcher) found(dir string) {
 	})
 }
 
-// startFrom returns the folder that the game starts from: dir, which the run found, or the folder that the player
-// chose in the menu since. started records the game that the launcher started (launch).
+// startFrom returns the folder that the game of the run's title starts from: dir, which the run found, or the folder
+// that the player chose in the menu since. started records the game that the launcher started (launch).
 func (la *launcher) startFrom(dir string) (string, error) {
-	la.stateLock.Lock()
-	defer la.stateLock.Unlock()
+	var chosen bool
+	var now string
+	la.share(la.title(), func(s *gameState) { chosen, now = s.chosen, s.dir })
 	switch {
-	case !la.state.chosen:
+	case !chosen:
 		return dir, nil
-	case la.state.dir == "":
+	case now == "":
 		return "", errors.New("The downloaded game files were deleted. Try again from the page.")
 	}
-	return la.state.dir, nil
+	return now, nil
 }
 
 func (la *launcher) started(g game) {
-	la.share(func(s *gameState) { s.game = g })
+	la.share(la.title(), func(s *gameState) { s.game = g })
 }
 
 // running reports whether the game that the launcher started runs.
 func (s gameState) running() bool { return s.game != nil && s.game.running() }
 
 // menuTurn takes the turn of one of the menu's items, which shows dialogs. It returns false while another item has
-// it. menuDone gives it up.
+// it: a second click does nothing then. menuDone gives it up.
 func (la *launcher) menuTurn() (ok bool) {
-	la.share(func(s *gameState) { ok, s.busy = !s.busy, true })
+	la.stateLock.Lock()
+	defer la.stateLock.Unlock()
+	ok, la.menuBusy = !la.menuBusy, true
 	return ok
 }
 
 func (la *launcher) menuDone() {
-	la.share(func(s *gameState) { s.busy = false })
+	la.stateLock.Lock()
+	defer la.stateLock.Unlock()
+	la.menuBusy = false
 }
 
-// chooseFolder is the menu's "Choose Black Ops II folder…". The player points the launcher at their own copy of the
-// game, which the game starts from from its next start. The game files that the launcher downloaded stay: the menu
-// deletes them only when the player asks for that (deleteFiles). The menu's line then names the folder, and that is
-// all the launcher says of it, unless the game runs: the player then hears that the game that runs is not affected.
-func (la *launcher) chooseFolder() {
+// chooseFolder is the menu's "Choose Black Ops II folder…", for the title t. The player points the launcher at their
+// own copy of the game, which the game starts from from its next start. The game files that the launcher downloaded
+// stay: the menu deletes them only when the player asks for that (deleteFiles). The menu's line then names the
+// folder, and that is all the launcher says of it, unless the game runs: the player then hears that the game that
+// runs is not affected.
+func (la *launcher) chooseFolder(t *title) {
 	if !la.menuTurn() {
 		return
 	}
 	defer la.menuDone()
-	own, err := la.pickOwn()
+	own, err := la.pickOwn(t)
 	if err != nil {
 		la.notify(sentence(err), true)
 		return
@@ -187,24 +210,24 @@ func (la *launcher) chooseFolder() {
 	if own == "" {
 		return
 	}
-	if _, err := la.rewrite(func(c *config) { c.T6 = own }); err != nil {
+	if _, err := la.rewrite(func(c *config) { *c.own(t) = own }); err != nil {
 		la.notify(fmt.Sprintf("Couldn't save the folder: %v", err), true)
 		return
 	}
 	running := false
-	la.share(func(s *gameState) {
+	la.share(t, func(s *gameState) {
 		s.known, s.dir, s.own, s.chosen = true, own, true, true
 		running = s.running()
 	})
 	if running {
-		la.notify(fmt.Sprintf("Black Ops II starts from here next time.\n\n%s", own), false)
+		la.notify(fmt.Sprintf("%s starts from here next time.\n\n%s", t.name, own), false)
 	}
 }
 
-// deleteFiles is the menu's "Delete downloaded Black Ops II files…". It deletes what the launcher downloaded, as
-// uninstalling does (synced, unsync), once the player agrees. It deletes nothing while the game runs, or while a
-// launcher gets game files.
-func (la *launcher) deleteFiles() {
+// deleteFiles is the menu's "Delete downloaded Black Ops II files…", for the title t. It deletes what the launcher
+// downloaded, as uninstalling does (synced, unsync), once the player agrees. It deletes nothing while the game runs,
+// or while a launcher gets game files.
+func (la *launcher) deleteFiles(t *title) {
 	if !la.menuTurn() {
 		return
 	}
@@ -212,19 +235,19 @@ func (la *launcher) deleteFiles() {
 	la.cfgLock.Lock()
 	c := la.readConfig()
 	la.cfgLock.Unlock()
-	files := c.downloads(la.home)
+	files := c.downloads(t, la.home)
 	state, bytes, ok := synced(files)
 	if !ok {
-		la.share(func(s *gameState) { s.files, s.bytes = "", 0 }) // gone already
+		la.share(t, func(s *gameState) { s.files, s.bytes = "", 0 }) // gone already
 		return
 	}
-	if why := la.notNow(); why != "" {
+	if why := la.notNow(t); why != "" {
 		la.notify(why, true)
 		return
 	}
 	var now gameState
-	la.share(func(s *gameState) { now = *s })
-	question := fmt.Sprintf("Delete the downloaded Black Ops II files (%s)?\n\n%s", megabytes(bytes), files)
+	la.share(t, func(s *gameState) { now = *s })
+	question := fmt.Sprintf("Delete the downloaded %s files (%s)?\n\n%s", t.name, megabytes(bytes), files)
 	if now.dir == files {
 		question += "\n\nThe game uses them now. The launcher will ask where the game is next time."
 	}
@@ -238,11 +261,11 @@ func (la *launcher) deleteFiles() {
 		la.notify("Another user's launcher on this PC is using the game files. Try again when it's done.", true)
 		return
 	}
-	why := la.notNow() // the run may have started on the game files while the player read the question
+	why := la.notNow(t) // the run may have started on the game files while the player read the question
 	left := 0
 	if why == "" {
 		left = unsync(files, state)
-		if left == 0 && c.T6Files == "" {
+		if left == 0 && *c.files(t) == "" {
 			os.Remove(filepath.Dir(files)) // the folder the launcher made for them at a disk's root, if it made one
 		}
 	}
@@ -252,7 +275,7 @@ func (la *launcher) deleteFiles() {
 		return
 	}
 	_, bytesLeft, kept := synced(files)
-	la.share(func(s *gameState) {
+	la.share(t, func(s *gameState) {
 		s.files, s.bytes = "", 0
 		if kept {
 			s.files, s.bytes = files, bytesLeft
@@ -268,14 +291,14 @@ func (la *launcher) deleteFiles() {
 	la.notify(fmt.Sprintf("Deleted the downloaded files (%s).", megabytes(bytes)), false)
 }
 
-// notNow returns why the menu deletes no game files now, or "" when it may: it deletes none while the game runs, or
-// while the run finds the game files.
-func (la *launcher) notNow() string {
+// notNow returns why the menu deletes no game files of the title t now, or "" when it may: it deletes none while the
+// game runs, or while the run finds the game files.
+func (la *launcher) notNow(t *title) string {
 	var now gameState
-	la.share(func(s *gameState) { now = *s })
+	la.share(t, func(s *gameState) { now = *s })
 	switch {
 	case now.running():
-		return "Close Black Ops II first."
+		return "Close " + t.name + " first."
 	case now.getting:
 		return "The launcher is using the game files. Try again when it's done."
 	}

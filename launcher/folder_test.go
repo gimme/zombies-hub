@@ -122,9 +122,9 @@ func downloading(t *testing.T, id string) *fakeServer {
 func TestGameIn(t *testing.T) {
 	root := t.TempDir()
 	library := filepath.Join(root, "SteamLibrary")
-	game := copyOf(t, filepath.Join(library, "steamapps", "common", t6Folder))
+	game := copyOf(t, filepath.Join(library, "steamapps", "common", titleT6.folder))
 	games := filepath.Join(root, "Games")
-	copied := copyOf(t, filepath.Join(games, t6Folder))
+	copied := copyOf(t, filepath.Join(games, titleT6.folder))
 	downloaded := copyOf(t, filepath.Join(root, "Downloaded"))
 	write(t, filepath.Join(downloaded, syncFile), "{}")
 	for dir, want := range map[string]string{
@@ -139,7 +139,7 @@ func TestGameIn(t *testing.T) {
 		downloaded:                  "", // the launcher's own download is no copy of the player's
 		"":                          "",
 	} {
-		if got := gameIn(dir); got != want {
+		if got := gameIn(titleT6, dir); got != want {
 			t.Errorf("gameIn(%q) = %q, not %q", dir, got, want)
 		}
 	}
@@ -150,10 +150,10 @@ func TestGameIn(t *testing.T) {
 // player clicks one of its items.
 func TestFoundCopyAsksNothing(t *testing.T) {
 	l := downloading(t, "one") // a game with an ID: the launcher starts the player's game into it once, and not again
-	own := copyOf(t, filepath.Join(t.TempDir(), "SteamLibrary", "steamapps", "common", t6Folder))
+	own := copyOf(t, filepath.Join(t.TempDir(), "SteamLibrary", "steamapps", "common", titleT6.folder))
 	tl := newTestLauncher(t, "")
 	d := answer(tl, true)
-	tl.copies = func() []string { return []string{own} }
+	tl.copies = func(*title) []string { return []string{own} }
 	g, menu, quit := stayWithTray(t, tl, l.link(), false)
 	eventually(t, "the game started", func() bool { return g.count() == 1 })
 	if line := g.line(0); !strings.Contains(line, `t6zm "`+own+`" -lan`) {
@@ -185,7 +185,7 @@ func TestChooseOwnFolder(t *testing.T) {
 	l := downloading(t, "")
 	root := t.TempDir()
 	library := filepath.Join(root, "SteamLibrary")
-	own := copyOf(t, filepath.Join(library, "steamapps", "common", t6Folder))
+	own := copyOf(t, filepath.Join(library, "steamapps", "common", titleT6.folder))
 	for _, picked := range []string{own, library} {
 		tl := newTestLauncher(t, "")
 		d := answer(tl, true)
@@ -228,8 +228,8 @@ func TestChooseWrongFolder(t *testing.T) {
 	root := t.TempDir()
 	wrong := filepath.Join(root, "Documents")
 	write(t, filepath.Join(wrong, "notes.txt"), "notes")
-	zoe := copyOf(t, filepath.Join(root, "Zoë", t6Folder))
-	own := copyOf(t, filepath.Join(root, "Games", t6Folder))
+	zoe := copyOf(t, filepath.Join(root, "Zoë", titleT6.folder))
+	own := copyOf(t, filepath.Join(root, "Games", titleT6.folder))
 	tl := newTestLauncher(t, "")
 	d := answer(tl, true)
 	d.choices, d.picks = []int{0, -1}, []string{wrong}
@@ -289,10 +289,10 @@ func TestDownloadAsChosen(t *testing.T) {
 	}
 	busy := filepath.Join(root, "Games")
 	write(t, filepath.Join(busy, "another game.exe"), "another game")
-	own := copyOf(t, filepath.Join(root, "Mine", t6Folder))
+	own := copyOf(t, filepath.Join(root, "Mine", titleT6.folder))
 	for _, c := range []struct{ picked, files string }{
 		{empty, empty},
-		{busy, filepath.Join(busy, t6Folder)},
+		{busy, filepath.Join(busy, titleT6.folder)},
 		{filepath.Dir(own), ""}, // the game is there: nothing to download
 	} {
 		tl := newTestLauncher(t, "")
@@ -360,7 +360,7 @@ func TestMenuChoosesTheFolder(t *testing.T) {
 	if line := g.line(0); !strings.Contains(line, `t6zm "`+files+`" -lan`) {
 		t.Fatalf("the game started with %s", line)
 	}
-	own := copyOf(t, filepath.Join(t.TempDir(), "Games", t6Folder))
+	own := copyOf(t, filepath.Join(t.TempDir(), "Games", titleT6.folder))
 	d.mu.Lock()
 	d.picks = []string{filepath.Dir(own)}
 	d.mu.Unlock()

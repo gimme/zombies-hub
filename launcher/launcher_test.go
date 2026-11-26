@@ -38,6 +38,9 @@ type fakeServer struct {
 	fails    func(n int) bool                    // whether the nth call for what to play gets no answer
 	asked    []string                            // each call: its method and path, and its Range header where it has one
 	files    map[string]string                   // T6's game files, by path
+	t7       map[string]string                   // T7's game files, by path
+	packs    map[string]string                   // the pack of a file of T7's that is of a map's, by path
+	ofs      []string                            // the title that each call for what to play said the launcher is at
 	listed   map[string]string                   // what the list says of a file's contents instead, by path
 	extra    []launcherapi.File                  // more of the list
 	cut      map[string]int                      // a file's answers end after this many bytes of theirs, by path
@@ -106,7 +109,11 @@ func (l *fakeServer) serve(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "no player's key", http.StatusUnauthorized)
 		return
 	}
-	path, ok := strings.CutPrefix(r.URL.Path, "/launcher/t6/files/")
+	// a title's game files: their list, or one of them
+	of, rest, _ := strings.Cut(strings.TrimPrefix(r.URL.Path, "/launcher/"), "/")
+	files := map[string]map[string]string{launcherapi.T6: l.files, launcherapi.T7: l.t7}[of]
+	sends := files != nil && (of == launcherapi.T6 && l.play.Downloads || l.play.Titles[of].Downloads)
+	path, ok := strings.CutPrefix(rest, "files/")
 	switch {
 	case r.URL.Path == "/launcher/play":
 		n := 0
@@ -119,6 +126,7 @@ func (l *fakeServer) serve(w http.ResponseWriter, r *http.Request) {
 			panic(http.ErrAbortHandler)
 		}
 		l.ready = append(l.ready, r.URL.Query().Get("ready") == "1")
+		l.ofs = append(l.ofs, r.URL.Query().Get("of"))
 		if has, ok := r.URL.Query()["has"]; ok {
 			l.has = append(l.has, has[0])
 		} else {
@@ -135,10 +143,10 @@ func (l *fakeServer) serve(w http.ResponseWriter, r *http.Request) {
 		json.NewDecoder(r.Body).Decode(&rep)
 		l.reports = append(l.reports, rep)
 		w.Write([]byte("{}"))
-	case r.URL.Path == "/launcher/t6/files" && l.play.Downloads:
+	case rest == "files" && sends:
 		list := launcherapi.Files{Version: "v1", Files: append([]launcherapi.File{}, l.extra...)}
-		for path, text := range l.files {
-			f := launcherapi.File{Path: path, Size: int64(len(text)), Hash: hashOf(text)}
+		for path, text := range files {
+			f := launcherapi.File{Path: path, Size: int64(len(text)), Hash: hashOf(text), Pack: l.packs[path]}
 			if as, ok := l.listed[path]; ok {
 				f.Hash = hashOf(as)
 			}
@@ -147,8 +155,8 @@ func (l *fakeServer) serve(w http.ResponseWriter, r *http.Request) {
 		}
 		slices.SortFunc(list.Files, func(a, b launcherapi.File) int { return strings.Compare(a.Path, b.Path) })
 		json.NewEncoder(w).Encode(list)
-	case ok && l.play.Downloads:
-		text, ok := l.files[path]
+	case ok && sends:
+		text, ok := files[path]
 		if !ok {
 			http.NotFound(w, r)
 			return
@@ -296,9 +304,9 @@ func newTestLauncher(t *testing.T, answers string) *testLauncher {
 			tl.later = append(tl.later, exe, dir)
 			return nil
 		},
-		copies: func() []string { return nil },
+		copies: func(*title) []string { return nil },
 		// the game's own programs, as the tests' game files have them
-		programs: map[string]string{"binkw32.dll": hashOf("bink")},
+		programs: map[string]map[string]string{titleT6.id: {"binkw32.dll": hashOf("bink")}},
 		tick:     10 * time.Millisecond,
 		poll:     5 * time.Millisecond, // the tests' server holds no call, so the launcher asks it this often
 		retry:    time.Millisecond,
@@ -454,10 +462,10 @@ func TestConsoleLine(t *testing.T) {
 func TestPlainFolder(t *testing.T) {
 	sep := string(filepath.Separator)
 	plain := filepath.Join(sep+"Users", "Ann B", "AppData", "Local", appName, "t6")
-	if got := plainFolder(plain); got != plain {
+	if got := plainFolder(titleT6, plain); got != plain {
 		t.Errorf("a plain folder: %q", got)
 	}
-	if got, want := plainFolder(filepath.Join(sep+"Users", "Zoë", "AppData", "Local", appName, "t6")), filepath.Join(sep+appName, "t6"); got != want {
+	if got, want := plainFolder(titleT6, filepath.Join(sep+"Users", "Zoë", "AppData", "Local", appName, "t6")), filepath.Join(sep+appName, "t6"); got != want {
 		t.Errorf("a folder with a letter the game can't read: %q", got)
 	}
 }
@@ -483,15 +491,15 @@ func TestSteamLibraries(t *testing.T) {
 }
 `)
 	want := []string{
-		filepath.Join(steam, "steamapps", "common", t6Folder),
-		filepath.Join(`C:\Program Files (x86)\Steam`, "steamapps", "common", t6Folder),
-		filepath.Join(`D:\SteamLibrary`, "steamapps", "common", t6Folder),
-		filepath.Join(`E:\Old\Library`, "steamapps", "common", t6Folder),
+		filepath.Join(steam, "steamapps", "common", titleT6.folder),
+		filepath.Join(`C:\Program Files (x86)\Steam`, "steamapps", "common", titleT6.folder),
+		filepath.Join(`D:\SteamLibrary`, "steamapps", "common", titleT6.folder),
+		filepath.Join(`E:\Old\Library`, "steamapps", "common", titleT6.folder),
 	}
-	if got := steamLibraries(steam); !slices.Equal(got, want) {
+	if got := steamLibraries(steam, titleT6.folder); !slices.Equal(got, want) {
 		t.Errorf("the libraries: %q", got)
 	}
-	if got := steamLibraries(filepath.Join(steam, "none")); len(got) != 1 {
+	if got := steamLibraries(filepath.Join(steam, "none"), titleT6.folder); len(got) != 1 {
 		t.Errorf("of a Steam with no list of them: %q", got)
 	}
 }
@@ -573,7 +581,7 @@ func TestPlay(t *testing.T) {
 		now[path] = text
 	}
 	now["binkw32.dll"] = "bink, again"
-	tl.programs["binkw32.dll"] = hashOf("bink, again") // the game's own still, as this launcher knows it
+	tl.programs[titleT6.id]["binkw32.dll"] = hashOf("bink, again") // the game's own still, as this launcher knows it
 	delete(now, "video/zm (1).webm")
 	now["zone/all/zm_tomb.ff"] = "Origins"
 	l.mu.Lock()
@@ -670,7 +678,7 @@ func TestPlayWaitsForTheGame(t *testing.T) {
 		}
 	}
 	tl := newTestLauncher(t, "")
-	tl.copies = func() []string { return []string{filepath.Join(own, "none"), own} }
+	tl.copies = func(*title) []string { return []string{filepath.Join(own, "none"), own} }
 	if code := tl.run(context.Background(), []string{l.link()}); code != 0 {
 		t.Fatalf("the run: %d\n%s", code, tl.out)
 	}
@@ -762,7 +770,7 @@ func TestTrust(t *testing.T) {
 	write(t, filepath.Join(own, "binkw32.dll"), "bink")
 	// the first server a launcher is opened for asks nothing
 	tl := newTestLauncher(t, "")
-	tl.copies = func() []string { return []string{own} }
+	tl.copies = func(*title) []string { return []string{own} }
 	if code := tl.run(context.Background(), []string{l.link()}); code != 0 || len(tl.started) != 1 ||
 		strings.Contains(tl.out.String(), "trust") || !slices.Equal(tl.cfg.Servers, []string{l.srv.URL}) {
 		t.Fatalf("the first server: %d, started %+v, servers %q\n%s", code, tl.started, tl.cfg.Servers, tl.out)
@@ -958,7 +966,7 @@ func TestGameFilesFolder(t *testing.T) {
 	}
 	// "none" for their copy: the server's files, whatever the PC has
 	tl.change(func(c *config) { c.T6 = "none" })
-	tl.copies = func() []string { return []string{own} }
+	tl.copies = func(*title) []string { return []string{own} }
 	tl.again("\n")
 	if code := tl.run(context.Background(), []string{l.link()}); code != 0 || len(tl.started) != 1 ||
 		!strings.Contains(tl.started[0].line, `t6zm "`+filepath.Join(tl.home, "t6")+`" -lan`) {
@@ -1062,7 +1070,7 @@ func TestMatchesTheServersPlutonium(t *testing.T) {
 	l.play = launcherapi.Play{Player: "Ann", Room: "ABCD", Plutonium: 1,
 		Game: &launcherapi.Game{Port: 4000, Password: "pw", Name: "Ann"}}
 	tl := newTestLauncher(t, "")
-	tl.copies = func() []string { return []string{own} }
+	tl.copies = func(*title) []string { return []string{own} }
 	run := func(what string, asks bool) {
 		t.Helper()
 		tl.again("")
@@ -1271,7 +1279,7 @@ func TestStaysWithTheGame(t *testing.T) {
 	write(t, filepath.Join(own, "zone", "all", "patch_zm.ff"), "the patch")
 	write(t, filepath.Join(own, "binkw32.dll"), "bink")
 	tl := newTestLauncher(t, "")
-	tl.copies = func() []string { return []string{own} }
+	tl.copies = func(*title) []string { return []string{own} }
 	var mu sync.Mutex
 	var games []*fakeGame
 	tl.start = func(exe, line, dir string) (game, error) {
@@ -1365,7 +1373,7 @@ func TestStaysRestartsForTheNextGame(t *testing.T) {
 	write(t, filepath.Join(own, "zone", "all", "patch_zm.ff"), "the patch")
 	write(t, filepath.Join(own, "binkw32.dll"), "bink")
 	tl := newTestLauncher(t, "")
-	tl.copies = func() []string { return []string{own} }
+	tl.copies = func(*title) []string { return []string{own} }
 	var mu sync.Mutex
 	var games []*fakeGame
 	revisions := []int{} // the revision of the PC's Plutonium as each game started
@@ -1477,12 +1485,12 @@ func TestInstallAndUpdate(t *testing.T) {
 	tl.again("")
 	tl.reran = nil
 	write(t, filepath.Join(tl.home, "t6", "placeholder"), "")
-	tl.copies = func() []string { return nil }
+	tl.copies = func(*title) []string { return nil }
 	tl.cfg.T6 = ""
 	own := filepath.Join(t.TempDir(), "Black Ops II")
 	write(t, filepath.Join(own, "zone", "all", "patch_zm.ff"), "the patch")
 	write(t, filepath.Join(own, "binkw32.dll"), "bink")
-	tl.copies = func() []string { return []string{own} }
+	tl.copies = func(*title) []string { return []string{own} }
 	if code := tl.run(context.Background(), []string{l.link()}); code != 0 || len(tl.reran) != 0 || len(tl.started) != 1 {
 		t.Errorf("a run of the release: %d, ran again %q, started %+v\n%s", code, tl.reran, tl.started, tl.out)
 	}

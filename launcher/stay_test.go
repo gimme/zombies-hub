@@ -32,7 +32,7 @@ func stayingLauncher(t *testing.T, l *fakeServer, link string, own bool) (tl *te
 		dir := filepath.Join(t.TempDir(), "Black Ops II")
 		write(t, filepath.Join(dir, "zone", "all", "patch_zm.ff"), "the patch")
 		write(t, filepath.Join(dir, "binkw32.dll"), "bink")
-		tl.copies = func() []string { return []string{dir} }
+		tl.copies = func(*title) []string { return []string{dir} }
 	}
 	starts = &atomic.Int32{}
 	tl.start = func(exe, line, dir string) (game, error) {
@@ -175,7 +175,7 @@ func TestStayingLauncherRestsOutsideARoom(t *testing.T) {
 	write(t, filepath.Join(own, "zone", "all", "patch_zm.ff"), "the patch")
 	write(t, filepath.Join(own, "binkw32.dll"), "bink")
 	tl := newTestLauncher(t, "")
-	tl.copies = func() []string { return []string{own} }
+	tl.copies = func(*title) []string { return []string{own} }
 	tl.stays, tl.away = true, 50*time.Millisecond
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan int, 1)
@@ -240,7 +240,7 @@ func TestStayingLauncherSaysWhatItDoes(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "Black Ops II")
 	write(t, filepath.Join(dir, "zone", "all", "patch_zm.ff"), "the patch")
 	write(t, filepath.Join(dir, "binkw32.dll"), "bink")
-	tl.copies = func() []string { return []string{dir} }
+	tl.copies = func(*title) []string { return []string{dir} }
 	g, _, quit := stayWithTray(t, tl, l.link(), true)
 	set := func(change func(play *launcherapi.Play)) {
 		l.mu.Lock()

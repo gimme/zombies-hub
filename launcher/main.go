@@ -1,6 +1,8 @@
-// zombies-launcher is the launcher, Zombies Launcher. It starts Black Ops II on a player's PC and joins their room's
-// game on a Zombies server (server/launcher.go). A browser can't do that: a Black Ops II room's game is Plutonium's
-// server, and its players join it from their own PCs. The launcher's releases are on GitHub
+// zombies-launcher is the launcher, Zombies Launcher. It starts a game on a player's PC and joins their room's game on
+// a Zombies server (server/launcher.go): Black Ops II, on Plutonium, or Black Ops III, on BOIII (title.go). A browser
+// can't do that: such a room's game is the game's own server, and its players join it from their own PCs. What
+// follows says it of Black Ops II, and is as true of Black Ops III but where it names Plutonium: that game's part is
+// in boiii.go. The launcher's releases are on GitHub
 // (.github/workflows/launcher.yml), and the room's page links to the latest release's setup program
 // (zombies-launcher-setup.exe). The player runs it once by hand. It then copies itself to its folder
 // (%LOCALAPPDATA%\Zombies Launcher), registers the links of its scheme with Windows, and adds itself to the PC's list
@@ -10,7 +12,7 @@
 //	zombies-launcher.exe                 install it, so that links can start it
 //	zombies-launcher.exe zombies-launcher://<host>[:<port>]/play?key=<key>[&tls=0]
 //	                                     what a link runs: play the game of the player's room
-//	zombies-launcher.exe zombies-launcher://<host>[:<port>]/play?solo=1&name=<name>[&key=<key>][&tls=0]
+//	zombies-launcher.exe zombies-launcher://<host>[:<port>]/play?solo=1&name=<name>[&of=<title>][&map=<map>][&key=<key>][&tls=0]
 //	                                     what the lobby's Play local runs: start the game for the player alone
 //	zombies-launcher.exe uninstall       remove it from the PC
 //
@@ -80,6 +82,7 @@ import (
 	"sync"
 	"time"
 
+	"zombies/internal/boiii"
 	"zombies/internal/launcherapi"
 	"zombies/internal/plutonium"
 	"zombies/internal/release"
@@ -120,9 +123,20 @@ type launcher struct {
 	unregister func() error
 	// later deletes the launcher's program once this run has ended, and then its folder dir if it is empty.
 	later func(exe, dir string) error
-	// copies returns the folders where the PC may have a copy of Black Ops II that Steam installed.
-	copies func() []string
-	tick   time.Duration // between two looks at whether the player's game still runs (stay)
+	// of is the title that the run is at (title), under stateLock: the menu reads it too.
+	of *title
+	// copies returns the folders where the PC may have a copy of a title that Steam installed.
+	copies func(t *title) []string
+	// boiii is the folder of the launcher's copy of BOIII's program, and boiiiManifest the address of the manifest of
+	// BOIII's updater (boiii.go). steam reports whether the PC has Steam, which BOIII asks for, and probe asks a game
+	// on BOIII for the map it is on (probeBoiii), where a test has another. settle and retype are how long such a
+	// game is given before a line is typed into its console, and before it is typed again (boiiiGame); 0 for the
+	// defaults.
+	boiii, boiiiManifest string
+	steam                func() bool
+	probe                func(port int) (mapName string, ok bool)
+	settle, retype       time.Duration
+	tick                 time.Duration // between two looks at whether the player's game still runs (stay)
 	// away is how long the launcher keeps its call to the server open with nothing to do: its player is in no Black
 	// Ops II room, or the server can't be reached. After that it rests (idle). 0 for no limit.
 	away  time.Duration
@@ -150,9 +164,11 @@ type launcher struct {
 	pick   func(title string) (string, error)
 	choose func(question string, answers []string) int
 	// The run and the tray's menu both use the config and the game files, each on a goroutine of its own. cfgLock
-	// guards the config's file (config.go). state is what they share of the game files, under stateLock (menu.go).
+	// guards the config's file (config.go). states is what they share of each title's game files, by the title's id,
+	// under stateLock (menu.go), as are the run's title (of) and whether an item of the menu is at work (menuBusy).
 	cfgLock, stateLock sync.Mutex
-	state              gameState
+	states             map[string]*gameState
+	menuBusy           bool
 	// turn gives up the program's turn to run its player's links (single). It is set when the program took the turn
 	// at its start.
 	turn func()
@@ -176,9 +192,9 @@ type launcher struct {
 	// which takes only versions that its code works with (launcherapi.MinVersion).
 	key     ed25519.PublicKey
 	version int64
-	// programs has Black Ops II's own programs, the only programs the launcher accepts from a server. It maps each
-	// program's path, in lowercase, to its hash (programs.go).
-	programs map[string]string
+	// programs has each title's own programs, by the title's id: the only programs the launcher accepts from a
+	// server. It maps each program's path, in lowercase, to its hash (programs.go).
+	programs map[string]map[string]string
 	// mac is the version of the script that started the launcher on a Mac (mac.go), or "" where none did.
 	mac string
 }
@@ -210,7 +226,12 @@ func main() {
 		if l, err := parseLink(args[0]); err == nil {
 			var ok bool
 			if turn, ok = single(l.id()); !ok {
-				press(l.id(), l.solo) // the player asks to join again, or to play alone
+				// the player asks to join again, or to play alone: a game, and a map of it, that the launcher that
+				// runs is told in a note (pressedSolo)
+				if l.solo && err == nil {
+					notePress(filepath.Join(local, appName), l)
+				}
+				press(l.id(), l.solo)
 				return
 			}
 			pressed, solos = presses(l.id())
@@ -223,6 +244,7 @@ func main() {
 	la := &launcher{
 		home: filepath.Join(local, appName), plutonium: filepath.Join(local, "Plutonium"),
 		manifest: plutonium.Manifest, releases: launcherapi.Releases,
+		boiii: filepath.Join(local, appName, "boiii"), boiiiManifest: boiii.Manifest, steam: steamInstalled,
 		client: newClient(), in: bufio.NewReader(os.Stdin), out: os.Stdout,
 		status: os.Stdout,
 		start:  startProgram, rerun: rerun, register: register, unregister: unregister, later: removeLater,
@@ -243,13 +265,16 @@ func main() {
 	if url := os.Getenv("ZOMBIES_PLUTONIUM_URL"); url != "" { // Plutonium's updater, for tests
 		la.manifest = url
 	}
+	if url := os.Getenv("ZOMBIES_BOIII_URL"); url != "" { // BOIII's updater, for tests
+		la.boiiiManifest = url
+	}
 	if url := os.Getenv("ZOMBIES_LAUNCHER_RELEASES"); url != "" { // the launcher's releases, for tests
 		la.releases = url
 	}
 	la.exe, _ = os.Executable()
 	la.key, _ = release.ParsePublic(makerKey)
 	la.version, _ = strconv.ParseInt(version, 10, 64)
-	la.programs = knownPrograms(t6ProgramList)
+	la.programs = ownPrograms()
 	la.mac = os.Getenv(macEnv)
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer cancel()
@@ -350,7 +375,7 @@ func (la *launcher) link(ctx context.Context, url string) int {
 		srv, stop = la.open(ctx, l)
 		defer stop()
 	}
-	if err := la.play(ctx, url, srv, l.solo, func(err error) {
+	if err := la.play(ctx, url, srv, l.solo, l, func(err error) {
 		la.say("")
 		if ctx.Err() != nil { // Ctrl+C
 			la.say("Stopped. A download goes on from where it was the next time.")
@@ -427,8 +452,9 @@ func (la *launcher) serve(ctx context.Context, url string) int {
 		defer stop()
 	}
 	solo := l.solo // the player asks to play alone, and not in a room
+	alone := l     // what they ask to play alone: the link's game and map, or those of their last press (pressedSolo)
 	for {
-		err := la.play(ctx, url, srv, solo, func(err error) {
+		err := la.play(ctx, url, srv, solo, alone, func(err error) {
 			la.say("%v", err)
 			if ctx.Err() == nil {
 				srv.fail(ctx, sentence(err), errors.Is(err, errSetup))
@@ -442,7 +468,11 @@ func (la *launcher) serve(ctx context.Context, url string) int {
 			return 1
 		}
 		var again bool
-		if again, solo = la.idle(ctx, srv); !again {
+		again, solo = la.idle(ctx, srv)
+		if solo {
+			alone.of, alone.mapName = pressedSolo(la.home, l)
+		}
+		if !again {
 			// The server was updated while the launcher waited, and takes it no more: a later release takes the link,
 			// when there is one.
 			if _, _, err := srv.latest(); errors.Is(err, errOld) && ctx.Err() == nil {
@@ -533,9 +563,10 @@ func (la *launcher) idle(ctx context.Context, srv *server) (again, solo bool) {
 	}
 }
 
-// play is what a link runs: the room's game, or with solo, the game alone (alone). When it fails, it calls failed
-// with its error before it returns, while its output still goes to its log.
-func (la *launcher) play(ctx context.Context, url string, srv *server, solo bool, failed func(error)) (err error) {
+// play is what a link runs: the room's game, or with solo, a game alone (alone): the game, and the map of it, that
+// asked names, which is the link or what the player's last press asked for. When it fails, it calls failed with its
+// error before it returns, while its output still goes to its log.
+func (la *launcher) play(ctx context.Context, url string, srv *server, solo bool, asked link, failed func(error)) (err error) {
 	// closeLog ends the run's log, once it has what the run failed at.
 	closeLog := func() {}
 	defer func() {
@@ -633,8 +664,13 @@ func (la *launcher) play(ctx context.Context, url string, srv *server, solo bool
 		if macOld(la.mac) {
 			return errSetup
 		}
+		t := titleOf(asked.of)
+		if t == nil {
+			return errLink
+		}
+		la.setTitle(t)
 		files()
-		return la.alone(ctx, nil, l, &launcherapi.Play{Player: l.name}, done)
+		return la.alone(ctx, nil, l, &launcherapi.Play{Player: l.name}, asked.mapName, done)
 	}
 	srv.start()
 	if la.stays {
@@ -651,25 +687,39 @@ func (la *launcher) play(ctx context.Context, url string, srv *server, solo bool
 		// as the launcher just did (mac.go).
 		return errSetup
 	}
+	// The run is at one title: the one that the player asked to play alone, or the title of their room, or Black
+	// Ops II while they are in no room that plays a title of the launcher's. The server is told which, before
+	// anything that the launcher says of the PC (server.at).
+	t := titleOf(asked.of)
+	if !solo {
+		if t = titleT6; play.Room != "" {
+			t = titleOf(play.Of)
+		}
+	}
+	if t == nil {
+		return la.tooOld() // a game that only a later launcher starts
+	}
+	la.setTitle(t)
+	srv.at(t)
 	files()
 	la.say("You are %s on %s.", play.Player, l.host)
 	if solo {
-		return la.alone(ctx, srv, l, play, done)
+		return la.alone(ctx, srv, l, play, asked.mapName, done)
 	}
 	// The launcher now prepares the PC, and then reports that the PC has what the game needs (setReady). A room's
 	// game waits for a player whose launcher is still preparing, however long a first download of the game files
 	// takes. The call that is open to the server shows it that the launcher runs through all of this.
-	if err := la.matchPlutonium(ctx, srv, play.Plutonium); err != nil {
+	if err := la.haveClient(ctx, srv, play); err != nil {
 		return err
 	}
 	la.doing(ctx, srv, "Checking files")
-	dir, err := la.gameFiles(ctx, srv, l, play)
+	dir, err := la.gameFiles(ctx, srv, l, play, need{zone: play.Needs})
 	if err != nil {
 		return err
 	}
 	done()
-	if len(play.Zones) > 0 {
-		srv.setHas(zonesIn(dir, play.Zones)) // which maps the game folder has, for the room to say (launcherapi.Play)
+	if zones := info(play, t).Zones; len(zones) > 0 {
+		srv.setHas(zonesIn(dir, zones)) // which maps the game folder has, for the room to say (launcherapi.Title)
 	}
 	srv.setReady(true)
 	la.prepared = true
@@ -688,8 +738,13 @@ func (la *launcher) play(ctx context.Context, url string, srv *server, solo bool
 			}
 			return la.tooOld()
 		case err != nil: // the server can't be reached now: the call tries again by itself
+		case play.Room != "" && titleOf(play.Of) != t:
+			return nil // the room plays another title now: the next run is at that one (serve)
 		case play.Game != nil && la.left != "" && play.Game.ID == la.left:
 			return nil // the game the player's game left: the player has to ask for it (idle)
+		case play.Game != nil && t == titleT7 && !hasZone(dir, play.Needs):
+			// The folder lacks the room's map, and BOIII's game would only say so. The room says that the map is
+			// missing, and its button downloads it where the server sends game files (pressed, below).
 		case play.Game != nil:
 			return la.stay(ctx, srv, l, play, dir)
 		case play.InGame:
@@ -697,7 +752,7 @@ func (la *launcher) play(ctx context.Context, url string, srv *server, solo bool
 			return nil
 		case play.Room == "":
 			la.say("")
-			la.say("This PC is ready for Black Ops II. You are in no room that plays it now.")
+			la.say("This PC is ready for %s. You are in no room that plays it now.", t.name)
 			return nil
 		case !waiting:
 			waiting = true
@@ -744,6 +799,15 @@ func (la *launcher) trust(l link) error {
 			c.Servers = append(c.Servers, l.base)
 		}
 	})
+}
+
+// haveClient makes sure that the PC has what the run's title plays on, for the room's game: Plutonium of the
+// server's revision (matchPlutonium), or BOIII (haveBoiii).
+func (la *launcher) haveClient(ctx context.Context, srv *server, play *launcherapi.Play) error {
+	if la.title() == titleT7 {
+		return la.haveBoiii(ctx, srv)
+	}
+	return la.matchPlutonium(ctx, srv, info(play, titleT6).Plutonium)
 }
 
 // matchPlutonium makes sure that the PC's copy of Plutonium can join the server's games. A room's game accepts only
@@ -805,10 +869,21 @@ func sentence(err error) string {
 
 // launch starts the player's game, which joins the room's game: play.Game. The server brought its copy of Plutonium
 // up to date for that game. When that gave the server another revision, the PC's copy follows first
-// (matchPlutonium). launch returns the folder that the game started from.
-func (la *launcher) launch(ctx context.Context, srv *server, l link, play *launcherapi.Play, dir string) (game, string, error) {
-	if play.Plutonium != 0 {
-		if err := la.matchPlutonium(ctx, srv, play.Plutonium); err != nil {
+// (matchPlutonium). launch returns the folder that the game started from, and the room's game that the player's game
+// is on its way into: play.Game for Black Ops II, whose command line joins it. Black Ops III starts at its menu, and
+// joins once a line is typed into its console (launchBoiii): to is nil, and stayWith has the line typed.
+func (la *launcher) launch(ctx context.Context, srv *server, l link, play *launcherapi.Play, dir string) (g game, from string, to *launcherapi.Game, err error) {
+	if la.title() == titleT7 {
+		g, from, err = la.launchBoiii(ctx, srv, play, dir)
+		return g, from, nil, err
+	}
+	g, from, err = la.launchT6(ctx, srv, l, play, dir)
+	return g, from, play.Game, err
+}
+
+func (la *launcher) launchT6(ctx context.Context, srv *server, l link, play *launcherapi.Play, dir string) (game, string, error) {
+	if rev := info(play, titleT6).Plutonium; rev != 0 {
+		if err := la.matchPlutonium(ctx, srv, rev); err != nil {
 			return nil, "", err
 		}
 	}
@@ -843,15 +918,22 @@ type game interface {
 }
 
 // rejoins reports whether the player's game, which runs, can join the room's game, play.Game, without starting again.
-// rev is the revision of Plutonium that the game started with, and from the folder it started from. The game can't
-// join when the room's game's Plutonium is of another revision: a room's game turns away a game of another revision,
-// and the PC's copy can't be brought up to date while the game runs. Nor when the player chose another folder in the
-// tray's menu than the one the game started from: the game's next start uses that folder, which may have the room's
-// map where the other lacks it. A name that the player asked for since the game started doesn't count: the game
-// plays under the name it started with for as long as it runs (consoleLine).
+// rev is the revision of Plutonium that the game started with, and from the folder it started from. A game of Black
+// Ops II can't join when the room's game's Plutonium is of another revision: a room's game turns away a game of
+// another revision, and the PC's copy can't be brought up to date while the game runs. No game can when the player
+// chose another folder in the tray's menu than the one the game started from: the game's next start uses that folder,
+// which may have the room's map where the other lacks it. A name that the player asked for since the game started
+// doesn't count: the game plays under the name it started with for as long as it runs (consoleLine).
 func (la *launcher) rejoins(play *launcherapi.Play, dir, from string, rev int) bool {
 	next, err := la.startFrom(dir)
-	return err == nil && next == from && play.Plutonium != 0 && play.Plutonium == rev
+	if err != nil || next != from {
+		return false
+	}
+	if la.title() == titleT7 {
+		return true
+	}
+	now := info(play, titleT6).Plutonium
+	return now != 0 && now == rev
 }
 
 // rejoin has the player's game, which runs, join the room's game, play.Game, once that is up. The game's console
@@ -869,7 +951,7 @@ func (la *launcher) rejoin(g game, l link, play *launcherapi.Play) bool {
 		return false
 	}
 	la.say("")
-	la.say("Black Ops II joins the room's game as %s.", to.Name)
+	la.say("%s joins the room's game as %s.", la.title().name, to.Name)
 	return true
 }
 
@@ -884,11 +966,11 @@ func (la *launcher) rejoin(g game, l link, play *launcherapi.Play) bool {
 // It joins a game once that is up. When the game that runs can't join (rejoins), stay closes it and starts it again,
 // at once: a game that starts takes longer than the room's does.
 func (la *launcher) stay(ctx context.Context, srv *server, l link, play *launcherapi.Play, dir string) error {
-	g, from, err := la.launch(ctx, srv, l, play, dir)
+	g, from, to, err := la.launch(ctx, srv, l, play, dir)
 	if err != nil {
 		return err
 	}
-	return la.stayWith(ctx, srv, l, g, dir, from, play.Game, play.Plutonium)
+	return la.stayWith(ctx, srv, l, g, dir, from, to, info(play, la.title()).Plutonium, false)
 }
 
 // aloneStarts is how long the page's button says that the player's game launches, when it launches for the player
@@ -899,9 +981,14 @@ var aloneStarts = 15 * time.Second
 const launching = "Launching the game"
 
 // stayWith is stay, from the start of the player's game g: from the folder from, which the run found as dir, into the
-// room's game to, with Plutonium of the revision rev. For a game alone, to is nil: the game is at its menu, with the
-// PC's Plutonium, and the player's next room's game joins from there.
-func (la *launcher) stayWith(ctx context.Context, srv *server, l link, g game, dir, from string, to *launcherapi.Game, rev int) error {
+// room's game to, with Plutonium of the revision rev. For a game alone (alone), to is nil: the game is at its menu,
+// with the PC's Plutonium, and the player's next room's game joins from there. A game of Black Ops III that starts
+// for a room's game has no to either: it joins from its menu too, once the room's game is up (launch).
+//
+// stayWith ends, and closes the game, when the player's room plays another title than the game's: the next run sees
+// to that title, and starts its game (serve).
+func (la *launcher) stayWith(ctx context.Context, srv *server, l link, g game, dir, from string, to *launcherapi.Game, rev int, alone bool) error {
+	t := la.title()
 	la.hide()
 	// The player's game runs from here until it is closed. The room's button shows what the launcher does with it
 	// until the server has it in the room's game: the game launches, or the game that runs joins the room's game. Once
@@ -926,20 +1013,34 @@ func (la *launcher) stayWith(ctx context.Context, srv *server, l link, g game, d
 	for g.running() && ctx.Err() == nil {
 		play, next, err := srv.latest()
 		ok := err == nil && play != nil
+		if ok && play.Room != "" && titleOf(play.Of) != t {
+			g.stop()
+			return nil
+		}
 		if ok && play.InGame {
 			show("")
 			asked = false
 		}
-		if to == nil && status == launching && time.Since(begun) >= aloneStarts {
+		if alone && to == nil && status == launching && time.Since(begun) >= aloneStarts {
 			show("")
 		}
 		again := false
 		if ok && play.Game != nil && (to == nil || play.Game.ID != to.ID || asked) {
 			switch {
+			case t == titleT7 && !hasZone(from, play.Needs):
+				// The folder lacks the room's map. Where it is the launcher's own, and the server sends game files, the
+				// next run downloads the map, which the game is closed for. A player's own copy stays as it is, and
+				// the room says that the map is missing.
+				if from == la.downloads() && info(play, t).Downloads {
+					g.stop()
+					return nil
+				}
 			case !la.rejoins(play, dir, from, rev):
 				again = true
 			case !play.Game.Up: // the player's game joins it once it is up
-				show("Joining the game")
+				if status != launching {
+					show("Joining the game")
+				}
 			case la.rejoin(g, l, play):
 				show("Joining the game")
 				to, asked = play.Game, false
@@ -961,15 +1062,15 @@ func (la *launcher) stayWith(ctx context.Context, srv *server, l link, g game, d
 		}
 		asked = false
 		g.stop()
-		if g, from, err = la.launch(ctx, srv, l, play, dir); err != nil {
+		if g, from, to, err = la.launch(ctx, srv, l, play, dir); err != nil {
 			if la.stays {
 				return err // the player's page shows it
 			}
 			la.notify(err.Error(), true)
 			return nil
 		}
-		to, rev = play.Game, play.Plutonium
-		status = launching // also after "Updating Plutonium", which launch may have reported
+		rev, alone = info(play, t).Plutonium, false
+		status, begun = launching, time.Now() // also after "Updating Plutonium", which launch may have reported
 		la.doing(ctx, srv, status)
 	}
 	if to != nil {
@@ -987,41 +1088,84 @@ func (la *launcher) stayWith(ctx context.Context, srv *server, l link, g game, d
 // does, which the page's button shows, and stays with the game as with a room's (stayWith): when the player then
 // readies up in a room, their game joins the room's game from its menu. With none, it starts the game and ends. done
 // gives up the turn to change the PC's files, once the launcher no longer changes them.
-func (la *launcher) alone(ctx context.Context, srv *server, l link, play *launcherapi.Play, done func()) error {
-	if err := la.havePlutonium(ctx, srv); err != nil {
+//
+// mapName is the map of the title that the player picked in the page, or "". Where the server sends the title's game
+// files a map at a time, and the game's folder is the launcher's own, the launcher gets that map's first.
+func (la *launcher) alone(ctx context.Context, srv *server, l link, play *launcherapi.Play, mapName string, done func()) error {
+	t := la.title()
+	if t == titleT7 {
+		if err := la.haveBoiii(ctx, srv); err != nil {
+			return err
+		}
+	} else if err := la.havePlutonium(ctx, srv); err != nil {
 		return err
 	}
 	la.doing(ctx, srv, "Checking files")
-	dir, err := la.gameFiles(ctx, srv, l, play)
+	dir, err := la.gameFiles(ctx, srv, l, play, need{pack: mapName})
 	if err != nil {
 		return err
 	}
 	done()
+	if zones := info(play, t).Zones; srv != nil && len(zones) > 0 {
+		srv.setHas(zonesIn(dir, zones)) // which maps the game folder has, for the page to show
+	}
 	from, err := la.startFrom(dir) // or the folder the player chose in the tray's menu since
 	if err != nil {
 		return err
 	}
-	exe := filepath.Join(la.plutonium, filepath.FromSlash(plutonium.Bootstrapper))
-	line, err := aloneLine(exe, from, play.Player)
-	if err != nil {
-		return err
-	}
-	g, err := la.start(exe, line, la.plutonium)
-	if err != nil {
-		return fmt.Errorf("Plutonium couldn't be started: %v\n\n%s", err, la.plutoniumHint())
+	var g game
+	rev := 0
+	if t == titleT7 {
+		if g, err = la.startBoiii(from, play.Player); err != nil {
+			return err
+		}
+	} else {
+		exe := filepath.Join(la.plutonium, filepath.FromSlash(plutonium.Bootstrapper))
+		line, err := aloneLine(exe, from, play.Player)
+		if err != nil {
+			return err
+		}
+		if g, err = la.start(exe, line, la.plutonium); err != nil {
+			return fmt.Errorf("Plutonium couldn't be started: %v\n\n%s", err, la.plutoniumHint())
+		}
+		rev = (&plutonium.Copy{Dir: la.plutonium, Needs: plutonium.T6, State: "zombies-launcher-files.json"}).Revision()
 	}
 	la.started(g)
 	la.launched = true
-	la.tellPlutonium(from)
+	if t == titleT6 {
+		la.tellPlutonium(from)
+	}
 	la.say("")
-	la.say("Black Ops II is starting at its menu, for you to play as %s.", gameName(play.Player))
+	la.say("%s is starting at its menu, for you to play as %s.", t.name, gameName(play.Player))
 	if srv == nil {
 		return nil
 	}
 	la.prepared = true
 	srv.setReady(true)
-	rev := (&plutonium.Copy{Dir: la.plutonium, Needs: plutonium.T6, State: "zombies-launcher-files.json"}).Revision()
-	return la.stayWith(ctx, srv, l, g, dir, from, nil, rev)
+	return la.stayWith(ctx, srv, l, g, dir, from, nil, rev, true)
+}
+
+// launchBoiii starts the player's Black Ops III for the room's game, play.Game, from the game files in dir, or the
+// folder that the player chose in the tray's menu since, which it returns. The game starts at its menu, under the
+// name that the room's game knows the player by. It joins the room's game once that is up, and the game is at its
+// menu: stayWith then has the line typed that connects it (rejoin, boiii.go).
+func (la *launcher) launchBoiii(ctx context.Context, srv *server, play *launcherapi.Play, dir string) (game, string, error) {
+	if err := la.haveBoiii(ctx, srv); err != nil {
+		return nil, "", err
+	}
+	dir, err := la.startFrom(dir)
+	if err != nil {
+		return nil, "", err
+	}
+	g, err := la.startBoiii(dir, play.Game.Name)
+	if err != nil {
+		return nil, "", err
+	}
+	la.started(g)
+	la.launched = true
+	la.say("")
+	la.say("Black Ops III is starting, and joins the room's game as %s.", boiiiName(play.Game.Name))
+	return g, dir, nil
 }
 
 // havePlutonium makes sure that the PC has Plutonium, for a game alone (alone): a complete copy, of any revision.

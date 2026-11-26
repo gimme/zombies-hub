@@ -1,7 +1,8 @@
 // Package boiii keeps a copy of BOIII (https://github.com/Ezz-lol/boiii-free) up to date from BOIII's own updater.
 // BOIII is the client that Black Ops III plays on outside Steam's servers. It is one program, boiii.exe, which loads
 // the game's own program beside it and runs that: as a player's game, or, on Steam's dedicated server of the game, as
-// a server. The server has a copy, which a Black Ops III room's game runs (server/t7.go).
+// a server. The server has a copy, which a Black Ops III room's game runs (server/t7.go). A player's launcher has
+// the program alone, which then keeps itself up to date (launcher/boiii.go).
 package boiii
 
 import (
@@ -50,6 +51,9 @@ type Copy struct {
 	Client *http.Client
 	// State names the file in Dir where Update records what it left there: each file's hash by the file's name.
 	State string
+	// Program makes the copy BOIII's program alone, without its data. A player's BOIII gets its data itself as it
+	// starts, into its own folder, and brings itself up to date there too.
+	Program bool
 	// Fetching, when set, is called before an update downloads, with the number of files and their size in bytes.
 	Fetching func(files int, bytes int64)
 	// Logf, when set, is called with what an update did, or with the fact that Update could not reach the updater.
@@ -129,7 +133,7 @@ func (c *Copy) Update(ctx context.Context) error {
 	var bytes int64
 	for _, f := range files {
 		f.hash = strings.ToLower(f.hash)
-		if f.name != Exe && !strings.HasPrefix(f.name, Data+"/") {
+		if f.name != Exe && (c.Program || !strings.HasPrefix(f.name, Data+"/")) {
 			continue
 		}
 		// The name has to stay inside the folder, and the hash has to be a SHA-1 in hex.
