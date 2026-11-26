@@ -284,7 +284,10 @@ function gameButton(v: View, room: Room): RoomButton {
   const said = (label: string): RoomButton => ({ label, disabled: true });
   if (room.state === 'ending') return said('Ending the game...');
   if (room.left) return said('Out of the game'); // their character is gone from the game
-  if (!room.seat) return said('Game in progress'); // the game began without them
+  // Everyone in the room has a place in its game: a game starts with all of its room's members, and the room takes
+  // no one else until the game has ended (server/rooms.go: start, join). So no game begins without a member, and a
+  // view that says otherwise offers nothing.
+  if (!room.seat) return said('Game in progress');
   if (!ownPC(room.of)) {
     // Another tab of the player's plays the game, or did until it closed. The button moves the game to this tab.
     if (room.join && otherTab && !started && !onWindows()) {

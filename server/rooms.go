@@ -1670,7 +1670,9 @@ func (l *lobby) rejoin(p *player) error {
 	s := r.seatOf(p)
 	switch {
 	case s == nil:
-		return errors.New("The game began without you.")
+		// No member of a room is without a seat in its game: the game starts with a seat for each of them, and the
+		// room takes no one else while the game runs (start, join). So this is no case that a player comes to.
+		return errors.New("You have no place in this game.")
 	case r.game.lost(s):
 		return errors.New("You're out of this game.")
 	case !r.game.title.inPage():
@@ -2301,8 +2303,8 @@ func (l *lobby) windowsSeat(key string) (game, local *net.UDPAddr, name, who str
 	case !r.game.title.inPage():
 		return nil, nil, "", "", fmt.Errorf("Room %s plays %s. Join it with the line on its page.", r.code,
 			r.game.title.label())
-	case s == nil:
-		return nil, nil, "", "", fmt.Errorf("Room %s's game started without you. You can join the next one.", r.code)
+	case s == nil: // no member of a room is without a seat in its game, as in rejoin
+		return nil, nil, "", "", fmt.Errorf("You have no place in room %s's game.", r.code)
 	case r.game.lost(s):
 		return nil, nil, "", "", fmt.Errorf("Your character in room %s's game is gone. You can join the next one.", r.code)
 	}
