@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"maps"
 	"net/netip"
 	"os"
 	"path/filepath"
@@ -56,7 +57,8 @@ import (
 // after has it among its fastfiles and is told not to ask for it (live_useLPC 0). With the file in its home, a game
 // sends nothing to anyone but its players.
 //
-// The server puts a script in the game that reports how the game goes (t7Script), in the lines of a T6 game's script.
+// The server puts a script in the game that reports how the game goes (t7Script), in the lines of a T6 game's script,
+// and one that names the game's clients as their room knows the players (t7NameScript).
 
 const t7 = "t7"
 
@@ -124,7 +126,10 @@ func (t *t7Title) free(*lobby) error {
 func (t *t7Title) begin(l *lobby, r *room, rg *roomGame) *game {
 	g := t.newGame(r.code, r.mapName, rg.port, len(rg.seats), r.password)
 	g.lines = func(line string) { l.pcSaid(r, rg, line) }
-	g.t7().status = func(clients []pcClient) { l.pcStatus(r, rg, clients) }
+	g.t7().status = func(clients []pcClient) {
+		l.pcStatus(r, rg, clients)
+		l.t7Names(r, rg, clients)
+	}
 	g.t7().changed = func() {
 		l.mu.Lock()
 		l.change()
@@ -456,6 +461,129 @@ function game_over()
 }
 `
 
+// t7NameScript is the server's other script in a T7 game: it names the game's clients as the server says. A game on
+// BOIII plays under the name that it had as it started, and nothing changes that name in a game that runs: BOIII's
+// console has a command for the name, which takes effect only in the game's next run. BOIII's server can show a
+// client under another name, from a script (setname): the players' games then show that name, on the scoreboard and
+// wherever they name the player. The game's status lists the client by its own name still. So the server tells this
+// script the name of each client that plays under another than its room knows its player by (t7Names), in a dvar
+// for the client's slot, which is empty for a client that keeps its name:
+//
+//	set zombies_name_2 "Ann"  the client in slot 2 is Ann's
+//
+// BOIII forgets the names it was told each time the game loads its level, which also starts the script again: the
+// dvars stay, and the script names each client again from them. It prints a line for each client that it names:
+//
+//	zombies_names: 2 is Ann
+//
+// It is a script of its own, so that the server's other script still reports the game where BOIII has no setname.
+const t7NameScript = `// zombies-server's (server/t7.go): the names of the game's clients, as their room knows the players
+#using scripts\shared\callbacks_shared;
+#using scripts\shared\system_shared;
+
+#insert scripts\shared\shared.gsh;
+
+#namespace zombies_names;
+
+REGISTER_SYSTEM("zombies_names", &__init__, undefined)
+
+function __init__()
+{
+	callback::on_start_gametype(&init);
+}
+
+function init()
+{
+	level thread names();
+}
+
+function names()
+{
+	for (;;)
+	{
+		players = GetPlayers();
+
+		for (i = 0; i < players.size; i++)
+		{
+			player = players[i];
+			name = GetDvarString("zombies_name_" + player GetEntityNumber());
+
+			if (name == "" || isdefined(player.zombies_named) && player.zombies_named == name)
+				continue;
+
+			player.zombies_named = name;
+			player setname(name);
+			println("zombies_names: " + player GetEntityNumber() + " is " + name);
+		}
+
+		wait 1;
+	}
+}
+`
+
+// t7Name returns the name that a T7 game has for the client of a player called name: a game takes 16 characters of a
+// name, and the launcher gives a player's game those (launcher/boiii.go: boiiiName).
+func t7Name(name string) string {
+	if len(name) > 16 {
+		name = strings.TrimSpace(name[:16])
+	}
+	return name
+}
+
+// t7Names has a T7 room's game show its clients under the names that the room knows their players by, after each
+// status of the game (pcStatus). A player's game plays under the name it started with: the name that the launcher
+// gave it, which the player may have changed in the lobby since, or the player's own, in a game that they started by
+// hand. For each client that is in the game under another name than its player's, the server tells the game's script
+// that name, by the client's slot (t7NameScript), and takes the name back once the slot has no such client. The
+// game's status lists a client by its own name whatever the game shows it as, so the server tells the game each
+// name once, and again only when it changes.
+//
+// Several players can be behind one address, and the server tells their games apart by the names they play under
+// (pcWhose). So a client from such an address is named only once each of those players' games is in the game: by
+// then the seats have the games that the names give them. The caller does not hold l.mu.
+func (l *lobby) t7Names(r *room, rg *roomGame, clients []pcClient) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if r.game != rg || rg.g == nil || rg.ending != "" {
+		return
+	}
+	want := map[int]string{}
+	for _, s := range rg.seats {
+		i := slices.IndexFunc(clients, func(c pcClient) bool { return c.address == s.local.String() })
+		if s.left || !s.in || i < 0 || clients[i].name == t7Name(s.player.name) {
+			continue
+		}
+		if slices.ContainsFunc(rg.seats, func(o *seat) bool { return !o.left && !o.in && o.player.addr == s.player.addr }) {
+			continue
+		}
+		want[clients[i].slot] = t7Name(s.player.name)
+		if rg.names[clients[i].slot] != want[clients[i].slot] {
+			log.Printf("server: %s's game is in room %s's game as %s: the game shows it as %s", s.player.name, r.code,
+				clients[i].name, want[clients[i].slot])
+		}
+	}
+	slots := slices.Collect(maps.Keys(want))
+	for slot := range rg.names {
+		if _, ok := want[slot]; !ok {
+			slots = append(slots, slot)
+		}
+	}
+	slices.Sort(slots)
+	for _, slot := range slots {
+		if name, ok := rg.names[slot]; !ok || name != want[slot] {
+			rg.g.command(fmt.Sprintf(`set zombies_name_%d "%s"`, slot, want[slot]))
+		}
+		if want[slot] == "" {
+			delete(rg.names, slot)
+		} else {
+			if rg.names == nil {
+				rg.names = map[int]string{}
+			}
+			rg.names[slot] = want[slot]
+		}
+	}
+}
+
 // t7Home lists what a T7 game's home has of Steam's server: links to its program, the libraries it loads, and the
 // folder with its playlists.
 var t7Home = []string{"BlackOps3_UnrankedDedicatedServer.exe", "steam_api64.dll", "steamclient64.dll", "tier0_s64.dll",
@@ -526,8 +654,10 @@ func (g *game) t7Prepare(ctx context.Context) error {
 			return err
 		}
 	}
-	if err := os.WriteFile(filepath.Join(scripts, "lobby.gsc"), []byte(t7Script), 0o644); err != nil {
-		return err
+	for name, script := range map[string]string{"lobby.gsc": t7Script, "lobby_names.gsc": t7NameScript} {
+		if err := os.WriteFile(filepath.Join(scripts, name), []byte(script), 0o644); err != nil {
+			return err
+		}
 	}
 	cfg := fmt.Sprintf(`// zombies-server's, for room %s
 set live_steam_server_name "Room %s"

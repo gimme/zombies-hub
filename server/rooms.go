@@ -331,11 +331,13 @@ type room struct {
 
 // roomGame is a room's game, from its start until it ends.
 type roomGame struct {
-	g       *game
-	title   title              // the title of the room's map
-	cancel  context.CancelFunc // stops it
-	port    int
-	seats   []*seat
+	g      *game
+	title  title              // the title of the room's map
+	cancel context.CancelFunc // stops it
+	port   int
+	seats  []*seat
+	// names are, in a T7 game, the names that the server told the game to show clients under, by slot (t7Names).
+	names   map[int]string
 	began   time.Time // when it started
 	up      time.Time // a T6 game: when Plutonium's server first answered; its players join it from then (pcStatus)
 	held    time.Time // a T6 game: when it last waited for a player whose launcher was getting their PC ready (pcLate)

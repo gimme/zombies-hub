@@ -3,7 +3,10 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
+	"net"
 	"net/http"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"slices"
@@ -139,8 +142,10 @@ func TestT7Prepare(t *testing.T) {
 			t.Errorf("the config lacks %q:\n%s", line, cfg)
 		}
 	}
-	if script, _ := os.ReadFile(filepath.Join(g.home, "boiii", "custom_scripts", "zm", "lobby.gsc")); string(script) != t7Script {
-		t.Errorf("the home's script is not the server's: %d bytes", len(script))
+	for name, want := range map[string]string{"lobby.gsc": t7Script, "lobby_names.gsc": t7NameScript} {
+		if script, _ := os.ReadFile(filepath.Join(g.home, "boiii", "custom_scripts", "zm", name)); string(script) != want {
+			t.Errorf("the home's script %s is not the server's: %d bytes", name, len(script))
+		}
 	}
 	if copy.Build() == "" || copy.runs.Load() != 1 {
 		t.Errorf("the copy of BOIII: build %q, %d games run from it", copy.Build(), copy.runs.Load())
@@ -181,6 +186,71 @@ func TestT7Free(t *testing.T) {
 	writeTestFile(t, filepath.Join(title.copy.lpc(), "core_sv_ffotd_tu32_593.ff"))
 	if err := title.free(nil); err != nil {
 		t.Errorf("a server that has fetched: %v", err)
+	}
+}
+
+// A T7 game shows a client under the name that the server tells its script, by the client's slot. The server tells
+// it the name of a client that is in the game under another name than its room knows its player by, once, and takes
+// the name back when the slot has no such client. It names no client while a game from the client's address is yet
+// to come: the names tell those games apart.
+func TestT7Names(t *testing.T) {
+	eng := newT7Game(nil, "", "zm_factory", 4, "pw")
+	g := &game{engine: eng, stdin: os.Stdin, output: io.Discard}
+	l, r := &lobby{}, &room{code: "ROOM"}
+	home, away := netip.MustParseAddr("10.0.0.1"), netip.MustParseAddr("10.0.0.2")
+	seatOf := func(name string, addr netip.Addr, n int) *seat {
+		return &seat{player: &player{name: name, addr: addr}, local: &net.UDPAddr{IP: net.IPv4(127, 1, 0, byte(n)), Port: 28960},
+			in: true, slot: n}
+	}
+	ann, bob, cy := seatOf("Ann", home, 1), seatOf("Bob of the long name", home, 2), seatOf("Cy", away, 3)
+	rg := &roomGame{g: g, seats: []*seat{ann, bob, cy}}
+	r.game = rg
+	client := func(s *seat, name string) pcClient { return pcClient{s.slot, name, s.local.String(), true} }
+	told := func(clients ...pcClient) []string {
+		t.Helper()
+		l.t7Names(r, rg, clients)
+		var lines []string
+		for {
+			select {
+			case line := <-eng.send:
+				lines = append(lines, line)
+			default:
+				return lines
+			}
+		}
+	}
+	// each game plays under its player's name, of which a game has 16 characters
+	if lines := told(client(ann, "Ann"), client(bob, "Bob of the long"), client(cy, "Cy")); len(lines) != 0 {
+		t.Fatalf("the game was told %q, with each client under its player's name", lines)
+	}
+	// Cy renamed themselves since their game started, and Ann's game is one that she started by hand. The game's
+	// status lists both by their own names still, once the game shows them by their players'.
+	own := []pcClient{client(ann, "Gimmeh"), client(bob, "Bob of the long"), client(cy, "Tester")}
+	if lines := told(own...); !slices.Equal(lines, []string{`set zombies_name_1 "Ann"`, `set zombies_name_3 "Cy"`}) {
+		t.Fatalf("the game was told %q", lines)
+	}
+	if lines := told(own...); len(lines) != 0 {
+		t.Fatalf("the game was told %q again", lines)
+	}
+	// Ann renames herself, and Cy's game leaves: the slot is the next client's, who keeps its name
+	ann.player.name, cy.in = "Annie", false
+	if lines := told(own[0], own[1]); !slices.Equal(lines, []string{`set zombies_name_1 "Annie"`, `set zombies_name_3 ""`}) {
+		t.Fatalf("the game was told %q", lines)
+	}
+	// Bob's game is on its way again, from the address that Ann's comes from: the names tell the two apart, so the
+	// server has the game show no client from that address under another name until Bob's is in
+	cy.left, bob.in, ann.player.name = true, false, "Ann"
+	if lines := told(own[0]); !slices.Equal(lines, []string{`set zombies_name_1 ""`}) {
+		t.Fatalf("the game was told %q, with another game from the client's address yet to come", lines)
+	}
+	bob.in = true
+	if lines := told(own[0], own[1]); !slices.Equal(lines, []string{`set zombies_name_1 "Ann"`}) {
+		t.Fatalf("the game was told %q, with each game from the client's address in", lines)
+	}
+	// no game that ends is told a name
+	ann.player.name, rg.ending = "Annie", "quit"
+	if lines := told(own[0], own[1]); len(lines) != 0 {
+		t.Fatalf("a game that ends was told %q", lines)
 	}
 }
 
