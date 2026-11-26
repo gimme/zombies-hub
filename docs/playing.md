@@ -48,12 +48,18 @@ To remove the launcher, uninstall Zombies Launcher in Windows' Settings under Ap
 
 ## Black Ops III
 
-Black Ops III runs on your Windows PC, on [BOIII](https://github.com/Ezz-lol/boiii-free), and you join your room's game by hand. The launcher starts no Black Ops III yet.
+Black Ops III runs on your Windows PC, on [BOIII](https://github.com/Ezz-lol/boiii-free). The Zombies Launcher starts it for you and joins your room's game, as it does Black Ops II. What is said there of the launcher holds here too: installing it, Connect and Ready, its updates, and its icon in the tray, whose menu has this game's folder as well. This is what differs.
 
-- **Game files:** Black Ops III installed from Steam, with the maps you want to play.
-- **BOIII:** download `boiii.exe` from [its releases](https://github.com/Ezz-lol/boiii-free/releases/latest), put it in the game's folder, and start it. It brings itself up to date each time it starts.
-- **Each game:** press Ready in the room. When the room's game is up, the room shows a line: open the console in your game and type it there, or copy it with the button at its end. It gives the room's password and connects to the server.
+- **Steam:** the PC needs Steam installed, whoever owns the game: BOIII starts nothing without it. Steam need not be running.
+- **Game files:** Black Ops III installed from Steam, with the maps you want to play, or a copy of it anywhere on the PC. If the launcher doesn't find it, it asks: choose Choose folder… and pick the game's folder, the one with `BlackOps3.exe` in it. If the host has turned on downloads, the launcher can download the files instead, into its own folder or one you choose: 51 GB that every map needs, and then 1 to 7 GB for each map you play, as you come to it.
+- **Maps you don't have:** a map that your game folder lacks shows you as Missing map, and the room's button says Download where the host has turned on downloads. Where the launcher downloaded your game files, it gets the map. Where they are your own copy, it asks whether to download the server's files and use them instead: that is the whole game again, and your own copy stays as it is.
+- **BOIII:** the launcher gets BOIII's program once, into its own folder, and starts it in your game's folder. BOIII then brings itself up to date each time it starts, and keeps its data in `%LOCALAPPDATA%\boiii`, as it does when you start it yourself. Your game plays under your name in the room: the launcher writes it into BOIII's settings in the game's folder as the game starts, and puts your own back when you close the game.
+- **Each game:** the launcher starts your game at its menu, and has it join the room's game from there once both are up: you see the game start, sit at its first screen for a moment, and then load the map. Don't press anything meanwhile.
+- **The next game:** leave your game open when a game ends. It joins the room's next game from where it is, without starting again.
+- **Play local:** the lobby's Play local has Black Ops III too, with its maps. Launch game starts the game at its menu. Once the launcher has looked at your game folder, each map says whether it is Installed. Where the launcher downloaded your game files, pick a map that is not, and the button downloads it, also while the game runs.
+- **Join by hand:** check Join by hand under the room's button to join from your own BOIII instead: put `boiii.exe` from [its releases](https://github.com/Ezz-lol/boiii-free/releases/latest) in the game's folder and start it. When the room's game is up, the room shows a line: open the console in your game and type it there, or copy it with the button at its end. It gives the room's password and connects to the server.
 - **Same PC:** keep the room's page open on the PC you play on. The server matches your game to your page by address.
+- **On a Mac:** Black Ops III doesn't run there.
 
 ## On a Mac
 

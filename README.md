@@ -4,7 +4,7 @@ A community hub for playing Call of Duty Zombies together, on a dedicated server
 
 - **Black Ops** plays in the browser (Chrome, WebGPU). Each player imports the game files from their own copy of Black Ops, and the browser keeps them. Imported maps can be played offline too.
 - **Black Ops II** plays on [Plutonium](https://plutonium.pw/). The server runs Plutonium's dedicated server, and each player automatically joins from their own PC with the help of a small launcher, which sits in the tray. A Mac with Apple Silicon can play too.
-- **Black Ops III** plays on [BOIII](https://github.com/Ezz-lol/boiii-free). The server runs Steam's dedicated server of the game, and each player joins from their own PC, with a line that their room shows them.
+- **Black Ops III** plays on [BOIII](https://github.com/Ezz-lol/boiii-free). The server runs Steam's dedicated server of the game, and each player joins from their own PC with the same launcher.
 - The server runs in Docker.
 
 ## Quick start
