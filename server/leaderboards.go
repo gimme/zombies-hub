@@ -47,8 +47,9 @@ const boardRows = 50
 
 // eggs are the maps with an easter egg, in no particular order. A T5 map has the stat that it adds to when a party of
 // two or more finishes its easter egg (t5.go: gameLine). Ascension's stat is not the level's own: the engine's script
-// fixes add it (bo1-zombies/src/clientscript/cscr_parser.cpp: s_scrSourceFixes). A T6 map has no stat: the server's
-// script in the game reports when its main quest is done (t6.go: t6Script).
+// fixes add it (bo1-zombies/src/clientscript/cscr_parser.cpp: s_scrSourceFixes). A T6 map has no stat, and neither
+// has a T7 map: the server's script in the game reports when its main quest is done (t6.go: t6Script, t7.go:
+// t7Script).
 var eggs = []struct{ mapName, stat string }{
 	{"zombie_coast", "ZOMBIE_COAST_EGG_COOP"},
 	{"zombie_temple", "ZOMBIE_TEMPLE_SIDEQUEST"},
@@ -59,6 +60,16 @@ var eggs = []struct{ mapName, stat string }{
 	{"zm_classic_prison", ""},
 	{"zm_classic_processing", ""},
 	{"zm_classic_tomb", ""},
+	{"zm_zod", ""},
+	{"zm_factory", ""},
+	{"zm_castle", ""},
+	{"zm_island", ""},
+	{"zm_stalingrad", ""},
+	{"zm_genesis", ""},
+	{"zm_cosmodrome", ""},
+	{"zm_temple", ""},
+	{"zm_moon", ""},
+	{"zm_tomb", ""},
 }
 
 // hasEgg reports whether the map has an easter egg (eggs).

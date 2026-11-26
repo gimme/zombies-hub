@@ -254,7 +254,7 @@ func (rg *roomGame) pcWhose(code string, at *seat, name string) *seat {
 // it (roundBegins). A game that has begun is not called off. Each round sets its players' records, as in a T5 game
 // (keepRounds). The records come from the players' lines of the scoreboard. The script prints those by client slot,
 // so they count only for the clients that the status has listed by then. The end of the map's main quest sets the
-// easter egg's record of the players in the game then, whom the script names by slot too (t6Egg). What a player has
+// easter egg's record of the players in the game then, whom the script names by slot too (pcEgg). What a player has
 // from earlier games, which the script reports as well, is an event of the game (t6Carried), and so is each GobbleGum
 // of a player's pack, and each one they chew, in a T7 game (t7Gum).
 //
@@ -312,7 +312,7 @@ func (l *lobby) pcSaid(r *room, rg *roomGame, line string) {
 		return // the leaderboards are read when a page opens them
 	case ours && verb == "egg":
 		if rg.ending == "" && hasEgg(r.mapName) {
-			l.t6Egg(r, rg, strings.Fields(arg))
+			l.pcEgg(r, rg, strings.Fields(arg))
 		}
 		return
 	case ours && (verb == "help" || verb == "perk"):
@@ -366,6 +366,29 @@ func (rg *roomGame) seatIn(field string) *seat {
 		}
 	}
 	return nil
+}
+
+// pcEgg keeps the easter egg of rg's map for the players whose client is in one of the slots: the script's report
+// that the map's main quest is done ("egg 2 0 1"), with the side that the players took and the players in the game
+// then. A T6 game's script reports it (t6.go: t6Script), and a T7 game's (t7.go: t7Script), whose quests have no
+// sides. The whole party has the one time, from round 1, as in a T5 game (t5.go: gameLine). The game has an event of
+// each of those players' easter egg, with the side (gameEvent). The caller holds l.mu.
+func (l *lobby) pcEgg(r *room, rg *roomGame, fields []string) {
+	if len(fields) == 0 {
+		return
+	}
+	if rg.eggSeconds == 0 {
+		rg.eggSeconds = max(int64(time.Since(rg.round1).Seconds()), 1)
+	}
+	side := map[string]string{"1": richtofen, "2": maxis}[fields[0]]
+	for _, field := range fields[1:] {
+		if s := rg.seatIn(field); s != nil {
+			s.player.keepEgg(r.mapName, len(rg.seats), rg.eggSeconds, gameID(r, rg))
+			rg.note(rg.eggSeconds, eventEgg, s.player, side)
+		}
+	}
+	l.keepEvents(rg) // so that the game has a report however it ends, with the easter egg in it
+	l.save()
 }
 
 // pcEndTakes is how long the server gives a PC game's end to play out before it stops the game anyway. The end takes

@@ -307,6 +307,54 @@ func TestT7Gums(t *testing.T) {
 	}
 }
 
+// The server's script in a T7 game reports that the map's main quest is done, with the players in the game then, as
+// a T6 game's does. Each of them has the map's easter egg, at the one time from round 1, and the game has an event of
+// each, with no side. Ten of T7's maps have a main quest, and a game on another has no easter egg.
+func TestT7Egg(t *testing.T) {
+	none := []string{"zm_prototype", "zm_asylum", "zm_sumpf", "zm_theater"}
+	for _, m := range t7MapList {
+		if hasEgg(m.name) == slices.Contains(none, m.name) {
+			t.Errorf("%s has an easter egg: %v", m.title, hasEgg(m.name))
+		}
+	}
+	for _, mapName := range []string{"zm_castle", "zm_theater"} {
+		l := newLobby(context.Background())
+		ann, bob := &player{id: "aaaa0001", name: "Ann"}, &player{id: "bbbb0002", name: "Bob"}
+		seatOf := func(p *player, slot int) *seat {
+			return &seat{player: p, local: &net.UDPAddr{IP: net.IPv4(127, 1, 0, byte(slot+1)), Port: 28960}, in: true, slot: slot}
+		}
+		r := &room{code: "ROOM", mapName: mapName}
+		rg := &roomGame{seats: []*seat{seatOf(ann, 0), seatOf(bob, 1)}, started: true,
+			round1: time.Now().Add(-90 * time.Second), report: &gameResult{ID: "ROOM-1", Round: 9}}
+		r.game = rg
+		// the players in slots 0 and 1, and a client in a slot that is no player's seat
+		l.pcSaid(r, rg, "zombies_lobby: egg 0 0 1 3")
+		if mapName == "zm_theater" {
+			if len(rg.events) != 0 || len(ann.eggs) != 0 {
+				t.Errorf("%s, which has no main quest: events %+v, Ann's easter eggs %+v", mapName, rg.events, ann.eggs)
+			}
+			continue
+		}
+		seconds := rg.eggSeconds
+		if seconds < 90 || seconds > 100 {
+			t.Errorf("%s: the easter egg was done %d s from round 1, of a game 90 s in", mapName, seconds)
+		}
+		want := []gameEvent{{seconds: seconds, round: 9, kind: eventEgg, player: ann.id},
+			{seconds: seconds, round: 9, kind: eventEgg, player: bob.id}}
+		if !slices.Equal(rg.events, want) {
+			t.Errorf("%s: the game's events:\n%+v\nwant\n%+v", mapName, rg.events, want)
+		}
+		if kept := l.unsavedGames["ROOM-1"]; kept == nil || !slices.Equal(kept.events, want) {
+			t.Errorf("%s: the report that the lobby keeps: %+v", mapName, kept)
+		}
+		for _, p := range []*player{ann, bob} {
+			if len(p.eggs) != 1 || p.eggs[0].Map != mapName || p.eggs[0].Party != 2 || p.eggs[0].Seconds != seconds {
+				t.Errorf("%s: %s's easter eggs: %+v", mapName, p.name, p.eggs)
+			}
+		}
+	}
+}
+
 func TestT7StatusLine(t *testing.T) {
 	const row = "%3d %5d %4s %16s %-16s %-24s %6d"
 	for _, tc := range []struct {

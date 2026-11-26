@@ -401,11 +401,40 @@ func (t *t7Game) quit(g *game) bool {
 //	                                                the gum's rarity as the game has it: 0 for a classic gum, 1 to 3
 //	                                                for a Mega one, 4 for a whimsical one. A gum of a player's pack is
 //	                                                printed once, and so is a gum that they chew.
+//	zombies_lobby: egg 0 0 1                        the map's main quest is done: 0, as the quest has no sides, then
+//	                                                the slots of the players in the game then. It is printed once a
+//	                                                game.
 //	zombies_lobby: over 12                          game over, and the round it ended on
 //	zombies_lobby: exit                             the game's end has played out
 //
 // The level's scripts keep each of these numbers on the player (scripts/zm/_zm.gsc and its neighbours, as the game's
-// mod tools have them). The script reports no main quest, and has none of the rooms' mods.
+// mod tools have them). The script has none of the rooms' mods.
+//
+// A map's main quest is done when the level says so to its own scripts, as on a T6 map: with a notify of the level,
+// or with a flag of the level, which notifies the level by the flag's name as it is set (scripts/shared/
+// flag_shared.gsc: set). Where the level gives an achievement for the quest, it gives it then. The scripts of the
+// maps are as https://github.com/shiversoftdev/t7-source has them:
+//
+//	Shadows of Evil     ee_complete                       a flag, set as the ending plays (zm_zod_ee.gsc)
+//	The Giant           level.var_1cbe7756                set as the first player takes the prize of the fly trap,
+//	                                                      which the level counts as this map's main quest
+//	                                                      (zm_factory.gsc: main_EE_quest_factory)
+//	Der Eisendrache     hash_b39ccbbf                     ZM_CASTLE_EE, after the ending (zm_castle_ee.gsc: ee_outro)
+//	Zetsubou No Shima   flag_play_outro_cutscene          a flag, set as the last fight is won and the level gives
+//	                                                      ZM_ISLAND_COMPLETE_EE (zm_island_takeo_fight.gsc)
+//	Gorod Krovi         hash_c1471acf                     ZM_STALINGRAD_NIKOLAI (zm_stalingrad_ee_main.gsc)
+//	Revelations         hash_91a3107                      ZM_GENESIS_EE (zm_genesis_arena.gsc)
+//	Ascension           weapons_combined                  a flag, set at the quest's last step (zm_cosmodrome_eggs.gsc)
+//	Shangri-La          temple_sidequest_achieved         DLC4_ZOM_TEMPLE_SIDEQUEST (zm_temple_sq.gsc)
+//	Moon                moon_sidequest_big_bang_achieved  the last of the quest's three parts (zm_moon_sq.gsc)
+//	Origins             tomb_sidequest_complete           ZM_DLC4_TOMB_SIDEQUEST, as the quest's last step begins
+//	                                                      (zm_tomb_ee_main_step_8.gsc)
+//
+// The other four maps have no main quest. The game's scripts have no names for some of these, only the numbers that
+// the game makes of names: hash_b39ccbbf is the name whose number is b39ccbbf, whatever it was. BOIII's compiler
+// takes such a name for its number, a notify's and a variable's (var_1cbe7756) alike, so the script waits for them
+// as written here. It waits for its own map's alone: a flag of that name could be another map's too. The server
+// keeps the easter egg of each player in the game then (pcEgg).
 //
 // Every T7 map has GobbleGums (scripts/zm/_zm_bgb.gsc). A player brings a pack of five from their own game, and a
 // machine in the map gives them one of the five at a time. The level reads a player's pack as they first spawn
@@ -421,8 +450,8 @@ func (t *t7Game) quit(g *game) bool {
 // to them. It waits for the level's notify of a gum, and does not look at the gum that the player has: the level
 // takes some back within a frame of giving them (Perkaholic). It starts as round 1 does, because the server makes
 // nothing of a line before that (pcSaid). The server keeps each gum as an event of the game (t7Gum).
-const t7Script = `// zombies-server's (server/t7.go): the rounds, the scoreboard at each, each player's GobbleGums, game over,
-// and its end played out
+const t7Script = `// zombies-server's (server/t7.go): the rounds, the scoreboard at each, each player's GobbleGums, the
+// main quest done, game over, and its end played out
 #using scripts\shared\callbacks_shared;
 #using scripts\shared\system_shared;
 
@@ -441,6 +470,7 @@ function init()
 {
 	level thread rounds();
 	level thread gums();
+	level thread egg();
 	level thread game_over();
 }
 
@@ -549,6 +579,59 @@ function gum(how, name)
 		return;
 
 	println("zombies_lobby: gum " + how + " " + name + " " + number(level.bgb[name].rarity) + " " + self GetEntityNumber());
+}
+
+// The map's main quest: waits for the level to say that it is done, as this map's level does, and reports the
+// players in the game then. A map without a main quest has nothing to wait for.
+function egg()
+{
+	level endon("end_game");
+
+	switch (ToLower(GetDvarString("mapname")))
+	{
+		case "zm_zod":
+			level waittill("ee_complete");
+			break;
+		case "zm_factory":
+			while (!isdefined(level.var_1cbe7756) || !level.var_1cbe7756)
+				wait 0.25;
+
+			break;
+		case "zm_castle":
+			level waittill("hash_b39ccbbf");
+			break;
+		case "zm_island":
+			level waittill("flag_play_outro_cutscene");
+			break;
+		case "zm_stalingrad":
+			level waittill("hash_c1471acf");
+			break;
+		case "zm_genesis":
+			level waittill("hash_91a3107");
+			break;
+		case "zm_cosmodrome":
+			level waittill("weapons_combined");
+			break;
+		case "zm_temple":
+			level waittill("temple_sidequest_achieved");
+			break;
+		case "zm_moon":
+			level waittill("moon_sidequest_big_bang_achieved");
+			break;
+		case "zm_tomb":
+			level waittill("tomb_sidequest_complete");
+			break;
+		default:
+			return;
+	}
+
+	line = "zombies_lobby: egg 0";
+	players = GetPlayers();
+
+	for (i = 0; i < players.size; i++)
+		line = line + " " + players[i] GetEntityNumber();
+
+	println(line);
 }
 
 function game_over()

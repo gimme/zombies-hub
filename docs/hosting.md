@@ -118,7 +118,7 @@ How the launcher is released is in [Development](development.md#releasing-the-la
 - The launcher has no Windows code-signing certificate, so Windows and the browser warn about it the first time.
 - Players get the launcher from GitHub. Their PCs need to reach github.com to install it and to update it.
 - Dead Ops Arcade is not available.
-- Black Ops III needs Steam installed on a player's PC, which BOIII asks for, and doesn't run on a Mac. Its rooms have no mods, and its games count rounds but no easter eggs.
+- Black Ops III needs Steam installed on a player's PC, which BOIII asks for, and doesn't run on a Mac. Its rooms have no mods.
 
 ## Security
 

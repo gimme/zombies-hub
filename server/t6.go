@@ -1182,28 +1182,6 @@ func (g *game) t6Watch(done <-chan struct{}, silent chan<- time.Duration) {
 	g.rconWatch(rcon{password: t.rcon, send: t.send, status: t.status, parse: t6StatusLine}, done, silent)
 }
 
-// t6Egg keeps the easter egg of rg's map for the players whose client is in one of the slots: the script's report
-// that the map's main quest is done ("egg 2 0 1"), with the side that the players took and the players in the game
-// then. The whole party has the one time, from round 1, as in a T5 game (t5.go: gameLine). The game has an event of
-// each of those players' easter egg, with the side (gameEvent). The caller holds l.mu.
-func (l *lobby) t6Egg(r *room, rg *roomGame, fields []string) {
-	if len(fields) == 0 {
-		return
-	}
-	if rg.eggSeconds == 0 {
-		rg.eggSeconds = max(int64(time.Since(rg.round1).Seconds()), 1)
-	}
-	side := map[string]string{"1": richtofen, "2": maxis}[fields[0]]
-	for _, field := range fields[1:] {
-		if s := rg.seatIn(field); s != nil {
-			s.player.keepEgg(r.mapName, len(rg.seats), rg.eggSeconds, gameID(r, rg))
-			rg.note(rg.eggSeconds, eventEgg, s.player, side)
-		}
-	}
-	l.keepEvents(rg) // so that the game has a report however it ends, with the easter egg in it
-	l.save()
-}
-
 // t6Perk is the name of a persistent upgrade as the game's scripts have it, such as jugg or multikill_headshots.
 var t6Perk = regexp.MustCompile(`^[a-z_]{1,32}$`)
 
