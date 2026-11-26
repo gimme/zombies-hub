@@ -29,6 +29,9 @@ type fileHashes struct {
 	mu     sync.Mutex
 	known  map[string]knownHash // by path on disk
 	loaded bool
+	// busy has the files that a call of fill is hashing now, by path on disk, each with what is closed once that call
+	// has kept its hashes. Another call that wants one of them waits for it, and hashes nothing twice.
+	busy map[string]chan struct{}
 }
 
 type knownHash struct {
@@ -57,21 +60,57 @@ func hashFile(file string) (string, error) {
 // fill sets each entry's hash. It uses the kept hash of a file whose size and time still match. It hashes the
 // contents of the other files, a few files at a time, and keeps the new hashes. When there is much to hash (over
 // 100 MB), it logs how long the hashing took.
+//
+// The hashing of one title's files takes minutes the first time (87 GB of Black Ops III), so it holds up no other
+// call: another title's files are hashed, or have their kept hashes, meanwhile. A file that another call is hashing
+// is waited for, and not hashed again.
 func (h *fileHashes) fill(entries []*manifestEntry) {
 	h.mu.Lock()
-	defer h.mu.Unlock()
 	h.load()
-	var todo []*manifestEntry
+	var todo, theirs []*manifestEntry // the files to hash here, and those that another call is hashing
+	var waits []chan struct{}
 	var bytes int64
+	done := make(chan struct{})
 	for _, e := range entries {
 		if k, ok := h.known[e.file]; ok && k.size == e.size && k.modTime == e.modTime {
 			e.hash = k.hash
+		} else if other, busy := h.busy[e.file]; busy {
+			theirs, waits = append(theirs, e), append(waits, other)
 		} else {
+			if h.busy == nil {
+				h.busy = map[string]chan struct{}{}
+			}
+			h.busy[e.file] = done
 			todo = append(todo, e)
 			bytes += e.size
 		}
 	}
+	h.mu.Unlock()
+	h.hash(todo, bytes, done)
+	for _, other := range waits {
+		<-other
+	}
+	// what the other calls hashed, as far as it is of the files as these entries have them
+	var left []*manifestEntry
+	h.mu.Lock()
+	for _, e := range theirs {
+		if k, ok := h.known[e.file]; ok && k.size == e.size && k.modTime == e.modTime {
+			e.hash = k.hash
+		} else {
+			left = append(left, e)
+		}
+	}
+	h.mu.Unlock()
+	if len(left) > 0 {
+		h.hash(left, 0, make(chan struct{}))
+	}
+}
+
+// hash hashes the contents of the files todo, of bytes in all, and keeps their hashes. It closes done once it has,
+// for the calls of fill that wait for these files.
+func (h *fileHashes) hash(todo []*manifestEntry, bytes int64, done chan struct{}) {
 	if len(todo) == 0 {
+		close(done)
 		return
 	}
 	began := time.Now()
@@ -99,11 +138,17 @@ func (h *fileHashes) fill(entries []*manifestEntry) {
 	}
 	close(jobs)
 	wg.Wait()
+	h.mu.Lock()
+	defer h.mu.Unlock()
 	for _, e := range todo {
 		if e.hash != "" {
 			h.known[e.file] = knownHash{e.size, e.modTime, e.hash}
 		}
+		if h.busy[e.file] == done {
+			delete(h.busy, e.file)
+		}
 	}
+	close(done)
 	if bytes > 100<<20 {
 		log.Printf("files: hashed %d files in %s", len(todo), time.Since(began).Round(time.Second))
 	}

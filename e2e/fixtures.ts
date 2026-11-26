@@ -4,7 +4,7 @@
 //             files, the engine and Plutonium's updater that global-setup.ts made. Its wine is the stand-in game
 //             (build/e2e/standin, e2e/standin), and it serves the built page (web/dist). serverArgs adds to its
 //             command line: test.use({ serverArgs: ['-max-players', '6'] }). gameFiles('game-t5') is the folder of
-//             the game files of Black Ops alone, for -game-dir.
+//             the game files of Black Ops alone, for -game-dir, and gameFiles('game-t7') has Black Ops III too.
 // player      opens the page as a new player: a browser context of their own, so a token of their own, with the
 //             stand-in host (host.js) in place of the engine's. Or another tab of a player's (tab).
 //
@@ -191,7 +191,10 @@ declare global {
   var standinMaps: Record<string, object> | undefined;
 }
 
-/** A folder of the game files that global-setup.ts made: 'game', of both games, or 'game-t5', of Black Ops alone. */
+/**
+ * A folder of the game files that global-setup.ts made: 'game', of Black Ops and Black Ops II, 'game-t5', of Black Ops
+ * alone, or 'game-t7', of those two and Black Ops III.
+ */
 export function gameFiles(folder: string): string {
   return join(process.env.ZOMBIES_E2E_FILES || '', folder);
 }

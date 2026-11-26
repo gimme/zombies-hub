@@ -449,18 +449,28 @@ func (la *launcher) chooseAgain(problem string) bool {
 
 // lacks prints which of the server's map files the player's own copy does not have: games on those maps don't load
 // on that copy. It checks only the maps' own files, which are the same in every copy: the files of Black Ops II's
-// folder of them (zone/all/), and the zones of another title's maps. The other files differ with a copy's language.
+// folder of them (zone/all/), as the server lists them, and the zones of another title's maps, which the server's
+// answer has. The other files differ with a copy's language. It asks for no list of Black Ops III's files: the
+// server's first one takes minutes to make.
 func (la *launcher) lacks(ctx context.Context, srv *server, own string, zones []string) {
 	t := la.title()
-	list, err := srv.files(ctx, t)
-	if err != nil {
-		return
+	maps := zones
+	if t == titleT6 {
+		list, err := srv.files(ctx, t)
+		if err != nil {
+			return
+		}
+		maps = nil
+		for _, f := range list.Files {
+			if strings.HasPrefix(f.Path, "zone/all/") {
+				maps = append(maps, f.Path)
+			}
+		}
 	}
 	var lacks []string
-	for _, f := range list.Files {
-		of := t == titleT6 && strings.HasPrefix(f.Path, "zone/all/") || t != titleT6 && slices.Contains(zones, f.Path)
-		if of && launcherapi.LocalPath(f.Path) && !isFile(filepath.Join(own, filepath.FromSlash(f.Path))) {
-			lacks = append(lacks, filepath.Base(f.Path))
+	for _, path := range maps {
+		if launcherapi.LocalPath(path) && !isFile(filepath.Join(own, filepath.FromSlash(path))) {
+			lacks = append(lacks, filepath.Base(path))
 		}
 	}
 	if len(lacks) == 0 {

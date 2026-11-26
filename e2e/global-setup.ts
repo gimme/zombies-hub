@@ -1,6 +1,7 @@
 // e2e/global-setup.ts - what every test's server shares, made once for the run in a temporary folder: the game files,
 // the engine, and a stand-in for Plutonium's updater. fixtures.ts reads where they are from the environment. The game
-// files are in game, with both games, and in game-t5 with Black Ops alone, for a server of one game.
+// files are in game, with Black Ops and Black Ops II, in game-t5 with Black Ops alone, for a server of one game, and
+// in game-t7 with Black Ops III too.
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
@@ -20,6 +21,18 @@ const gameFiles = [
   't6/binkw32.dll',
 ];
 
+// Black Ops III, with two maps: the install, and Steam's dedicated server of it, which a server needs to host the
+// game (server/t7.go: t7Installed). Each file has the size here, in bytes: the server sends the install's files to a
+// launcher in packs, whose sizes the page shows (server/gamefiles.go: t7Sends). The server's folder has the file
+// that Steam's server would otherwise fetch from the game's publisher as the test's server starts.
+const t7Files: Record<string, number> = {
+  't7/BlackOps3.exe': 0, 't7/zone/zm_common.ff': 0, 't7/zone/base.xpak': 3_000_000,
+  't7/zone/zm_factory.ff': 0, 't7/zone/zm_factory.xpak': 1_000_000,
+  't7/zone/zm_tomb.ff': 0, 't7/zone/zm_tomb.xpak': 2_000_000,
+  't7-server/UnrankedServer/BlackOps3_UnrankedDedicatedServer.exe': 0,
+  't7-server/UnrankedServer/identities/dedicatedpc/LPC/core_sv_ffotd_tu32_593.ff': 0,
+};
+
 // What the updater serves of Plutonium: what a T6 game needs of it (internal/plutonium: T6).
 const plutonium: Record<string, string> = {
   'bin/plutonium-bootstrapper-win32.exe': 'the bootstrapper',
@@ -37,6 +50,8 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
   const dir = mkdtempSync(join(tmpdir(), 'zombies-e2e-'));
   for (const file of gameFiles) write(join(dir, 'game', file), '');
   for (const file of gameFiles.filter((f) => f.startsWith('t5/'))) write(join(dir, 'game-t5', file), '');
+  for (const file of gameFiles) write(join(dir, 'game-t7', file), '');
+  for (const [file, size] of Object.entries(t7Files)) write(join(dir, 'game-t7', file), 'x'.repeat(size));
 
   // The engine is an archive with its version and BO1Zombies.exe (internal/bo1zombies). The stand-in game runs in
   // place of BO1Zombies.exe, so the file is empty.
