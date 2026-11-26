@@ -23,7 +23,7 @@
 // While the room's game runs, its maps, and its host's pick of its game, stay as they were, and can't be picked: the
 // room looks the same, and nothing under them moves.
 import type { Member, Mod, Room, View } from './api';
-import type { Options } from './controls';
+import type { MainButton, Options } from './controls';
 import { avatar } from './avatar';
 import {
   badgeSay, copy, flipSwitch, optionButtons, optionShow, setButton, showOnOff, switchButton, switchOn, switchShow,
@@ -249,21 +249,33 @@ export function showRoomButton(v: View, room: Room): void {
  * Draws the room's Launch game button, in a room of a game of the players' own PCs. It has the launcher start the
  * player's game now, at its menu, as Play local does (solo.ts): the player can change the game's settings there, and
  * the game joins the room's game from its menu, in seconds, where it would otherwise start when the room's game
- * does. No one has to press it. It is there while the room is open, once the launcher has the PC ready for the
- * room's map, until the launcher says that the game runs (View.you.launcherGame), and not for a player who joins by
- * hand. While the launcher is at it, the button says what the launcher does.
+ * does. No one has to press it.
+ *
+ * The button is there for every player whose game the launcher starts: not for one who joins by hand, nor where the
+ * game can't be played. It launches the game while the room is open, once the launcher has the PC ready for the
+ * room's map. Until then it is off, and says why to who points at it. It is off too while the game runs that the
+ * launcher started (View.you.launcherGame), which it then says, and while the launcher is at launching the game,
+ * when it says what the launcher does.
  */
 function showLaunch(v: View, room: Room): void {
   const b = $('launchgame');
-  const mine = room.members.find((x) => x.id === me.id);
-  const shows = room.state === 'open' && ownPC(room.of) && launcherStarts(room.of) && !handOn()
-    && !!v.you.launcher && !!v.you.launcherReady && !v.you.launcherGame && !v.you.launcherFailed
-    && !(mine && mine.missing);
+  const shows = ownPC(room.of) && launcherStarts(room.of) && !handOn() && !(onMac && room.of === 't7');
   b.classList.toggle('hidden', !shows);
   if (!shows) return;
-  const doing = launcherStep(v.you.launcherDoing || '');
-  setButton(b, doing ? { label: doing + '...', disabled: true }
-    : { label: 'Launch game', title: "Opens the game now, at its menu. It joins the room's game from there." });
+  const mine = room.members.find((x) => x.id === me.id);
+  const off = (label: string, title: string): MainButton => ({ label, title, disabled: true });
+  let m: MainButton = { label: 'Launch game', title: "Opens the game now, at its menu. It joins the room's game from there." };
+  if (v.you.launcher && v.you.launcherGame) {
+    m = off('Game running', "Your game is open. It joins the room's game from where it is.");
+  } else if (room.state !== 'open') m = off('Launch game', "Not while the room's game runs.");
+  else if (!v.you.launcher || !v.you.launcherReady || v.you.launcherFailed) {
+    m = off('Launch game', 'Connect the launcher first, with the button above: it starts the game.');
+  } else if (mine && mine.missing) m = off('Launch game', "Your copy of the game doesn't have this map.");
+  else {
+    const doing = launcherStep(v.you.launcherDoing || '');
+    if (doing) m = off(doing + '...', '');
+  }
+  setButton(b, m);
 }
 
 // What the room's button says and does while the room's game runs.

@@ -33,7 +33,10 @@ test('a Black Ops III room opens the launcher, says where to get it, and how to 
   // the room's button opens the launcher, and the box says where to get it, and what it installs for this game
   await expect(ann.locator('#ready')).toHaveText('Connect');
   await expect(ann.locator('#ready')).toHaveAttribute('data-does', 'launch');
-  await expect(ann.locator('#launchgame')).toBeHidden(); // nothing launches the game before the launcher is there
+  // nothing launches the game before the launcher is there: the room's other button is off, and says what comes first
+  await expect(ann.locator('#launchgame')).toHaveText('Launch game');
+  await expect(ann.locator('#launchgame')).toHaveAttribute('aria-disabled', 'true');
+  await expect(ann.locator('#launchgame')).toHaveAttribute('title', /^Connect the launcher first/);
   await expect(ann.locator('#pcget')).toHaveText('First time? Install Zombies Launcher.');
   await ann.locator('#pcget button.what').click();
   await expect(ann.locator('#pcabout').getByRole('link', { name: 'BOIII' }))
@@ -59,19 +62,23 @@ test('a Black Ops III room opens the launcher, says where to get it, and how to 
   await expect(ann.locator('#ready')).toHaveText('Download');
   await expect(ann.locator('#roomnote')).toHaveText("Your Black Ops III doesn't have this map. The launcher can " +
     'download the game files from the server instead.');
-  await expect(ann.locator('#launchgame')).toBeHidden();
+  await expect(ann.locator('#launchgame')).toHaveAttribute('aria-disabled', 'true');
   expect(await launcher.has('zone/zm_factory.ff,zone/zm_tomb.ff')).toBe(200);
   await expect(ann.locator('#members li.mine .badge')).toHaveText('Not ready');
   await expect(ann.locator('#ready')).toHaveText('Need 1 more');
   await expect(ann.locator('#roomnote')).toBeHidden();
-  // With the PC ready for the room's map, the room offers to launch the game now, at its menu, ahead of the room's
-  // game: until the launcher says that the game runs, and again once it is closed. Not to a player who joins by hand.
+  // With the PC ready for the room's map, the room's other button launches the game now, at its menu, ahead of the
+  // room's game. It is off again while the game runs that the launcher started, and says so, and on once that game
+  // is closed. A player who joins by hand has no such button.
   await expect(ann.locator('#launchgame')).toHaveText('Launch game');
+  await expect(ann.locator('#launchgame')).not.toHaveAttribute('aria-disabled', 'true');
   expect(await launcher.runs('zone/zm_factory.ff,zone/zm_tomb.ff')).toBe(200);
-  await expect(ann.locator('#launchgame')).toBeHidden();
+  await expect(ann.locator('#launchgame')).toHaveText('Game running');
+  await expect(ann.locator('#launchgame')).toHaveAttribute('aria-disabled', 'true');
   await expect(ann.locator('#ready')).toHaveText('Need 1 more');
   expect(await launcher.has('zone/zm_factory.ff,zone/zm_tomb.ff')).toBe(200);
-  await expect(ann.locator('#launchgame')).toBeVisible();
+  await expect(ann.locator('#launchgame')).toHaveText('Launch game');
+  await expect(ann.locator('#launchgame')).not.toHaveAttribute('aria-disabled', 'true');
   await ann.locator('#pchandrow').getByText('Join by hand').click();
   await expect(ann.locator('#launchgame')).toBeHidden();
 });
