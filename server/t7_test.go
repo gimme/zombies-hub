@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"zombies/internal/boiii"
 	"zombies/internal/boiii/boiiitest"
@@ -251,6 +252,58 @@ func TestT7Names(t *testing.T) {
 	ann.player.name, rg.ending = "Annie", "quit"
 	if lines := told(own[0], own[1]); len(lines) != 0 {
 		t.Fatalf("a game that ends was told %q", lines)
+	}
+}
+
+// The server's script in a T7 game reports each player's GobbleGums: the gums of their pack, and each gum that they
+// chew. The server keeps each as an event of the game, whose kind says whether the gum is a Mega one, once for a
+// player and gum. It makes nothing of a line before round 1, nor of one that the script would not print.
+func TestT7Gums(t *testing.T) {
+	l := newLobby(context.Background())
+	ann, bob := &player{id: "aaaa0001", name: "Ann"}, &player{id: "bbbb0002", name: "Bob"}
+	seatOf := func(p *player, slot int) *seat {
+		return &seat{player: p, local: &net.UDPAddr{IP: net.IPv4(127, 1, 0, byte(slot+1)), Port: 28960}, in: true, slot: slot}
+	}
+	r := &room{code: "ROOM", mapName: "zm_factory"}
+	rg := &roomGame{seats: []*seat{seatOf(ann, 0), seatOf(bob, 1)}}
+	r.game = rg
+	said := func(lines ...string) {
+		for _, line := range lines {
+			l.pcSaid(r, rg, "zombies_lobby: "+line)
+		}
+	}
+	said("gum pack zm_bgb_stock_option 0 0")
+	if len(rg.events) != 0 {
+		t.Fatalf("events before round 1: %+v", rg.events)
+	}
+	rg.started, rg.round1, rg.report = true, time.Now(), &gameResult{ID: "ROOM-1", Round: 1}
+	// Ann's pack has a classic gum, a whimsical one and a Mega one, and a place without a gum, which the script leaves
+	// out. Bob chews a gum of each rarity that is a Mega's, and Ann a classic one twice.
+	said("gum pack zm_bgb_stock_option 0 0", "gum pack zm_bgb_eye_candy 4 0", "gum pack zm_bgb_perkaholic 3 0",
+		"gum chew zm_bgb_stock_option 0 0", "gum chew zm_bgb_reign_drops 1 1")
+	rg.report = &gameResult{ID: "ROOM-1", Round: 2}
+	said("gum chew zm_bgb_shopping_free 2 1", "gum chew zm_bgb_perkaholic 3 1", "gum chew zm_bgb_stock_option 0 0")
+	// what the script would not print: no such report, no such rarity, no name of a gum, no client in the slot
+	said("gum had zm_bgb_stock_option 0 1", "gum chew zm_bgb_stock_option 5 1", "gum chew zm_bgb_stock_option x 1",
+		"gum chew Stock! 0 1", "gum chew zm_bgb_stock_option 0 2", "gum chew zm_bgb_stock_option 0", "gum")
+	want := []gameEvent{{round: 1, kind: eventPack, player: ann.id, what: "zm_bgb_stock_option"},
+		{round: 1, kind: eventPack, player: ann.id, what: "zm_bgb_eye_candy"},
+		{round: 1, kind: eventPackMega, player: ann.id, what: "zm_bgb_perkaholic"},
+		{round: 1, kind: eventGum, player: ann.id, what: "zm_bgb_stock_option"},
+		{round: 1, kind: eventGumMega, player: bob.id, what: "zm_bgb_reign_drops"},
+		{round: 2, kind: eventGumMega, player: bob.id, what: "zm_bgb_shopping_free"},
+		{round: 2, kind: eventGumMega, player: bob.id, what: "zm_bgb_perkaholic"}}
+	if !slices.Equal(rg.events, want) {
+		t.Errorf("the game's events:\n%+v\nwant\n%+v", rg.events, want)
+	}
+	if kept := l.unsavedGames["ROOM-1"]; kept == nil || !slices.Equal(kept.events, want) {
+		t.Errorf("the report that the lobby keeps: %+v", kept)
+	}
+	// a game that ends takes no more
+	rg.ending = "quit"
+	said("gum chew zm_bgb_alchemical_antithesis 0 0")
+	if len(rg.events) != len(want) {
+		t.Errorf("a game that ends took an event: %+v", rg.events[len(want):])
 	}
 }
 

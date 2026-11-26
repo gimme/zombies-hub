@@ -395,12 +395,34 @@ func (t *t7Game) quit(g *game) bool {
 //	                                                headshots, downs, revives and doors bought, and 0 for no team. It
 //	                                                is printed before "round" and "over".
 //	zombies_lobby: round 5                          a round begins
+//	zombies_lobby: gum pack zm_bgb_stock_option 0 1 the player in the slot, which is the last number, came to the game
+//	zombies_lobby: gum chew zm_bgb_perkaholic 3 1   with the GobbleGum in their pack, by its name in the game's
+//	                                                scripts, or chewed one in the game. The number before the slot is
+//	                                                the gum's rarity as the game has it: 0 for a classic gum, 1 to 3
+//	                                                for a Mega one, 4 for a whimsical one. A gum of a player's pack is
+//	                                                printed once, and so is a gum that they chew.
 //	zombies_lobby: over 12                          game over, and the round it ended on
 //	zombies_lobby: exit                             the game's end has played out
 //
 // The level's scripts keep each of these numbers on the player (scripts/zm/_zm.gsc and its neighbours, as the game's
 // mod tools have them). The script reports no main quest, and has none of the rooms' mods.
-const t7Script = `// zombies-server's (server/t7.go): the rounds, the scoreboard at each, game over, and its end played out
+//
+// Every T7 map has GobbleGums (scripts/zm/_zm_bgb.gsc). A player brings a pack of five from their own game, and a
+// machine in the map gives them one of the five at a time. The level reads a player's pack as they first spawn
+// (bgb_player_init: self.bgb_pack, in which a place without a gum is weapon_null), and it notifies the player of each
+// gum that it gives them (give: bgb_update), from a machine or as another gum's doing. It has each gum's rarity from
+// the game's table of them (bgb_finalize: level.bgb). A classic gum is the game's to give without end, and so is a
+// whimsical one, which changes how the game looks and sounds, and nothing else. A Mega GobbleGum is one that a player
+// has so many of, and each one that a machine gives them is one less. On BOIII a player's own game can have every
+// Mega gum without end (its setting Unlimited GobbleGums), so a Mega gum says what a player chewed, and not what
+// they had saved up.
+//
+// The script reports a player's pack once the level has read it, and each gum the first time that the level gives it
+// to them. It waits for the level's notify of a gum, and does not look at the gum that the player has: the level
+// takes some back within a frame of giving them (Perkaholic). It starts as round 1 does, because the server makes
+// nothing of a line before that (pcSaid). The server keeps each gum as an event of the game (t7Gum).
+const t7Script = `// zombies-server's (server/t7.go): the rounds, the scoreboard at each, each player's GobbleGums, game over,
+// and its end played out
 #using scripts\shared\callbacks_shared;
 #using scripts\shared\system_shared;
 
@@ -418,6 +440,7 @@ function __init__()
 function init()
 {
 	level thread rounds();
+	level thread gums();
 	level thread game_over();
 }
 
@@ -467,6 +490,65 @@ function rounds()
 		stats();
 		println("zombies_lobby: round " + level.round_number);
 	}
+}
+
+// GobbleGums: reports the pack of each player once the level has read it, as they first spawn, and from then on each
+// gum that the level gives them.
+function gums()
+{
+	level endon("end_game");
+	level waittill("start_of_round");
+
+	for (;;)
+	{
+		players = GetPlayers();
+
+		for (i = 0; i < players.size; i++)
+		{
+			player = players[i];
+
+			if (isdefined(player.zombies_lobby_gums) || !isdefined(player.bgb_pack))
+				continue;
+
+			player.zombies_lobby_gums = [];
+
+			for (j = 0; j < player.bgb_pack.size; j++)
+				player gum("pack", player.bgb_pack[j]);
+
+			player thread chews();
+		}
+
+		wait 0.25;
+	}
+}
+
+// Reports each gum that the level gives the player, the first time. The level notifies the player of the gum they
+// have now, which is none when it takes theirs back.
+function chews()
+{
+	self endon("disconnect");
+	level endon("end_game");
+
+	for (;;)
+	{
+		self waittill("bgb_update", name);
+
+		if (!isdefined(name) || isdefined(self.zombies_lobby_gums[name]))
+			continue;
+
+		self.zombies_lobby_gums[name] = 1;
+		self gum("chew", name);
+	}
+}
+
+// Reports a gum of the player's, with its rarity. A place of a pack without a gum is none that the level knows, and
+// neither is the none of a player without one.
+function gum(how, name)
+{
+	if (!isdefined(name) || !isdefined(level.bgb) || !isdefined(level.bgb[name]))
+		return;
+
+	println("zombies_lobby: gum " + how + " " + name + " " + number(level.bgb[name].rarity) + " " + self GetEntityNumber());
 }
 
 function game_over()
@@ -600,6 +682,43 @@ func (l *lobby) t7Names(r *room, rg *roomGame, clients []pcClient) {
 			rg.names[slot] = want[slot]
 		}
 	}
+}
+
+// t7GumName is the name of a GobbleGum as the game's scripts have it, such as zm_bgb_stock_option.
+var t7GumName = regexp.MustCompile(`^[a-z0-9_]{1,48}$`)
+
+// t7Gum notes a GobbleGum of a player of rg's game, as the script reports it (t7Script), as an event of the game
+// (gameEvent). "gum pack zm_bgb_stock_option 0 1": the player in the slot came to the game with the gum in their
+// pack. "gum chew zm_bgb_perkaholic 3 1": they chewed the gum in the game. The number before the slot is the gum's
+// rarity, and a gum of rarity 1 to 3 is a Mega GobbleGum, which the event's kind says. The caller holds l.mu.
+func (l *lobby) t7Gum(r *room, rg *roomGame, fields []string) {
+	if len(fields) != 4 || !t7GumName.MatchString(fields[1]) {
+		return
+	}
+	rarity, err := strconv.Atoi(fields[2])
+	if err != nil || rarity < 0 || rarity > 4 {
+		return
+	}
+	mega := rarity >= 1 && rarity <= 3
+	var kind string
+	switch {
+	case fields[0] == "pack" && mega:
+		kind = eventPackMega
+	case fields[0] == "pack":
+		kind = eventPack
+	case fields[0] == "chew" && mega:
+		kind = eventGumMega
+	case fields[0] == "chew":
+		kind = eventGum
+	default:
+		return
+	}
+	s := rg.seatIn(fields[3])
+	if s == nil || !rg.note(rg.sinceRound1(), kind, s.player, fields[1]) {
+		return
+	}
+	log.Printf("server: in room %s's game, %s: %s %s", r.code, s.player.name, kind, fields[1])
+	l.keepEvents(rg)
 }
 
 // t7Home lists what a T7 game's home has of Steam's server: links to its program, the libraries it loads, and the

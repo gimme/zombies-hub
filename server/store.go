@@ -110,8 +110,10 @@ const addedTables = `
 -- round is the round the game was on. kind is 'egg' (the player finished the map's easter egg: what is the side of its
 -- main quest, 'richtofen' or 'maxis', or '' where the quest has none), 'bank' or 'locker' (the player took out of the
 -- bank, or of their weapon locker, what they had there from an earlier game), 'perk' (the player came to the game with
--- the persistent upgrade that what names) or 'perk-earned' (they earned it in the game). player is the player's id,
--- as in game_players.
+-- the persistent upgrade that what names), 'perk-earned' (they earned it in the game), 'pack' or 'pack-mega' (the
+-- player came to the game with the GobbleGum that what names in their pack: one that the game gives without end, or a
+-- Mega GobbleGum), 'gum' or 'gum-mega' (they chewed such a gum in the game, for the first time). player is the
+-- player's id, as in game_players.
 CREATE TABLE game_events (
     game    TEXT NOT NULL REFERENCES games (id) ON DELETE CASCADE,
     place   INTEGER NOT NULL,

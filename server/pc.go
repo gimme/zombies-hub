@@ -255,7 +255,8 @@ func (rg *roomGame) pcWhose(code string, at *seat, name string) *seat {
 // (keepRounds). The records come from the players' lines of the scoreboard. The script prints those by client slot,
 // so they count only for the clients that the status has listed by then. The end of the map's main quest sets the
 // easter egg's record of the players in the game then, whom the script names by slot too (t6Egg). What a player has
-// from earlier games, which the script reports as well, is an event of the game (t6Carried).
+// from earlier games, which the script reports as well, is an event of the game (t6Carried), and so is each GobbleGum
+// of a player's pack, and each one they chew, in a T7 game (t7Gum).
 //
 // The game ends when the level ends: at game over, or 20 seconds after its last player left. At game over the room
 // gets the game's result, which the players' pages show while the players watch the game's end. A game of Grief or
@@ -317,6 +318,11 @@ func (l *lobby) pcSaid(r *room, rg *roomGame, line string) {
 	case ours && (verb == "help" || verb == "perk"):
 		if rg.ending == "" {
 			l.t6Carried(r, rg, verb, strings.Fields(arg))
+		}
+		return
+	case ours && verb == "gum":
+		if rg.ending == "" {
+			l.t7Gum(r, rg, strings.Fields(arg))
 		}
 		return
 	case ours && verb == "over" && rg.ending == "" && over == "Game over.":

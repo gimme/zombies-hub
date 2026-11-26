@@ -428,10 +428,11 @@ type gameEvent struct {
 	round   int    // the round the game was on
 	kind    string // what happened: one of the kinds below
 	player  string // the id of the player it is about
-	what    string // for an easter egg, its side; for a persistent upgrade, its name; else ""
+	what    string // for an easter egg, its side; for a persistent upgrade or a GobbleGum, its name; else ""
 }
 
-// The kinds of a game's events. A T6 game's script reports all but the first of a T5 game's (t6.go: t6Script).
+// The kinds of a game's events. A T5 game has the first alone (t5.go). A T6 game's script reports that one and the
+// four after it (t6.go: t6Script), and a T7 game's script the GobbleGums (t7.go: t7Script).
 const (
 	// the player was in the game as the map's easter egg was finished, or the level credited them with it (t5.go).
 	// what is the side of the main quest that the players took, richtofen or maxis, where the quest has two.
@@ -445,6 +446,15 @@ const (
 	eventPerk = "perk"
 	// the player earned a persistent upgrade in the game
 	eventPerkEarned = "perk-earned"
+	// the player came to the game with a GobbleGum in their pack: what is the gum's name in the game's scripts, such
+	// as zm_bgb_stock_option. eventPack is a gum that the game gives without end, a classic one or a whimsical one,
+	// and eventPackMega a Mega GobbleGum, of which a player has so many.
+	eventPack     = "pack"
+	eventPackMega = "pack-mega"
+	// the player chewed a GobbleGum in the game, for the first time: one of either kind, as in their pack. A game
+	// with neither event of a player is one that they played without GobbleGums, whatever their pack had.
+	eventGum     = "gum"
+	eventGumMega = "gum-mega"
 
 	richtofen = "richtofen"
 	maxis     = "maxis"
