@@ -225,7 +225,7 @@ export function showRoomButton(v: View, room: Room): void {
       } else if (mine && mine.missing) {
         const sends = launcherDownloads(v, room.of);
         lacks = `Your ${game} doesn't have this map` + (sends
-          ? '. The launcher can download it from the server.'
+          ? '. The launcher can download the game files from the server instead.'
           : ': it comes with a map pack.');
         m = sends ? { label: 'Download', does: 'launch', primary: true } : { label: 'Missing map', disabled: true };
       }

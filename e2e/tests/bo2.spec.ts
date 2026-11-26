@@ -55,7 +55,7 @@ test('a room plays its game to game over, and its round and easter egg are on th
   }
   // the server sends their launchers no game, which would join theirs while they join by hand
   for (const name of ['Ann', 'Bob']) {
-    await server.waitFor(new RegExp(`^server: ${name} joins Black Ops II games by hand$`));
+    await server.waitFor(new RegExp(`^server: ${name} joins the games of their own PC by hand$`));
   }
   await bob.reload();
   await expect(bob.locator('#roomcode')).toHaveText(code);
