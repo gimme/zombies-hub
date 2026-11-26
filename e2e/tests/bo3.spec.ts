@@ -121,3 +121,53 @@ test("Play local has Black Ops III's maps, with what the PC has of them and what
   await expect(ann.locator('#solokicker')).toHaveText('Map');
   await expect(ann.locator('#solofiles')).toBeHidden();
 });
+
+test("a Black Ops III map has its picture in the game's map select, and its loading screen behind the page", async ({ player }) => {
+  const ann = await player('Ann');
+  await ann.locator('#make').click();
+  await ann.locator('#titlepick').getByRole('radio', { name: 'Black Ops III', exact: true }).click();
+  await expect(ann.locator('#maptitle')).toHaveText('The Giant');
+  // the picture's size once it has loaded, and its colour at its middle
+  const picture = (img: HTMLImageElement): string => {
+    if (!img.complete || !img.naturalWidth) return 'not loaded';
+    const canvas = document.createElement('canvas');
+    canvas.width = img.naturalWidth;
+    canvas.height = img.naturalHeight;
+    const g = canvas.getContext('2d')!;
+    g.drawImage(img, 0, 0);
+    const [r, , b] = g.getImageData(img.naturalWidth >> 1, img.naturalHeight >> 1, 1, 1).data;
+    return `${img.naturalWidth}x${img.naturalHeight} ${r > 200 && b < 60 ? 'red' : b > 200 && r < 60 ? 'blue' : 'neither'}`;
+  };
+  // the room's map: its preview is its picture in the game's map select, which is no loading screen, in a shot of
+  // its wide shape
+  const shot = ann.locator('#mapshot');
+  await expect(shot.locator('img')).toHaveAttribute('src', '/maps/zm_factory/preview');
+  await expect.poll(() => shot.locator('img').evaluate(picture)).toBe('640x270 blue');
+  const box = (await shot.boundingBox())!;
+  expect(Math.abs(box.width / box.height - 64 / 27)).toBeLessThan(0.03);
+  // the page's backdrop is the map's loading screen
+  const backdrop = ann.locator('#backdropimg');
+  await expect(backdrop).toHaveAttribute('src', '/maps/zm_factory/loadscreen');
+  await expect.poll(() => backdrop.evaluate(picture)).toBe('16x9 red');
+  // the room's grid has each map's, and the room goes to the map picked
+  const origins = ann.locator('#mapgrid').getByRole('radio', { name: 'Origins', exact: true });
+  await expect.poll(() => origins.locator('img').evaluate(picture)).toBe('640x270 red');
+  await origins.click();
+  await expect(shot.locator('img')).toHaveAttribute('src', '/maps/zm_tomb/preview');
+  await expect.poll(() => backdrop.evaluate(picture)).toBe('16x9 blue');
+
+  // Outside a room the backdrop is Black Ops' map to play locally. While Play local shows Black Ops III, it is the
+  // map picked there.
+  await ann.locator('#leave').click();
+  await expect(backdrop).toHaveAttribute('src', '/maps/zombie_theater/loadscreen');
+  await ann.locator('#soloopen').click();
+  await ann.locator('#solotitles').getByRole('radio', { name: 'Black Ops III', exact: true }).click();
+  await expect(backdrop).toHaveAttribute('src', '/maps/zm_factory/loadscreen');
+  await ann.locator('#solomaps').getByRole('radio', { name: 'Origins' }).click();
+  await expect.poll(() => backdrop.evaluate(picture)).toBe('16x9 blue');
+  await ann.locator('#solotitles').getByRole('radio', { name: 'Black Ops', exact: true }).click();
+  await expect(backdrop).toHaveAttribute('src', '/maps/zombie_theater/loadscreen');
+  await ann.locator('#solotitles').getByRole('radio', { name: 'Black Ops III', exact: true }).click();
+  await ann.locator('#soloback').click();
+  await expect(backdrop).toHaveAttribute('src', '/maps/zombie_theater/loadscreen');
+});

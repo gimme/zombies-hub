@@ -55,8 +55,11 @@ export const CLIENTS: Record<string, [name: string, href: string]> = {
 export const bytesText = (bytes: number): string =>
   bytes >= 1e9 ? (bytes / 1e9).toFixed(1) + ' GB' : Math.max(1, Math.round(bytes / 1e6)) + ' MB';
 
-/** Whether the server has pictures of a title's maps. It has none of a Black Ops III map (server/t7.go: t7MapList). */
-export const hasPictures = (of?: string): boolean => of !== 't7';
+/**
+ * Whether the server has pictures of a map. It has none of a Black Ops III map where it lacks that game's image packs
+ * (MapInfo.noPictures).
+ */
+export const hasPictures = (map: MapInfo): boolean => !map.noPictures;
 
 /** The name of a title, such as Black Ops II, or '' for one that the server does not host. */
 export const titleName = (titles: Title[], of: string): string => titles.find((t) => t.id === of)?.name || '';

@@ -21,7 +21,7 @@ import {
   ending, firstLook, gameEnded, joinUnlessElsewhere, leaveSoon, lookAgain, otherTab, showMapAlone, solo,
 } from './game';
 import { act, me, offline, page, setView, view } from './lobby';
-import { soloMapName, t5Maps } from './maps';
+import { mapInfo, soloMapName, t5Maps } from './maps';
 import { musicOutside } from './music';
 import { lobbyMode } from './params';
 import { showName, showPictures } from './profile';
@@ -30,10 +30,10 @@ import { resultToShow, showResult } from './result';
 import { showRoom, showRoomButton, showRoomMaps, showPC } from './room';
 import { showRooms } from './rooms';
 import { loadedServer } from './server';
-import { closeSolo, openSolo, showSolo, soloFollowUrl, soloOpen } from './solo';
+import { closeSolo, openSolo, showSolo, soloFollowUrl, soloLaunchMap, soloOpen } from './solo';
 import { menuSound, roomSounds } from './sounds';
 import { store } from './storage';
-import { ownPC } from './titles';
+import { hasPictures, ownPC } from './titles';
 import { onWindows } from './windows';
 
 let shownRoom = ''; // the code of the room that the page last showed
@@ -108,7 +108,10 @@ export function show(v: View): void {
   $('resultsback').textContent = report ? 'Back to the leaderboards' : 'Back to the room';
   if (boardsOpen) loadBoards();
   if (report) showResult(report);
-  setBackdrop(report ? report.map : result ? result.map : room ? room.map : soloMapName(v));
+  // The backdrop is the loading screen of the map of the result that shows, else of the room's. Outside a room it
+  // is set once the page to play locally is drawn (below).
+  const behind = report ? report.map : result ? result.map : room ? room.map : '';
+  setBackdrop(behind);
   // The store says what it has of the map of the view's button. A download of another map stops.
   const buttonMap = windows || (room && ownPC(room.of)) ? '' : room ? room.map : soloMapName(v);
   if (player.store.downloading && player.store.downloading !== buttonMap) stopDownload();
@@ -116,6 +119,11 @@ export function show(v: View): void {
   if (!room) {
     showRooms(v);
     showSolo(v);
+    // Outside a room, the backdrop is the loading screen of the map that the player picked to play locally: Black
+    // Ops' (soloMapName), or, while the page to play locally shows a game of the player's own PC that has them pick
+    // a map, that map, where the server has its pictures.
+    const local = soloOpen && !boardsOpen && hasPictures(mapInfo(soloLaunchMap)) ? soloLaunchMap : '';
+    if (!behind) setBackdrop(local || soloMapName(v));
     for (const id of ['make', 'joincode', 'code']) $<HTMLButtonElement | HTMLInputElement>(id).disabled = offline;
     // The room is gone while the engine still loads or plays its game, because the lobby started again. The page
     // leaves the game.

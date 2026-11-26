@@ -417,6 +417,21 @@ func run() int {
 			log.Printf("server: the server sends no game files of Black Ops III: %s has what a server reads of the game, and not what a player's game needs (the whole install; ZOMBIES_SEND_DIR names another folder that has one, as t7)", t7Files)
 		}
 	}
+	// The pictures of Black Ops III's maps are in the zones of that game's menus and in its image packs, which its
+	// server's games don't read (t7zone.go, xpak.go). They are from the folder that has the menus' zone: the one its
+	// games read, or the one in -send-dir.
+	if len(t7Maps) > 0 {
+		dirs := []string{t7Files}
+		if *sendDir != "" {
+			dirs = append(dirs, titleDir(*sendDir, t7))
+		}
+		for _, dir := range dirs {
+			if pages.t7Dir == "" && isFile(filepath.Join(dir, "zone", t7PreviewZones[0]+".ff")) {
+				pages.t7Dir = dir
+			}
+		}
+	}
+	l.noArt = pages.noMapArt
 	l.sends = pages.sentPacks
 	t5Maps := installedMaps(pages.paths)
 	l.maps = func() []string { return slices.Concat(t5Maps(), t6Maps, t7Maps) }
@@ -491,6 +506,11 @@ func run() int {
 		}
 		l.havePictures(have)
 	}()
+	// The previews of Black Ops III's maps are all read at once from the zones of that game's menus, which takes some
+	// seconds (t7zone.go). The server reads them now, so that the first page to show one does not wait for that.
+	if pages.t7Dir != "" {
+		go pages.t7Preview("")
+	}
 	log.Printf("server: players join on port %d (UDP: the games, from browsers over WebTransport and from Windows; TCP: the web client and game files, http://<host>:%d/); certificate sha-256 %s",
 		*port, *port, hash)
 	if *publicPort != *port {

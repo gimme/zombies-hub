@@ -139,6 +139,7 @@ type lobby struct {
 	defaultMap string              // the map of a new room
 	maps       func() []string     // returns the Zombies maps that the game files have
 	mapDesc    func(string) string // returns a map's description in the game's map select, or "" (mapart.go)
+	noArt      func(string) bool   // when set, reports whether the server has no pictures of a map (mapart.go: noMapArt)
 	// sends, when set, reports whether the server sends a title's game files to launchers, and returns the size of
 	// each pack of them that it has listed so far (launcher.go: sentPacks).
 	sends       func(of string) (downloads bool, packs map[string]int64)
@@ -745,6 +746,9 @@ type mapView struct {
 	Have  bool   `json:"have,omitempty"` // the game files have it, so a room may play it
 	List  bool   `json:"list,omitempty"` // the server has the list of files it reads (files.go), so a browser may play it
 	Desc  string `json:"desc,omitempty"` // its description in the game's map select
+	// NoPictures is set on a map that the server has no pictures of, whatever its game files have: a Black Ops III
+	// map, on a server without that game's image packs (mapart.go: noMapArt). The page then asks for none.
+	NoPictures bool `json:"noPictures,omitempty"`
 	// Place is where a Black Ops II map is, which the page writes over the map's name on its card, and Mode is the mode
 	// that the card writes after the name, if any (mapEntry).
 	Place string `json:"place,omitempty"`
@@ -968,6 +972,9 @@ func (l *lobby) view(p *player) view {
 			Bytes: packs[m.of][m.name]}
 		if l.mapDesc != nil {
 			mv.Desc = l.mapDesc(m.name)
+		}
+		if l.noArt != nil {
+			mv.NoPictures = l.noArt(m.name)
 		}
 		v.Maps = append(v.Maps, mv)
 	}

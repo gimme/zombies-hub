@@ -35,7 +35,7 @@ On Unraid, copy `docker/unraid/my-zombies-hub.xml` to `/boot/config/plugins/dock
 Black Ops III takes two folders, because its dedicated server is a program of its own:
 
 - **`/game/t7-server`** is the install folder of the tool Call of Duty: Black Ops III - Unranked Dedicated Server, the one that has `UnrankedServer` in it. Steam gives the tool to who has the game: in Steam's library, show Tools. On a machine without Steam, `steamcmd +@sSteamCmdForcePlatformType windows +force_install_dir <folder> +login <your account> +app_update 545990` downloads it. It is 4 GB, of which the server reads 1 GB: everything but the multiplayer maps (`UnrankedServer/zone/*mp_*`).
-- **`/game/t7`** is the game's install folder, which is 87 GB. The server reads 3 GB of it: the fastfiles of Zombies, which are the files in `zone` with `zm_` in their names that end in `.ff` or `.fd`. A dedicated server draws nothing and plays no sound, so the rest need not be there to host the game: the `.xpak` files, `zone/snd` and `video`. It does need to be there for the server to send the game to players ([below](#game-files)).
+- **`/game/t7`** is the game's install folder, which is 87 GB. The server reads 3 GB of it: the fastfiles of Zombies, which are the files in `zone` with `zm_` in their names that end in `.ff` or `.fd`. A dedicated server draws nothing and plays no sound, so the rest need not be there to host the game: the `.xpak` files, `zone/snd` and `video`. It does need to be there for the server to send the game to players ([below](#game-files)). The page's pictures of the game's maps are from more of the install. A map's picture is the one in the game's map select, from the menus' fastfiles: `core_frontend.ff`, `core_frontend.fd` and `core_frontend_patch.ff`, 430 MB together. Without `core_frontend.ff` the page shows the maps without pictures. The page's background in a room is the map's loading screen, from 11 GB of the `.xpak` files: `core_patch.xpak` lists them, and they are in `initial.xpak`, `base_patch.xpak`, and `base_patch_tu5`, `tu9`, `tu12`, `tu15`, `tu21` and `tu26.xpak`.
 
 A folder of `/game` can also be a mount of its own, so that a game stays where it is installed: `-v "/games/Call of Duty Black Ops III:/game/t7:ro"`. A link in the folder that is mounted at `/game` does not work, because the container does not see where it leads.
 
@@ -45,7 +45,7 @@ By default the server sends no game files to players. They use their own copy: B
 
 A player's copy of Black Ops II or III may lack a map pack. A room on a map of that pack shows the player as missing the map, and its game does not start with them. With `ZOMBIES_DOWNLOAD_RATE` set, such a player can have the launcher download the server's game files, which have every map the server has, and use those instead.
 
-Black Ops II is sent whole, 9 GB. Black Ops III is sent a map at a time: 51 GB that every map needs, and 1 to 7 GB a map, which a player's launcher downloads as they come to the map. The server sends it only where `/game/t7` is the whole install: the log says so at the start when the folder has only what a server reads. `ZOMBIES_SEND_DIR` names another folder to send from, with the whole install as `t7` in it, for a server whose `/game/t7` is kept small. The first start with downloads on reads all of the game once to list it, which takes some minutes.
+Black Ops II is sent whole, 9 GB. Black Ops III is sent a map at a time: 51 GB that every map needs, and 1 to 7 GB a map, which a player's launcher downloads as they come to the map. The server sends it only where `/game/t7` is the whole install: the log says so at the start when the folder has only what a server reads. `ZOMBIES_SEND_DIR` names another folder to send from, with the whole install as `t7` in it, for a server whose `/game/t7` is kept small. The maps' pictures are then from that folder too. The first start with downloads on reads all of the game once to list it, which takes some minutes.
 
 On Docker Desktop for Windows, keep the game files in a Docker volume. Wine can't load them from a Windows folder.
 
@@ -118,7 +118,7 @@ How the launcher is released is in [Development](development.md#releasing-the-la
 - The launcher has no Windows code-signing certificate, so Windows and the browser warn about it the first time.
 - Players get the launcher from GitHub. Their PCs need to reach github.com to install it and to update it.
 - Dead Ops Arcade is not available.
-- Black Ops III needs Steam installed on a player's PC, which BOIII asks for, and doesn't run on a Mac. The page has no pictures of its maps, its rooms have no mods, and its games count rounds but no easter eggs.
+- Black Ops III needs Steam installed on a player's PC, which BOIII asks for, and doesn't run on a Mac. Its rooms have no mods, and its games count rounds but no easter eggs.
 
 ## Security
 

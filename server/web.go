@@ -142,11 +142,20 @@ type web struct {
 	images map[string]string // the archive with each picture, the music and each menu sound, by the entry's path in it
 	// packs has where each of Black Ops II's images is in its image packs, by the hash of its name (ipak.go).
 	packs map[uint32]packEntry
+	// t7Dir is the Black Ops III install that has the pictures of that game's maps, or "" on a server without one
+	// that has them (main.go). xpaks has what its image packs list of the maps' loading screens, and where (xpak.go).
+	t7Dir string
+	xpaks *xpaks
 	// pictures is keyed by "<map>/<kind>", "image/<name>", "picture/<id>", "music" and "sounds". An entry has no data
 	// when the game files lack the file.
 	pictures map[string]mapPicture
 	locs     sync.Mutex
 	texts    map[string]string // by name
+
+	// t7Previews has the previews of Black Ops III's maps, by the names of their images in the game's zones. They
+	// are all read at once, the first time one is asked for (t7zone.go: t7Preview).
+	t7Once     sync.Once
+	t7Previews map[string]mapPicture
 }
 
 type manifestEntry struct {

@@ -47,11 +47,12 @@ const NO_PICTURE = 'data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAA
 /**
  * Sets an <img> to a map's picture: its preview, or the picture of another kind, such as its loading screen
  * (server/mapart.go). The picture is set only when it changes. The <img> says the map's game (data-of): a Black Ops
- * II map's preview is its picture on its card in the game's lobby, which keeps its own shape (page.css).
+ * II map's preview is its picture on its card in the game's lobby, and a Black Ops III map's is its picture in the
+ * game's map select. Each keeps its own shape (page.css).
  */
 export function mapPicture(img: HTMLImageElement, name: string, kind?: string): HTMLImageElement {
   const map = mapInfo(name);
-  const src = hasPictures(map.of) ? '/maps/' + encodeURIComponent(name) + '/' + (kind || 'preview') : NO_PICTURE;
+  const src = hasPictures(map) ? '/maps/' + encodeURIComponent(name) + '/' + (kind || 'preview') : NO_PICTURE;
   if (img.getAttribute('src') !== src) img.src = src;
   img.alt = map.title;
   img.dataset.of = map.of || '';
@@ -60,8 +61,9 @@ export function mapPicture(img: HTMLImageElement, name: string, kind?: string): 
 
 /**
  * Shows a map in a shot (index.html: .shot), a picture with words over it. A Black Ops map's is its preview, with no
- * words. A Black Ops II map's is its card in the game's lobby, which has a band at its foot. The lobby writes the
- * map's place in the band, over the map's name and its mode, if it has one alone, and so does the shot.
+ * words, and so is a Black Ops III map's. A Black Ops II map's is its card in the game's lobby, which has a band at
+ * its foot. The lobby writes the map's place in the band, over the map's name and its mode, if it has one alone, and
+ * so does the shot.
  */
 export function mapShot(shot: HTMLElement, name: string): void {
   const map = mapInfo(name);

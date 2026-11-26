@@ -69,6 +69,11 @@ export interface MapInfo {
   /** The size of what a launcher downloads for the map alone, where the server sends its game a map at a time. */
   bytes?: number;
   desc?: string;
+  /**
+   * The server has no pictures of it: a Black Ops III map, on a server without that game's image packs
+   * (server/mapart.go: noMapArt).
+   */
+  noPictures?: boolean;
   /** Where a Black Ops II map is (Green Run), which its card in the game's lobby has over its name (maps.ts: mapShot). */
   place?: string;
   /** The mode that a Black Ops II map has alone, which its card has after its name (Survival, Grief, Turned). */

@@ -33,18 +33,24 @@ import (
 //	                            images/loadscreen_zombie_<map>_mini.iwi. It is a 4:3 picture (the game's lobby menu,
 //	                            xboxlive_lobby.menu, draws it at 183x135) that the game stores square (256x256, rounded
 //	                            corners). It is served at 4:3 again. A Black Ops II map's is its picture on its card
-//	                            in the game's lobby, as a JPEG, without the card's frame (t6Picture).
+//	                            in the game's lobby, as a JPEG, without the card's frame (t6Picture). A Black Ops III
+//	                            map's is its picture in the game's map select, a wide one (1280x540 or 1148x484),
+//	                            as a JPEG of 640x270 (t7PreviewOf). A map of that game without one has no preview.
 //	GET /maps/<map>/card        a Black Ops II map's card in the game's lobby, as a JPEG: its picture under the lobby's
 //	                            frame, which has a band at its foot for the card's words (t6Card). For a map without a
 //	                            picture, the map's loading screen is served instead.
 //	GET /maps/<map>/loadscreen  the map's loading screen, as a JPEG: a 16:9 picture that the game stores square
 //	                            (1024x1024), except Origins' (1920x1080). It is served at 16:9 again. A Black Ops map's
-//	                            is images/loadscreen_zombie_<map>.iwi.
+//	                            is images/loadscreen_zombie_<map>.iwi. A Black Ops III map's is stored at 1920x1080,
+//	                            except The Giant's (2048x2048).
 //
 // A Black Ops map's pictures are textures in the .iwd archives in main/ (zip files). The game searches the archives
 // in reverse order of their names, so a later archive (iw_25.iwd) overrides an earlier one. A Black Ops II map's are
-// textures in that game's image packs (ipak.go), under the names that the map's entry gives (t6.go: t6MapList). Each
-// picture is decoded once and kept.
+// textures in that game's image packs (ipak.go), under the names that the map's entry gives (t6.go: t6MapList). A
+// Black Ops III map's are under the names that the map's entry gives too (t7.go: t7MapList): its preview is an image
+// in the zones of the game's menus (t7zone.go), and its loading screen a texture in the game's image packs
+// (xpak.go). A server has those only where it has more of that game than its games read (web.t7Dir). Without them
+// it has no pictures of that game's maps, and tells the page so (noMapArt). Each picture is decoded once and kept.
 //
 // A map's description is its text in the game's map select (for example MENU_ZOMBIE_THEATER_DESC). It comes from the
 // localized strings in zone/<language>/<lang>_code_post_gfx.ff and <lang>_patch.ff, in English when the game files
@@ -122,9 +128,12 @@ func pngOf(img image.Image) (mapPicture, error) {
 // The lobby's view of the maps doesn't wait for one either: the descriptions it needs have their own lock (h.locs).
 func (h *web) mapArt(mapName, kind string) (mapPicture, bool) {
 	m, ok := mapByName(mapName)
-	// The server has no pictures of a Black Ops III map (t7.go: t7MapList).
-	if _, known := mapArtKinds[kind]; !ok || !known || kind == "card" && m.of != t6 || m.of == t7 {
+	if _, known := mapArtKinds[kind]; !ok || !known || kind == "card" && m.of != t6 || h.noMapArt(mapName) {
 		return mapPicture{}, false
+	}
+	// A Black Ops III map's preview is kept with those of that game's other maps, apart from the other pictures.
+	if m.of == t7 && kind == "preview" {
+		return h.t7Preview(m.preview)
 	}
 	h.art.Lock()
 	defer h.art.Unlock()
@@ -143,10 +152,24 @@ func (h *web) mapArt(mapName, kind string) (mapPicture, bool) {
 	return pic, pic.data != nil
 }
 
+// noMapArt reports whether the server has no pictures of a map, whatever its game files have: a Black Ops III map,
+// on a server without the zones of that game's menus (web.t7Dir). The lobby tells the page, which then asks for none
+// (mapView.NoPictures).
+func (h *web) noMapArt(mapName string) bool {
+	return titleOf(mapName) == t7 && h.t7Dir == ""
+}
+
 // encodeMapArt reads a map's picture from the game files and encodes it. A Black Ops map's preview becomes a PNG,
-// because its corners are transparent. A loading screen, and a Black Ops II map's picture and card, become a JPEG.
-// The caller holds h.art.
+// because its corners are transparent. A loading screen, a Black Ops II map's picture and card, and a Black Ops III
+// map's preview become a JPEG. The caller holds h.art.
 func (h *web) encodeMapArt(m mapEntry, kind string) (mapPicture, error) {
+	if m.of == t7 {
+		img, err := h.t7Image(m.loadscreen)
+		if err != nil {
+			return mapPicture{}, err
+		}
+		return jpegOf(t7Screen(img))
+	}
 	texture := h.iwdImage
 	if m.of == t6 {
 		texture = h.t6Image
@@ -226,6 +249,22 @@ func t6Card(tile, frame *image.NRGBA) *image.NRGBA {
 		}
 	}
 	return card
+}
+
+// t7Screen returns a Black Ops III map's loading screen as the game draws it, from its texture, which it changes. The
+// game draws it opaque, whatever alpha its texture has (BC7 gives the texels of many blocks 254). It draws it over the
+// whole screen, so it is a 16:9 picture, though the game stores The Giant's square.
+func t7Screen(img *image.NRGBA) *image.NRGBA {
+	opaque(img)
+	return resize(img, img.Bounds().Dx(), img.Bounds().Dx()*9/16)
+}
+
+// opaque makes every texel of the picture opaque, and returns the picture.
+func opaque(img *image.NRGBA) *image.NRGBA {
+	for i := 3; i < len(img.Pix); i += 4 {
+		img.Pix[i] = 255
+	}
+	return img
 }
 
 // iwdImage returns the decoded texture images/<name>.iwi from the last .iwd in main/ that has it. It returns

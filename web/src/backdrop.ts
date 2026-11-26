@@ -2,8 +2,8 @@
 //
 // The background is the loading screen of one map (setBackdrop). The server sends the picture from the game files
 // (server/mapart.go: GET /maps/<map>/loadscreen). In the lobby, the map is that of the result that shows, else that
-// of the room, else the map that the player picked to play locally (show.ts: show). A page that plays a map alone
-// shows that map (main.ts: startPage). A new picture fades in once it has loaded. Without a picture, the atmosphere
+// of the room, else the map that the player picked to play locally (show.ts: show): Black Ops', or Black Ops III's
+// while the page to play locally shows that game. A page that plays a map alone shows that map (main.ts: startPage). A new picture fades in once it has loaded. Without a picture, the atmosphere
 // is on black: the server has no game files, or the page is not served by a lobby.
 //
 // The atmosphere goes over the picture (atmosphereStart), and each map has its own (atmospheres). It is smoke that
@@ -122,7 +122,29 @@ const atmospheres: Record<string, Atmosphere> = {
   zm_classic_processing: { glow: '#a8551c', spark: '#ffb15c', dust: 1, embers: 0.5, faltering: 0.6 },
   // Origins: smoke and embers over the trenches, and a light rain, in the gold of its loading screen.
   zm_classic_tomb: { glow: '#c98a1a', spark: '#ffd27a', smoke: 0.7, embers: 0.8, rain: 0.5 },
+  // Black Ops III's maps. Shadows of Evil: rain on Morg City at night, fog in its streets, and neon that falters, in
+  // the green of its poster.
+  zm_zod: { glow: '#12806f', spark: '#8ff5d6', fog: 0.7, rain: 0.8, faltering: 0.5 },
+  // The Giant, which is Der Riese in the snow: its smoke and the flashes of its teleporters, and snow.
+  zm_factory: { glow: '#2459c8', spark: '#9ad4ff', smoke: 0.8, snow: 0.7, flashes: 1 },
+  // Der Eisendrache: snow over the castle, and fog off the mountain.
+  zm_castle: { glow: '#3a6ea8', spark: '#bfe0ff', fog: 0.8, snow: 1 },
+  // Zetsubou No Shima: a swamp on an island in the rain. Damp air and mist among the trees, and fireflies.
+  zm_island: { glow: '#1c7a5a', spark: '#9fe8a0', mist: 0.8, damp: 1, rain: 0.6, flies: 0.6 },
+  // Gorod Krovi: Stalingrad on fire under its dragons, in smoke and embers.
+  zm_stalingrad: { glow: '#c8501a', spark: '#ffa23d', smoke: 1, embers: 1 },
+  // Revelations: smoke and dust among the pieces of the other maps, embers, and lightning now and then, in the gold
+  // of its loading screen and the blue of the light at its middle.
+  zm_genesis: { glow: '#b8901c', spark: '#8fd8ff', smoke: 0.6, dust: 0.8, embers: 0.4, flashes: 0.5 },
 };
+// Black Ops III's other maps are those of the games before it (Zombies Chronicles). Each has the loading screen that
+// the map has in Black Ops or Black Ops II, and so its atmosphere: Shangri-La's eclipse is where it was.
+const remade: Record<string, string> = {
+  zm_prototype: 'zombie_cod5_prototype', zm_asylum: 'zombie_cod5_asylum', zm_sumpf: 'zombie_cod5_sumpf',
+  zm_theater: 'zombie_theater', zm_cosmodrome: 'zombie_cosmodrome', zm_temple: 'zombie_temple', zm_moon: 'zombie_moon',
+  zm_tomb: 'zm_classic_tomb',
+};
+for (const [map, was] of Object.entries(remade)) atmospheres[map] = atmospheres[was];
 // Smoke and embers in the colours of Kino der Toten.
 const plainAtmosphere: Atmosphere = { glow: '#bf1a0f', spark: '#ff6b1f', smoke: 1, embers: 1 };
 

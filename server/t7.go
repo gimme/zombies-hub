@@ -71,22 +71,40 @@ const (
 
 var t7MapList = []mapEntry{
 	// The T7 maps are named after their zones. The game's own come first, in the order of their release, and then
-	// those of Zombies Chronicles, in the order of the games they are from. The page has no pictures of them: a T7
-	// map's pictures are in the game's image packs (.xpak), which the server neither has to have nor reads.
-	{of: t7, name: "zm_zod", title: "Shadows of Evil"},
-	{of: t7, name: "zm_factory", title: "The Giant"},
-	{of: t7, name: "zm_castle", title: "Der Eisendrache"},
-	{of: t7, name: "zm_island", title: "Zetsubou No Shima"},
-	{of: t7, name: "zm_stalingrad", title: "Gorod Krovi"},
-	{of: t7, name: "zm_genesis", title: "Revelations"},
-	{of: t7, name: "zm_prototype", title: "Nacht der Untoten"},
-	{of: t7, name: "zm_asylum", title: "Verrückt"},
-	{of: t7, name: "zm_sumpf", title: "Shi No Numa"},
-	{of: t7, name: "zm_theater", title: "Kino der Toten"},
-	{of: t7, name: "zm_cosmodrome", title: "Ascension"},
-	{of: t7, name: "zm_temple", title: "Shangri-La"},
-	{of: t7, name: "zm_moon", title: "Moon"},
-	{of: t7, name: "zm_tomb", title: "Origins"},
+	// those of Zombies Chronicles, in the order of the games they are from.
+	//
+	// A map's pictures are by the names that the game's map table gives them (the tables maptable_zm_*, in
+	// core_patch.ff). The preview is the map's picture in the game's map select: an image that the zones of the
+	// game's menus have whole (t7zone.go). The loading screen is a texture in T7's image packs (xpak.go). A server's
+	// games read neither, so only a server that has them has the pictures (web.t7Dir).
+	{of: t7, name: "zm_zod", title: "Shadows of Evil",
+		preview: "img_t7_menu_zm_preview_zod", loadscreen: "t7_menu_zm_loadscreen_zod"},
+	{of: t7, name: "zm_factory", title: "The Giant",
+		preview: "img_mapvote_zm_factory", loadscreen: "img_loadscreen_zm_factory"},
+	{of: t7, name: "zm_castle", title: "Der Eisendrache",
+		preview: "img_t7_menu_zm_preview_castle", loadscreen: "t7_menu_zm_loadscreen_castle"},
+	{of: t7, name: "zm_island", title: "Zetsubou No Shima",
+		preview: "img_t7_menu_zm_preview_island", loadscreen: "t7_menu_zm_loadscreen_island"},
+	{of: t7, name: "zm_stalingrad", title: "Gorod Krovi",
+		preview: "img_t7_menu_zm_preview_dlc3", loadscreen: "t7_menu_zm_loadscreen_dlc3"},
+	{of: t7, name: "zm_genesis", title: "Revelations",
+		preview: "img_t7_menu_zm_preview_genesis", loadscreen: "t7_menu_zm_loadscreen_genesis"},
+	{of: t7, name: "zm_prototype", title: "Nacht der Untoten",
+		preview: "img_t7_menu_zm_preview_prototype", loadscreen: "t7_menu_zm_loadscreen_prototype"},
+	{of: t7, name: "zm_asylum", title: "Verrückt",
+		preview: "img_t7_menu_zm_preview_asylum", loadscreen: "t7_menu_zm_loadscreen_asylum"},
+	{of: t7, name: "zm_sumpf", title: "Shi No Numa",
+		preview: "img_t7_menu_zm_preview_sumpf", loadscreen: "t7_menu_zm_loadscreen_sumpf"},
+	{of: t7, name: "zm_theater", title: "Kino der Toten",
+		preview: "img_t7_menu_zm_preview_theater", loadscreen: "t7_menu_zm_loadscreen_theater"},
+	{of: t7, name: "zm_cosmodrome", title: "Ascension",
+		preview: "img_t7_menu_zm_preview_cosmodrome", loadscreen: "t7_menu_zm_loadscreen_cosmodrome"},
+	{of: t7, name: "zm_temple", title: "Shangri-La",
+		preview: "img_t7_menu_zm_preview_temple", loadscreen: "t7_menu_zm_loadscreen_temple"},
+	{of: t7, name: "zm_moon", title: "Moon",
+		preview: "img_t7_menu_zm_preview_moon", loadscreen: "t7_menu_zm_loadscreen_moon"},
+	{of: t7, name: "zm_tomb", title: "Origins",
+		preview: "img_t7_menu_zm_preview_tomb", loadscreen: "t7_menu_zm_loadscreen_tomb"},
 }
 
 // t7Title is the title (title.go) for Black Ops III.
