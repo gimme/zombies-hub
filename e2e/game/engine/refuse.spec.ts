@@ -41,7 +41,7 @@ test('a client of another build is refused', async ({ server, players, api }) =>
   const said = await server.waitFor(new RegExp(`^\\[${room}\\] BO1 Zombies build `));
   const build = /BO1 Zombies build (.*)$/.exec(said)![1];
   other.note(`the game is build ${build}`);
-  expect(server.find(new RegExp(`^\\[${room}\\] Opening IP socket: 127\\.0\\.0\\.1:30[0-9][0-9]$`)),
+  expect(server.find(new RegExp(`^\\[${room}\\] Opening IP socket: 127\\.0\\.0\\.1:31[0-9][0-9]$`)),
     'the game listens where only the server reaches it').toBeTruthy();
   await other.waitFor(new RegExp(`^page: error: The server runs build ${build} of the game, and this client build ` +
     'other\\. Reloading the page would not help'), 120_000);
