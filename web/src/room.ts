@@ -16,8 +16,9 @@
 // starts once everyone is ready, after a countdown (countdown.ts). While the room's game runs, the button is the way
 // into the game for a player who is outside it, and otherwise only says where the player is (gameButton).
 //
-// The game of a room on a Black Ops II map is played on the player's own PC (windows.ts). The room's button then
-// opens the launcher, and a box has the rest: how to install the launcher, and how to join by hand (showT6).
+// The game of a room on a Black Ops II or a Black Ops III map is played on the player's own PC (windows.ts). The
+// room's button then opens the launcher, and a box has the rest: how to install the launcher, and how to join by hand
+// (showPC).
 //
 // While the room's game runs, its maps, and its host's pick of its game, stay as they were, and can't be picked: the
 // room looks the same, and nothing under them moves.
@@ -39,10 +40,10 @@ import { modNames, modOn, modValue } from './mods';
 import { mayLeaveGame } from './question';
 import { bo1Settings } from './settings';
 import { store } from './storage';
-import { mapsOf, ownPC, titleName, versusesOf, versusOf } from './titles';
+import { CLIENTS, mapsOf, ownPC, titleName, versusesOf, versusOf } from './titles';
 import {
-  launcherDownloads, launcherHere, launcherMacLine, launcherMissed, launcherOn, launcherOpening, launcherSeen,
-  launcherSetup, launcherStep, onWindows, t6Console, t7Console,
+  launcherDownloads, launcherHere, launcherMacLine, launcherMissed, launcherOpening, launcherSeen,
+  launcherSetup, launcherStarts, launcherStep, onMac, onWindows, t6Console, t7Console,
 } from './windows';
 
 // A gamepad, on a player whose page reads one: its two grips, its d-pad and two of its buttons.
@@ -89,8 +90,7 @@ export function showRoom(v: View, room: Room): void {
   showRoomSize(v, room);
   // The room's mods are those that the games of its title can have.
   showRoomMods(v.mods.filter((m) => m.titles.includes(room.of)), room, open);
-  showT6(v, room);
-  showT7(room);
+  showPC(v, room);
 
   // The list has a row for each seat of the room, with an empty row for each seat that no one has. The list, and
   // what is below it, then stays in place as players come and go.
@@ -147,21 +147,22 @@ function memberRow(m: Member, room: Room, open: boolean): HTMLLIElement {
   who.append(line);
   if (what) who.append(el('span', 'what', what));
   const badge = el('span', 'badge');
-  // A Black Ops II player's launcher may download the game files while the room's game already waits for them.
-  const downloadsT6 = room.of === 't6' && !!m.downloading;
+  // The launcher of a player of a game on their own PC may download the game files while the room's game already
+  // waits for them.
+  const downloads = ownPC(room.of) && !!m.downloading;
   if (mine && room.left) { // their character is gone from the game
     badge.classList.add('off');
     badgeSay(badge, 'Out of game');
-  } else if (m.inGame || (ready && !downloadsT6)) {
+  } else if (m.inGame || (ready && !downloads)) {
     badge.classList.add('on');
     badgeSay(badge, m.inGame ? 'In game' : 'Ready', ready);
-  } else if (open || downloadsT6) {
+  } else if (open || downloads) {
     badge.classList.add('off');
     badgeSay(badge, m.downloading ? 'Downloading' : m.missing ? 'Missing map' : 'Not ready');
   }
   li.append(avatar(m.name, m.avatar, mine, m.place), who, badge);
   // How far their download is, as a bar along the row.
-  if ((open || room.of === 't6') && m.got && m.got > 0) {
+  if ((open || ownPC(room.of)) && m.got && m.got > 0) {
     const got = el('span', 'got');
     got.style.width = (m.got * 100).toFixed(1) + '%';
     li.append(got);
@@ -184,12 +185,13 @@ export function showRoomButton(v: View, room: Room): void {
   const windows = onWindows();
   // The game of a Black Ops II room is played by the player's own Plutonium, and that of a Black Ops III room by
   // their own BOIII. The page needs no map for it, and does not run the engine.
-  const t6 = room.of === 't6';
   const pc = ownPC(room.of);
+  const game = titleName(v.titles, room.of);
   let m: RoomButton;
-  let lacks = ''; // what the line under the button says of a Black Ops II player's copy that lacks the room's map
+  let lacks = ''; // what the line under the button says of a player's copy of the game that lacks the room's map
   if (!open) m = gameButton(v, room);
   else if (!canRun && !v.you.windows && !pc) m = { label: "Can't play in this browser", disabled: true };
+  else if (onMac && room.of === 't7') m = { label: "Can't play on a Mac", disabled: true };
   else {
     // No one can be ready while all of the server's games are running (server/rooms.go: full), or while the room has
     // fewer players than a game needs.
@@ -200,14 +202,15 @@ export function showRoomButton(v: View, room: Room): void {
     if (m.ready && !v.you.ready && (v.full || short > 0)) m.disabled = true;
     m.does = m.gets ? 'map' : 'ready';
     m.primary = !!m.gets || (!!m.ready && !v.you.ready);
-    // In a Black Ops II room, once the server has said where the launcher is, the button opens the launcher first.
-    // The launcher then gets what the PC lacks for the game, and the button says how far that is. After that the
-    // button is Ready. Not for a player who joins by hand, with that checkbox checked.
+    // In a room of a game of the players' own PCs, once the server has said where the launcher is, the button opens
+    // the launcher first. The launcher then gets what the PC lacks for the game, and the button says how far that
+    // is. After that the button is Ready. Not for a player who joins by hand, with that checkbox checked.
     //
-    // A copy of the game without the pack of the room's map lacks the map (server/t6.go: lacks). The player is then
-    // not ready until the host picks another map. Where the server sends game files, the button is Download: it
-    // opens the launcher, which asks whether to download the server's game files and use them instead.
-    if (t6 && launcherOn() && !v.you.ready && !handOn()) {
+    // A copy of the game without the pack of the room's map lacks the map (server/launcher.go: pcLacks). The player
+    // is then not ready until the host picks another map. Where the server sends the game's files, the button is
+    // Download: it opens the launcher, which downloads the map into the game files that it downloaded, or asks
+    // whether to download the server's game files and use them in place of the player's own copy.
+    if (pc && launcherStarts(room.of) && !v.you.ready && !handOn()) {
       const mine = room.members.find((x) => x.id === me.id);
       if (v.you.launcherFailed) m = { label: 'Try again', does: 'launch', primary: true };
       else if (!v.you.launcher) {
@@ -220,11 +223,11 @@ export function showRoomButton(v: View, room: Room): void {
         m = { label: mine && mine.downloading ? `Downloading · ${Math.floor((mine.got || 0) * 100)}%`
           : (launcherStep(v.you.launcherDoing || '') || 'Connecting') + '...', disabled: true };
       } else if (mine && mine.missing) {
-        lacks = "Your Black Ops II doesn't have this map" + (launcherDownloads()
-          ? '. The launcher can download the game files from the server instead.'
+        const sends = launcherDownloads(v, room.of);
+        lacks = `Your ${game} doesn't have this map` + (sends
+          ? '. The launcher can download it from the server.'
           : ': it comes with a map pack.');
-        m = launcherDownloads() ? { label: 'Download', does: 'launch', primary: true }
-          : { label: 'Missing map', disabled: true };
+        m = sends ? { label: 'Download', does: 'launch', primary: true } : { label: 'Missing map', disabled: true };
       }
     }
   }
@@ -233,7 +236,7 @@ export function showRoomButton(v: View, room: Room): void {
   setButton($('ready'), m, m.primary);
   showNote($('roomnote'), room.map, m, open && !windows && canRun && !pc);
   // The launcher has no window, so the room says what it failed at, and what the player's copy of the game lacks.
-  const says = t6 ? v.you.launcherFailed || lacks : '';
+  const says = pc ? v.you.launcherFailed || lacks : '';
   if (says) {
     $('roomnote').textContent = says;
     $('roomnote').classList.remove('hidden');
@@ -260,110 +263,120 @@ function gameButton(v: View, room: Room): RoomButton {
     }
     return said(mine && mine.inGame ? 'In game' : 'Game in progress');
   }
-  // A Black Ops II game is joined by the player's own PC. The page knows of it what the server does: whether their
-  // game is in it. Until it is, the button opens the launcher. A launcher that is already at it does nothing more. A
-  // player who joins by hand, with that checkbox checked, gets no launcher, as at the Ready button (showRoomButton).
+  // A game of the players' own PCs is joined by the player's own PC. The page knows of it what the server does:
+  // whether their game is in it. Until it is, the button opens the launcher. A launcher that is already at it does
+  // nothing more. A player who joins by hand, with that checkbox checked, gets no launcher, as at the Ready button
+  // (showRoomButton).
   if (mine && mine.inGame) return said('In game');
-  // The launcher starts no Black Ops III yet: its players join by hand (showT7).
-  if (room.of !== 't6' || !launcherOn() || handOn()) return said('Join by hand');
+  if (!launcherStarts(room.of) || handOn()) return said('Join by hand');
   // Their launcher has started their game, which is on its way in.
   if (v.you.launcher && v.you.launcherDoing) return said(v.you.launcherDoing + '...');
   return { label: 'Join the game', does: 'launch', primary: true };
 }
 
 /**
- * Draws the box of a room on a Black Ops II map. Nothing opens the launcher but the room's button. The box has the
+ * Draws the box of a room on a map of a game of the players' own PCs, Black Ops II or III. Nothing opens the
+ * launcher but the room's button. The box has the
  * line that installs the launcher, and the line that joins by hand. The line that installs the launcher is there in a
  * browser that has never seen a launcher of the player's run, after a click of the room's button that started no
  * launcher (windows.ts: launcherMissed), and when the server refused the player's launcher as too old. That launcher
  * can't say so itself, because the server takes no report from it. On a Mac the line is one for Terminal, and it is
  * there too when the launcher said that the script that runs it is too old for it.
  */
-export function showT6(v: View, room: Room): void {
-  const box = $('t6box');
-  box.classList.toggle('hidden', room.of !== 't6');
-  if (room.of !== 't6') return;
+export function showPC(v: View, room: Room): void {
+  const box = $('pcbox');
+  const pc = ownPC(room.of);
+  box.classList.toggle('hidden', !pc);
+  if (!pc) return;
   if (v.you.launcher) launcherSeen();
-  // Where the server offers the launcher, joining by hand is a checkbox (handOn), which the browser remembers.
+  // Where the launcher starts the game, joining by hand is a checkbox (handOn), which the browser remembers.
   // Checked, it shows the line that joins by hand, and the room's button opens no launcher (showRoomButton), nor does
-  // the box say where to get one. Where the server offers no launcher, joining by hand is the only way: the line is
+  // the box say where to get one. Where no launcher starts the game, joining by hand is the only way: the line is
   // there, and no checkbox.
-  const byHand = !launcherOn() || handOn();
-  $('t6handrow').classList.toggle('hidden', !launcherOn());
-  $('t6handline').classList.toggle('hidden', !byHand);
-  $('t6console').textContent = t6Console(room);
-  placeInstall($('t6box'));
-  showInstall(v, !byHand);
+  const starts = launcherStarts(room.of);
+  const byHand = !starts || handOn();
+  $('pchandrow').classList.toggle('hidden', !starts);
+  $('pchandline').classList.toggle('hidden', !byHand);
+  // How to get to the game's console, in words that are made once for the game: a link in them keeps the focus.
+  const how = $('pchandhow');
+  if (how.dataset.of !== room.of) {
+    how.dataset.of = room.of || '';
+    how.replaceChildren(...inWords(BY_HAND[room.of || ''] || []));
+  }
+  $('pcconsole').textContent = room.of === 't7' ? t7Console(room) : t6Console(room);
+  placeInstall($('pcbox'));
+  showInstall(v, !byHand, room.of);
 }
 
 /**
- * Draws the box of a room on a Black Ops III map: the line that joins the room's game by hand, from the console of
- * the player's own game.
- */
-export function showT7(room: Room): void {
-  $('t7box').classList.toggle('hidden', room.of !== 't7');
-  if (room.of === 't7') $('t7console').textContent = t7Console(room);
-}
-
-/**
- * Puts what installs the launcher (#t6install) into box: the room's box for Black Ops II, or Play local's (solo.ts).
+ * Puts what installs the launcher (#pcinstall) into box: the room's box for Black Ops II, or Play local's (solo.ts).
  * The two never show at once, so the page has it once, and draws it wherever it is (showInstall).
  */
 export function placeInstall(box: HTMLElement): void {
-  const install = $('t6install');
+  const install = $('pcinstall');
   if (install.parentElement === box) return;
-  if (box.id === 't6box') box.prepend(install);
+  if (box.id === 'pcbox') box.prepend(install);
   else box.append(install);
 }
 
 /**
- * Draws what installs the launcher, where the launcher is to start the game (wanted): the link to its setup, or on a
- * Mac the line for Terminal, and the "?" by them, with what the launcher is. It shows in a browser that has never seen
- * a launcher of the player's run, after a click that started none (windows.ts: launcherMissed), and when the
+ * Draws what installs the launcher, where the launcher is to start the game of (wanted): the link to its setup, or on
+ * a Mac the line for Terminal, and the "?" by them, with what the launcher is. It shows in a browser that has never
+ * seen a launcher of the player's run, after a click that started none (windows.ts: launcherMissed), and when the
  * launcher is too old (View.you.launcherOld).
  */
-export function showInstall(v: View, wanted: boolean): void {
+export function showInstall(v: View, wanted: boolean, of = 't6'): void {
+  installOf = of;
   const old = !!v.you.launcherOld;
   // A Mac has no program to download: the launcher is installed there by a line for Terminal (windows.ts:
   // launcherMacLine), which the box shows in place of the link. The same line brings an old launcher up to date.
   const line = launcherMacLine();
   const get = wanted && (!launcherHere || old || launcherMissed);
-  $('t6install').classList.toggle('hidden', !get);
+  $('pcinstall').classList.toggle('hidden', !get);
   // A Mac's launcher is old also when the script that runs it is (launcher/mac.go), which is no matter of the server.
   const why = old ? (line ? 'Your Zombies Launcher needs an update.' : 'Your Zombies Launcher is too old for this server.')
     : launcherMissed ? 'Nothing happened?' : 'First time?';
-  $('t6get').classList.toggle('hidden', !get || !!line);
-  $('t6why').textContent = why;
-  $('t6setup').textContent = old ? 'Install the new one' : 'Install Zombies Launcher';
-  $<HTMLAnchorElement>('t6setup').href = launcherSetup();
+  $('pcget').classList.toggle('hidden', !get || !!line);
+  $('pcwhy').textContent = why;
+  $('pcsetup').textContent = old ? 'Install the new one' : 'Install Zombies Launcher';
+  $<HTMLAnchorElement>('pcsetup').href = launcherSetup();
   // The line has no button that copies it. A content blocker takes a page that puts a shell's line on the clipboard
   // for one that tricks the player into running it, and says so (uBlock Origin: "a potential ClickFix attack"). A
   // click on the line selects all of it.
-  $('t6mac').classList.toggle('hidden', !get || !line);
-  $('t6machow').textContent = why + (old ? ' Install the new one with this line in Terminal:'
+  $('pcmac').classList.toggle('hidden', !get || !line);
+  $('pcmachow').textContent = why + (old ? ' Install the new one with this line in Terminal:'
     : ' Install Zombies Launcher with this line in Terminal:');
-  $('t6macline').textContent = line;
+  $('pcmacline').textContent = line;
   // The "?" by what installs the launcher shows what the launcher is and how it goes again, for a player to know
   // before they install it.
-  const about = $('t6about');
+  const about = $('pcabout');
   about.classList.toggle('hidden', !get || !aboutShown);
-  // The words are made once for the page's platform, and not again at each view: a link in them keeps the focus.
-  const kind = line ? 'mac' : 'pc';
+  // The words are made once for the page's platform and the game, and not again at each view: a link in them keeps
+  // the focus.
+  const kind = (line ? 'mac ' : 'pc ') + of;
   if (about.dataset.of !== kind) {
     about.dataset.of = kind;
-    about.replaceChildren(...inWords(line ? ABOUT_MAC : ABOUT_PC));
+    about.replaceChildren(...inWords(line ? ABOUT_MAC : aboutPC(of)));
   }
-  for (const b of $('t6install').querySelectorAll('button.what')) b.setAttribute('aria-expanded', String(aboutShown));
+  for (const b of $('pcinstall').querySelectorAll('button.what')) b.setAttribute('aria-expanded', String(aboutShown));
 }
 
-// What the launcher is, which the "?" shows (showT6): text, and the names of what the launcher installs, each with its
-// site. The words name no game, as the launcher is to start more than one. A Mac's are of what the line for Terminal
-// installs (launcher/mac.sh). The app that removes the launcher there is "run": opened, it could be taken for the
-// launcher's menu in the menu bar.
+// What the launcher is, which the "?" shows (showPC): text, and the names of what the launcher installs, each with its
+// site. The words name no game, as the launcher starts more than one, but for the client that the game of (installOf)
+// plays on (titles.ts: CLIENTS). A Mac's are of what the line for Terminal installs (launcher/mac.sh), which is for
+// Black Ops II alone. The app that removes the launcher there is "run": opened, it could be taken for the launcher's
+// menu in the menu bar.
 export type Words = (string | [name: string, href: string] | { text: string; hint: string })[];
-export const PLUTONIUM: [string, string] = ['Plutonium', 'https://plutonium.pw/'];
-const ABOUT_PC: Words = ['Zombies Launcher is a small program that helps start the game on this PC and connects it ' +
-  'to the room. It also installs the required game client (', PLUTONIUM, ').'];
+export const PLUTONIUM: [string, string] = CLIENTS.t6;
+const aboutPC = (of: string): Words => ['Zombies Launcher is a small program that helps start the game on this PC ' +
+  'and connects it to the room. It also installs the required game client (', CLIENTS[of] || PLUTONIUM, ').'];
+let installOf = 't6'; // the game that what installs the launcher was last drawn for (showInstall)
+// How to get to the console that the line that joins by hand is for (showPC), by the game.
+const BY_HAND: Record<string, Words> = {
+  t6: ['In the console of Black Ops II Zombies, started by Plutonium in LAN mode:'],
+  t7: ['Start Black Ops III with ', ['BOIII', 'https://github.com/Ezz-lol/boiii-free/releases/latest'],
+    " (its boiii.exe goes in the game's folder). Once the room's game is up, type this in the game's console:"],
+};
 const ABOUT_MAC: Words = ['This script installs Zombies Launcher: a small program that helps start the game on this ' +
   'Mac and connects it to the room. It also installs the required game client (', PLUTONIUM, ') and its Mac ' +
   'compatibility tool (', ['plutonium-mac-aio', 'https://github.com/LuidgiAlt/plutonium-mac-aio'], '). That can ' +
@@ -391,9 +404,9 @@ export function site([name, href]: [string, string]): HTMLAnchorElement {
   return a;
 }
 
-/** Whether the player joins their Black Ops II room's game by hand, as that checkbox says (showT6). */
+/** Whether the player joins their room's game by hand, on their own PC, as that checkbox says (showPC). */
 function handOn(): boolean {
-  return $<HTMLInputElement>('t6hand').checked;
+  return $<HTMLInputElement>('pchand').checked;
 }
 
 /**
@@ -633,23 +646,22 @@ export function roomInit(): void {
   // A player who joins by hand, with that checkbox checked, needs no launcher. The button is Ready then, and the lobby
   // sends their launcher no game (tellHand). The browser remembers the checkbox for the player's next rooms and
   // visits.
-  $<HTMLInputElement>('t6hand').checked = store.get('zombies-by-hand') === '1';
-  $('t6hand').onchange = () => {
+  $<HTMLInputElement>('pchand').checked = store.get('zombies-by-hand') === '1';
+  $('pchand').onchange = () => {
     store.set('zombies-by-hand', handOn() ? '1' : '');
     tellHand();
     if (view && view.room) {
-      showT6(view, view.room);
+      showPC(view, view.room);
       showRoomButton(view, view.room);
     }
   };
   $('endgame').onclick = () => act('end');
-  $('copyt6').onclick = () => copy($('copyt6'), $('t6console').textContent || '');
-  $('copyt7').onclick = () => copy($('copyt7'), $('t7console').textContent || '');
-  for (const b of $('t6install').querySelectorAll<HTMLButtonElement>('button.what')) {
+  $('copypc').onclick = () => copy($('copypc'), $('pcconsole').textContent || '');
+  for (const b of $('pcinstall').querySelectorAll<HTMLButtonElement>('button.what')) {
     b.onclick = () => {
       aboutShown = !aboutShown;
-      if (view && view.room) showT6(view, view.room);
-      else if (view) showInstall(view, true); // in Play local
+      if (view && view.room) showPC(view, view.room);
+      else if (view) showInstall(view, true, installOf); // in Play local
     };
   }
   $('leave').onclick = async () => (await mayLeaveGame()) && act('leave');

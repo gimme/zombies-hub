@@ -266,6 +266,9 @@ ul.rooms { gap: 12px; }
 .mapgrid button img { display: block; width: 100%; aspect-ratio: 4 / 3; border-radius: 7px; object-fit: cover;
   background: rgba(255, 255, 255, 0.06); }
 .mapgrid button img[data-of=t6] { aspect-ratio: 480 / 222; }
+/* in Play local, under a map of a game of the player's own PC: whether the PC has it, or what it would download */
+.mapgrid .size { font-size: 12px; font-weight: 400; color: var(--muted); }
+.mapgrid .size.there { color: var(--fg); }
 .mapgrid button[aria-checked=true] { border-color: var(--accent-hi); background: rgba(200, 16, 46, 0.14); color: var(--fg); }
 .mapgrid button[aria-checked=true]:hover:not(:disabled) { border-color: var(--accent-over); }
 .mapgrid button:disabled { background: rgba(255, 255, 255, 0.02); color: #7f796f; }
@@ -281,7 +284,7 @@ ul.rooms { gap: 12px; }
    (showSoloTitle). The maps under a game's words so have their own line over them. */
 #solotitles { padding-top: 0; border-top: none; }
 /* Black Ops II's card there has no picture and no maps: its words are as tall as they are, with what folds out */
-#solo[data-of=t6] .mapinfo .text { height: auto; }
+#solo[data-of=t6] .mapinfo .text, #solo[data-of=t7] .mapinfo .text { height: auto; }
 /* under Black Ops II's words (showSoloOwn): how to get to Plutonium's online servers, as steps that fold out under
    their line, no wider than they read well; a Mac's first step has a line for Terminal */
 #soloown { flex: none; display: flex; flex-direction: column; gap: 10px; margin-top: 6px; }
@@ -298,8 +301,11 @@ button.fold[aria-expanded=true] svg { transform: rotate(90deg); }
 #soloown ol { max-width: 68ch; margin: 0; font-size: 14px; line-height: 1.5; color: var(--muted); }
 #soloown .codeline { margin-top: 8px; color: var(--fg); }
 #soloown ol { padding-left: 1.4em; display: flex; flex-direction: column; gap: 4px; }
-/* its links, and the one in the game's words over it, are the page's white, as the launcher's are (#t6install) */
+/* its links, and the one in the game's words over it, are the page's white, as the launcher's are (#pcinstall) */
 #soloown a, #solodesc a { color: var(--fg); }
+/* under the words of a game of the player's own PC: what a PC without the game downloads from the server */
+#solofiles { flex: none; margin: 6px 0 0; font-size: 14px; line-height: 1.45; color: var(--muted); }
+#solofiles:empty { display: none; }
 .options .tabs { display: flex; gap: 4px; padding: 6px 6px 0; border-bottom: 1px solid rgba(255, 255, 255, 0.08); }
 .tab { height: 44px; padding: 0 18px; border: none; border-radius: 0; border-bottom: 2px solid transparent;
   background: none; display: flex; align-items: center; gap: 8px; }
@@ -409,28 +415,28 @@ ul.members { gap: 8px; }
    line has all of the box's width but the button's, and where it is longer it scrolls, cut off before the button */
 .codeline { display: flex; align-items: center; gap: 4px; padding-right: 5px; border-radius: 8px;
   background: rgba(0, 0, 0, 0.4); border: 1px solid var(--line); }
-#playbat, #t6console, #t7console, #t6macline, #soloown .codeline span { flex: 1; min-width: 0; padding: 10px 4px 10px 12px; font: 13px/1.4 ui-monospace, Consolas, monospace;
+#playbat, #pcconsole, #pcmacline, #soloown .codeline span { flex: 1; min-width: 0; padding: 10px 4px 10px 12px; font: 13px/1.4 ui-monospace, Consolas, monospace;
   white-space: nowrap; overflow-x: auto; user-select: all; scrollbar-width: thin; }
 .codeline button.copy { flex: none; width: 30px; height: 28px; padding: 0; border: none; border-radius: 6px;
   background: rgba(255, 255, 255, 0.08); color: var(--muted); }
 .codeline button.copy:hover { background: rgba(255, 255, 255, 0.14); color: var(--fg); }
 .codeline button.copy.copied { color: var(--fg); }
 /* a room on a Black Ops II map (showT6): what a player needs for its game, which their own Plutonium plays, and
-   the line that joins it. What installs the launcher (#t6install) is in Play local instead while that shows Black
+   the line that joins it. What installs the launcher (#pcinstall) is in Play local instead while that shows Black
    Ops II (placeInstall). */
-#t6box, #t7box, #t6install { display: flex; flex-direction: column; gap: 12px; }
-#t6box p, #t7box p, #t6install p, #t6handrow { font-size: 14px; line-height: 1.45; color: var(--muted); }
-#t6handrow { align-self: flex-start; display: flex; align-items: center; gap: 8px; cursor: pointer; }
-#t6hand { width: 14px; height: 14px; margin: 0; accent-color: var(--accent); cursor: pointer; }
-#t6box p, #t7box p, #t6install p { margin: 0; }
-#t6box a, #t7box a, #t6install a { color: var(--fg); }
-#t6handline, #t6mac { display: flex; flex-direction: column; gap: 10px; }
+#pcbox, #pcinstall { display: flex; flex-direction: column; gap: 12px; }
+#pcbox p, #pcinstall p, #pchandrow { font-size: 14px; line-height: 1.45; color: var(--muted); }
+#pchandrow { align-self: flex-start; display: flex; align-items: center; gap: 8px; cursor: pointer; }
+#pchand { width: 14px; height: 14px; margin: 0; accent-color: var(--accent); cursor: pointer; }
+#pcbox p, #pcinstall p { margin: 0; }
+#pcbox a, #pcinstall a { color: var(--fg); }
+#pchandline, #pcmac { display: flex; flex-direction: column; gap: 10px; }
 /* the "?" by what installs the launcher, which shows what the launcher is (showT6) */
-#t6install button.what { width: 18px; height: 18px; padding: 0; border: 1px solid var(--line); border-radius: 50%;
+#pcinstall button.what { width: 18px; height: 18px; padding: 0; border: 1px solid var(--line); border-radius: 50%;
   background: none; color: var(--muted); font: 600 11px/1 inherit; vertical-align: 1px; cursor: pointer; }
 /* its mark is drawn here, so that the line's own text is only what it says */
-#t6install button.what::before { content: "?"; }
-#t6install button.what:hover, #t6install button.what[aria-expanded=true] { border-color: var(--muted); color: var(--fg); }
+#pcinstall button.what::before { content: "?"; }
+#pcinstall button.what:hover, #pcinstall button.what[aria-expanded=true] { border-color: var(--muted); color: var(--fg); }
 
 /* how the room's last game went (showResult): the map's card, with the round and the team's totals, then the
    scoreboard */

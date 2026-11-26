@@ -437,8 +437,35 @@ func TestBoiiiAlone(t *testing.T) {
 	if !slices.Contains(ofs, launcherapi.T7) || has != "zone/zm_tomb.ff" {
 		t.Errorf("what the launcher said: at %q, has %q", ofs, has)
 	}
-	// a link that names no title starts Black Ops II, as before the launcher started any other
 	if tl.title() != titleT7 {
 		t.Errorf("the run was at %s", tl.title().name)
+	}
+	// while the game runs, the next map that the player picks is downloaded for it, and nothing starts again
+	first, _ := parseLink(link)
+	other, _ := parseLink(l.link() + "&solo=1&name=Ann&of=t7&map=zm_factory")
+	notePress(tl.home, other)
+	l.calls()
+	tl.getPicked(context.Background(), newServer(first, tl.client), first, dir)
+	if isFile(filepath.Join(dir, "zone", "zm_factory.ff")) {
+		t.Error("a launcher that has no answer of the server downloaded a map")
+	}
+	srv, stop := tl.open(context.Background(), first)
+	defer stop()
+	srv.start()
+	if _, err := srv.current(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	tl.getPicked(context.Background(), srv, first, dir)
+	if read(t, filepath.Join(dir, "zone", "zm_factory.ff")) != "The Giant" || len(tl.started) != 1 {
+		t.Errorf("the map that the player picked while the game ran: started %+v\n%s", tl.started, tl.out)
+	}
+	var got []string
+	for _, call := range l.calls() {
+		if path, ok := strings.CutPrefix(call, "GET /launcher/t7/files/"); ok {
+			got = append(got, path)
+		}
+	}
+	if !slices.Equal(got, []string{"zone/zm_factory.ff"}) {
+		t.Errorf("downloaded for the map: %q", got)
 	}
 }

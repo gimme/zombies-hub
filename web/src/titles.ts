@@ -42,6 +42,19 @@ export const versusesOf = (maps: MapInfo[], of: string): Versus[] =>
  */
 export const ownPC = (of?: string): boolean => of === 't6' || of === 't7';
 
+/**
+ * What a title of the players' own PCs plays on, by the title's id: its name and its site. The launcher installs it,
+ * and the page names it where it says what the launcher does.
+ */
+export const CLIENTS: Record<string, [name: string, href: string]> = {
+  t6: ['Plutonium', 'https://plutonium.pw/'],
+  t7: ['BOIII', 'https://github.com/Ezz-lol/boiii-free'],
+};
+
+/** A size in bytes as the page writes it: 9.3 GB, 646 MB. */
+export const bytesText = (bytes: number): string =>
+  bytes >= 1e9 ? (bytes / 1e9).toFixed(1) + ' GB' : Math.max(1, Math.round(bytes / 1e6)) + ' MB';
+
 /** Whether the server has pictures of a title's maps. It has none of a Black Ops III map (server/t7.go: t7MapList). */
 export const hasPictures = (of?: string): boolean => of !== 't7';
 

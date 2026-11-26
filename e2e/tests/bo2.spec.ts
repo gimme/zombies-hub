@@ -47,10 +47,10 @@ test('a room plays its game to game over, and its round and easter egg are on th
   // browser remembers that they do
   for (const page of [ann, bob]) {
     await expect(page.locator('#ready')).toHaveText('Connect');
-    await expect(page.locator('#t6console')).toBeHidden();
-    await page.locator('#t6handrow').getByText('Join by hand').click(); // the checkbox's words check it
+    await expect(page.locator('#pcconsole')).toBeHidden();
+    await page.locator('#pchandrow').getByText('Join by hand').click(); // the checkbox's words check it
     await expect(page.getByRole('checkbox', { name: 'Join by hand' })).toBeChecked();
-    await expect(page.locator('#t6console')).toHaveText(/^password [0-9a-f]+;connect [^;]+:\d+$/);
+    await expect(page.locator('#pcconsole')).toHaveText(/^password [0-9a-f]+;connect [^;]+:\d+$/);
     await expect(page.locator('#ready')).toHaveText('Ready');
   }
   // the server sends their launchers no game, which would join theirs while they join by hand
@@ -60,7 +60,7 @@ test('a room plays its game to game over, and its round and easter egg are on th
   await bob.reload();
   await expect(bob.locator('#roomcode')).toHaveText(code);
   await expect(bob.getByRole('checkbox', { name: 'Join by hand' })).toBeChecked();
-  await expect(bob.locator('#t6console')).toBeVisible();
+  await expect(bob.locator('#pcconsole')).toBeVisible();
   for (const page of [ann, bob]) {
     await expect(page.locator('#ready')).toHaveText('Ready');
     await page.locator('#ready').click();
@@ -117,23 +117,23 @@ test("a launcher too old for the server is turned away, and the room links to th
     await expect(ann.locator('#maptitle')).toHaveText('Town');
     // a player whose browser has seen no launcher of theirs is shown where to get it
     await expect(ann.locator('#ready')).toHaveText('Connect');
-    await expect(ann.locator('#t6get')).toHaveText('First time? Install Zombies Launcher.');
-    await expect(ann.locator('#t6setup')).toHaveAttribute('href', setup);
-    await expect(ann.locator('#t6mac')).toBeHidden(); // the line for a Mac's Terminal
+    await expect(ann.locator('#pcget')).toHaveText('First time? Install Zombies Launcher.');
+    await expect(ann.locator('#pcsetup')).toHaveAttribute('href', setup);
+    await expect(ann.locator('#pcmac')).toBeHidden(); // the line for a Mac's Terminal
     // the "?" by it shows what the launcher is and how it goes again, and hides it again
-    await expect(ann.locator('#t6about')).toBeHidden();
-    await ann.locator('#t6get button.what').click();
-    await expect(ann.locator('#t6about')).toContainText('helps start the game on this PC and connects it to the room');
-    await expect(ann.locator('#t6about').getByRole('link', { name: 'Plutonium' }))
+    await expect(ann.locator('#pcabout')).toBeHidden();
+    await ann.locator('#pcget button.what').click();
+    await expect(ann.locator('#pcabout')).toContainText('helps start the game on this PC and connects it to the room');
+    await expect(ann.locator('#pcabout').getByRole('link', { name: 'Plutonium' }))
       .toHaveAttribute('href', 'https://plutonium.pw/');
-    await ann.locator('#t6get button.what').click();
-    await expect(ann.locator('#t6about')).toBeHidden();
+    await ann.locator('#pcget button.what').click();
+    await expect(ann.locator('#pcabout')).toBeHidden();
     // the button, which starts no launcher on this PC: it says that the launcher starts, until the line says that
     // nothing happened, and it is the button it was
     await ann.locator('#ready').click();
     await expect(ann.locator('#ready')).toHaveText('Connecting...');
     await expect(ann.locator('#ready')).toHaveAttribute('aria-disabled', 'true');
-    await expect(ann.locator('#t6get')).toHaveText('Nothing happened? Install Zombies Launcher.');
+    await expect(ann.locator('#pcget')).toHaveText('Nothing happened? Install Zombies Launcher.');
     await expect(ann.locator('#ready')).toHaveText('Connect');
 
     // calls of Ann's launcher, by her key, which the line of the Windows client in her profile has
@@ -149,14 +149,14 @@ test("a launcher too old for the server is turned away, and the room links to th
     });
     expect(started.status).toBe(200);
     await expect(ann.locator('#ready')).toHaveText('Connecting...');
-    await expect(ann.locator('#t6get')).toBeHidden();
+    await expect(ann.locator('#pcget')).toBeHidden();
     // its next call has no version: the server turns it away
     let rsp = await call();
     expect(rsp.status).toBe(426);
     expect(await rsp.text()).toContain('This launcher is too old for this server');
-    await expect(ann.locator('#t6get')).toHaveText(
+    await expect(ann.locator('#pcget')).toHaveText(
       'Your Zombies Launcher is too old for this server. Install the new one.');
-    await expect(ann.locator('#t6setup')).toHaveAttribute('href', setup);
+    await expect(ann.locator('#pcsetup')).toHaveAttribute('href', setup);
     await expect(ann.locator('#ready')).toHaveText('Connect');
     // a dev build, on a server that is no dev server
     rsp = await call('0');
@@ -165,7 +165,7 @@ test("a launcher too old for the server is turned away, and the room links to th
     // a launcher that the server takes, of its lowest version (launcherapi.MinVersion): the room says no more of it
     rsp = await call('1');
     expect(rsp.status).toBe(200);
-    await expect(ann.locator('#t6get')).toBeHidden();
+    await expect(ann.locator('#pcget')).toBeHidden();
     await expect(ann.locator('#ready')).toHaveText('Connecting...');
     // the button says what the launcher does once the launcher has been at it for a moment
     const doing = await fetch(server.url + '/launcher/files', {
@@ -189,24 +189,24 @@ test('a Mac is shown the line that installs the launcher from Terminal', async (
   await ann.locator('#titlepick').getByRole('radio', { name: 'Black Ops II', exact: true }).click();
   await expect(ann.locator('#ready')).toHaveText('Connect');
   // the line fetches the launcher's script from its latest release and runs it
-  await expect(ann.locator('#t6get')).toBeHidden();
-  await expect(ann.locator('#t6machow')).toHaveText('First time? Install Zombies Launcher with this line in Terminal:');
-  await expect(ann.locator('#t6macline')).toHaveText(
+  await expect(ann.locator('#pcget')).toBeHidden();
+  await expect(ann.locator('#pcmachow')).toHaveText('First time? Install Zombies Launcher with this line in Terminal:');
+  await expect(ann.locator('#pcmacline')).toHaveText(
     '/bin/bash -c "$(curl -fsSL ' + setup.replace('zombies-launcher-setup.exe', 'zombies-launcher-mac.sh') + ')"');
   // no button copies it: a content blocker would object
-  await expect(ann.locator('#t6mac .codeline button')).toHaveCount(0);
+  await expect(ann.locator('#pcmac .codeline button')).toHaveCount(0);
   // the "?" by it says what the line does
-  await ann.locator('#t6mac button.what').click();
-  await expect(ann.locator('#t6about')).toContainText('This script installs Zombies Launcher');
-  await expect(ann.locator('#t6about')).toContainText('run the "Zombies Launcher" app');
-  await expect(ann.locator('#t6about').getByRole('link', { name: 'plutonium-mac-aio' }))
+  await ann.locator('#pcmac button.what').click();
+  await expect(ann.locator('#pcabout')).toContainText('This script installs Zombies Launcher');
+  await expect(ann.locator('#pcabout')).toContainText('run the "Zombies Launcher" app');
+  await expect(ann.locator('#pcabout').getByRole('link', { name: 'plutonium-mac-aio' }))
     .toHaveAttribute('href', 'https://github.com/LuidgiAlt/plutonium-mac-aio');
   // the button, which starts no launcher on this PC. A Mac's launcher has longer to show itself, as Wine starts first.
   await ann.locator('#ready').click();
   await expect(ann.locator('#ready')).toHaveText('Connecting...');
   await ann.waitForTimeout(2500); // past a PC's wait
   await expect(ann.locator('#ready')).toHaveText('Connecting...');
-  await expect(ann.locator('#t6machow')).toHaveText(
+  await expect(ann.locator('#pcmachow')).toHaveText(
     'Nothing happened? Install Zombies Launcher with this line in Terminal:', { timeout: 10000 });
   await expect(ann.locator('#ready')).toHaveText('Connect');
 
@@ -219,17 +219,17 @@ test('a Mac is shown the line that installs the launcher from Terminal', async (
     body: body && JSON.stringify(body),
   });
   expect((await launcher('/launcher/started')).status).toBe(200);
-  await expect(ann.locator('#t6mac')).toBeHidden();
+  await expect(ann.locator('#pcmac')).toBeHidden();
   expect((await launcher('/launcher/files', { failed: "This Mac's Zombies Launcher needs an update.", setup: true })).status)
     .toBe(200);
   expect((await launcher('/launcher/stopped')).status).toBe(200);
-  await expect(ann.locator('#t6machow')).toHaveText(
+  await expect(ann.locator('#pcmachow')).toHaveText(
     'Your Zombies Launcher needs an update. Install the new one with this line in Terminal:');
   await expect(ann.locator('#ready')).toHaveText('Connect');
   await expect(ann.locator('#roomnote')).toBeHidden();
   expect((await launcher('/launcher/started')).status).toBe(200);
   expect((await launcher('/launcher/files', {})).status).toBe(200);
-  await expect(ann.locator('#t6mac')).toBeHidden();
+  await expect(ann.locator('#pcmac')).toBeHidden();
 });
 
 test("Play local starts Black Ops II on the player's PC, and says what the launcher does", async ({ server, player }) => {
@@ -272,13 +272,13 @@ test("Play local starts Black Ops II on the player's PC, and says what the launc
     .toHaveAttribute('href', 'https://forum.plutonium.pw/register');
   await expect(own.locator('.codeline')).toHaveCount(0); // a Mac's line for Terminal
   // where to get the launcher, as in a room
-  await expect(ann.locator('#t6get')).toHaveText('First time? Install Zombies Launcher.');
-  await expect(ann.locator('#t6setup')).toHaveAttribute('href', setup);
+  await expect(ann.locator('#pcget')).toHaveText('First time? Install Zombies Launcher.');
+  await expect(ann.locator('#pcsetup')).toHaveAttribute('href', setup);
   // the button, which starts no launcher on this PC
   await expect(ann.locator('#playalone')).toHaveText('Launch game');
   await ann.locator('#playalone').click();
   await expect(ann.locator('#playalone')).toHaveText('Connecting...');
-  await expect(ann.locator('#t6get')).toHaveText('Nothing happened? Install Zombies Launcher.');
+  await expect(ann.locator('#pcget')).toHaveText('Nothing happened? Install Zombies Launcher.');
   await expect(ann.locator('#playalone')).toHaveText('Launch game');
 
   // calls of Ann's launcher, by her key: the button says what it does, and the box where to get it goes
@@ -290,7 +290,7 @@ test("Play local starts Black Ops II on the player's PC, and says what the launc
   const ready = () => fetch(server.url + '/launcher/play?ready=1', { headers });
   expect((await launcher('/launcher/started')).status).toBe(200);
   await expect(ann.locator('#playalone')).toHaveText('Connecting...');
-  await expect(ann.locator('#t6install')).toBeHidden();
+  await expect(ann.locator('#pcinstall')).toBeHidden();
   expect((await launcher('/launcher/files', { doing: 'Updating Plutonium' })).status).toBe(200);
   await expect(ann.locator('#playalone')).toHaveText('Updating Plutonium...');
   expect((await launcher('/launcher/files', { running: true, got: 50, need: 100 })).status).toBe(200);
@@ -344,12 +344,12 @@ test("Play local starts Black Ops II on the player's PC, and says what the launc
   await ann.locator('#playalone').click();
   await expect(ann.locator('#playalone')).toHaveText('Starting...');
   await expect(ann.locator('#playalone')).toHaveText('Launch game', { timeout: 10000 });
-  await expect(ann.locator('#t6install')).toBeHidden();
+  await expect(ann.locator('#pcinstall')).toBeHidden();
   // so it does in a browser that has never seen a launcher run, as another browser on the PC may have
   const bea = await player('Bea');
   await bea.locator('#soloopen').click();
   await bea.locator('#solotitles').getByRole('radio', { name: 'Black Ops II', exact: true }).click();
-  await expect(bea.locator('#t6get')).toHaveText('First time? Install Zombies Launcher.');
+  await expect(bea.locator('#pcget')).toHaveText('First time? Install Zombies Launcher.');
   await bea.route('**/lobby/**', (route) => route.abort());
   await bea.reload();
   await expect(bea.locator('#rooms')).toContainText('No connection to the server.', { timeout: 20000 });
@@ -377,7 +377,7 @@ test("Play local says a Mac's own way to Plutonium's online servers: plutonium-m
   await expect(own.locator('.codeline')).toHaveText('~/plutonium-mac-aio/launch.sh');
   // the steps are made once, and stay open: a view of the lobby later, they are the same three
   await ann.locator('#playalone').click();
-  await expect(ann.locator('#t6mac')).toBeVisible({ timeout: 15000 });
+  await expect(ann.locator('#pcmac')).toBeVisible({ timeout: 15000 });
   await expect(own.getByRole('listitem')).toHaveCount(3);
   await expect(own.getByRole('list')).toBeVisible();
 });

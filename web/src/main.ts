@@ -88,7 +88,7 @@ import { reload } from './server';
 import { hello } from './session';
 import { bo1Settings } from './settings';
 import { openHome, showKept } from './show';
-import { openSolo, soloGets, soloLaunches } from './solo';
+import { openSolo, soloGets, soloLaunchMap, soloLaunches } from './solo';
 import { soundsInit } from './sounds';
 import { store } from './storage';
 import { openLauncher } from './windows';
@@ -181,7 +181,7 @@ const roomDoes: Record<string, () => unknown> = {
   ready: () => view && readyNow(!view.you.ready),
   rejoin: () => playHere(true), // back to the player's character, which waits in the game for a few minutes
   here: () => playHere(false), // from another tab of the player's
-  launch: () => openLauncher(), // a Black Ops II game, which the player's own PC plays
+  launch: () => openLauncher(), // a game that the player's own PC plays, of Black Ops II or III
 };
 
 // Starts the page, once it has the engine's host. Everything that shows the lobby reads the host's store.
@@ -258,7 +258,7 @@ function startLobbyPage(): void {
   const playButton = $<HTMLButtonElement>('playalone');
   playButton.onclick = () => {
     if (isOff(playButton)) return;
-    if (soloLaunches) openLauncher(true); // Black Ops II, which the player's own PC plays
+    if (soloLaunches) openLauncher(true, soloLaunches, soloLaunchMap); // a game that the player's own PC plays
     else if (soloGets) getMap(view ? soloMapName(view) : '', soloGets);
     else playAlone();
   };

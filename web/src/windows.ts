@@ -3,9 +3,9 @@
 // A Black Ops room's game can be played in the Windows client instead of the page: the player runs the line that
 // their profile shows (playLine). A Black Ops II room's game is always played on the player's PC, in their own copy of
 // Plutonium, which the launcher starts into the room's game. A player can also join by hand, with a line for the
-// game's console (t6Console). A Black Ops III room's game is played on the player's PC too, in their own copy of BOIII,
-// which they join by hand (t7Console): the launcher starts no Black Ops III yet.
-import type { Room } from './api';
+// game's console (t6Console). A Black Ops III room's game is played on the player's PC too, on BOIII, which the
+// launcher starts and joins to the room's game as well, and which a player can join by hand too (t7Console).
+import type { Room, View } from './api';
 import { canRun } from './engine';
 import { me, offline, page, view } from './lobby';
 import { params } from './params';
@@ -79,6 +79,12 @@ export const onMac = ((): boolean => {
 export const launcherOn = (): boolean => !!served.launcher;
 
 /**
+ * Whether the launcher starts a game on this computer: any that it starts on a PC, and Black Ops II on a Mac, where
+ * Black Ops III doesn't run.
+ */
+export const launcherStarts = (of?: string): boolean => launcherOn() && !(onMac && of === 't7');
+
+/**
  * The line that installs the launcher on a Mac, for Terminal, or '' on another system and until the server has said
  * where the script is. bash runs the script that curl fetches. The script then has its own text, which it keeps for
  * the launcher's links (launcher/mac.sh: keep_script).
@@ -87,10 +93,10 @@ export const launcherMacLine = (): string =>
   onMac && served.launcherMac ? `/bin/bash -c "$(curl -fsSL ${served.launcherMac})"` : '';
 
 /**
- * Whether the server sends game files. The launcher of a player whose copy of Black Ops II lacks the room's map can
- * then download the server's, and use them instead.
+ * Whether the server sends a game's files to launchers (Title.downloads). The launcher of a player whose copy of the
+ * game lacks the room's map can then download the server's, and use them instead.
  */
-export const launcherDownloads = (): boolean => !!served.downloads;
+export const launcherDownloads = (v: View, of?: string): boolean => !!v.titles.find((t) => t.id === of)?.downloads;
 
 /** The address of the launcher's latest release, which installs it. */
 export const launcherSetup = (): string => served.launcher || '';
@@ -170,18 +176,21 @@ let stopWatching = (): void => {};
  * can follow the click. Where nothing followed it at all, the room then shows the line that installs the launcher
  * (launcherMissed).
  *
- * With solo, the link asks the launcher to start Black Ops II for the player alone (solo.ts), under their name. A
+ * With solo, the link asks the launcher to start a game for the player alone (solo.ts), under their name: the game
+ * of, and the map of it that they picked, where the page has them pick one. A
  * page that can't reach its server sends no key: the launcher then calls no server, and plays from what the PC has
  * (internal/launcherapi). The server can't tell such a page of the launcher, so its button says that the game starts
  * for a while, and the page takes nothing for a sign that the PC has no launcher.
  */
-export function openLauncher(solo = false): void {
+export function openLauncher(solo = false, of = '', map = ''): void {
   // The name is encoded down to letters, digits and %: the script that runs the launcher on a Mac takes no other
   // characters of a link (launcher/mac.sh: cmd_link).
   const name = encodeURIComponent((view && view.you.name) || me.name || '')
     .replace(/[!'()*~]/g, (c) => '%' + c.charCodeAt(0).toString(16).toUpperCase());
+  // Black Ops II is named by no word: a launcher from before it started another game knows none
+  const game = (of && of !== 't6' ? '&of=' + encodeURIComponent(of) : '') + (map ? '&map=' + encodeURIComponent(map) : '');
   const link = 'zombies-launcher://' + location.host + '/play?' + (solo
-    ? 'solo=1&name=' + name + (offline ? '' : '&key=' + (me.key || ''))
+    ? 'solo=1&name=' + name + game + (offline ? '' : '&key=' + (me.key || ''))
     : 'key=' + (me.key || '')) + (location.protocol === 'https:' ? '' : '&tls=0');
   stopWatching();
   if (offline) {

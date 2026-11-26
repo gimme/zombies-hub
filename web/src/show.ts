@@ -27,7 +27,7 @@ import { lobbyMode } from './params';
 import { showName, showPictures } from './profile';
 import { leaveQuestionGone, mayLeaveGame } from './question';
 import { resultToShow, showResult } from './result';
-import { showRoom, showRoomButton, showRoomMaps, showT6 } from './room';
+import { showRoom, showRoomButton, showRoomMaps, showPC } from './room';
 import { showRooms } from './rooms';
 import { loadedServer } from './server';
 import { closeSolo, openSolo, showSolo, soloFollowUrl, soloOpen } from './solo';
@@ -167,7 +167,7 @@ export function showFiles(): void {
 // What the server says of itself changes what the views say: whether it sends game files, and where the launcher is.
 loadedServer.then(() => {
   showFiles();
-  if (view && view.room) showT6(view, view.room);
+  if (view && view.room) showPC(view, view.room);
 });
 
 /**

@@ -1053,7 +1053,8 @@ func (la *launcher) stayWith(ctx context.Context, srv *server, l link, g game, d
 			select {
 			case <-la.pressed:
 				asked = true
-			case <-la.solos: // the player's game runs already
+			case <-la.solos: // the player's game runs already: the map that they picked now is got for it
+				la.getPicked(ctx, srv, l, from)
 			case <-next:
 			case <-time.After(la.tick):
 			case <-ctx.Done():
@@ -1077,6 +1078,40 @@ func (la *launcher) stayWith(ctx context.Context, srv *server, l link, g game, d
 		la.left = to.ID
 	}
 	return nil
+}
+
+// getPicked downloads the map that the player's last press of Play local picked (pressedSolo), while their game
+// runs, from the folder from: a map of the run's title that the server sends in a pack of its own, into the launcher's
+// own game files, where they lack it. The game then has the map without starting again. Nothing else of the folder is
+// brought up to date: the game has those files open. A player's own copy is left as it is.
+func (la *launcher) getPicked(ctx context.Context, srv *server, l link, from string) {
+	t := la.title()
+	of, mapName := pressedSolo(la.home, l)
+	play, _, err := srv.latest()
+	if err != nil || play == nil || mapName == "" || titleOf(of) != t || from != la.downloads() || !info(play, t).Downloads {
+		return
+	}
+	zones := info(play, t).Zones
+	release := filesTurn(func() {})
+	defer release()
+	list, err := srv.files(ctx, t)
+	if err != nil {
+		return
+	}
+	n := need{pack: mapName}.resolve(list, zones)
+	if n.zone == "" || hasZone(from, n.zone) {
+		return
+	}
+	la.say("Getting %s for the game that runs.", mapName)
+	if _, err := la.sync(ctx, srv, from, list, map[string]bool{n.pack: true}, zones); err != nil {
+		la.say("%v", err)
+		if ctx.Err() == nil {
+			srv.fail(ctx, sentence(err), false)
+		}
+		return
+	}
+	srv.setHas(zonesIn(from, zones))
+	la.found(from)
 }
 
 // alone prepares the PC and starts the player's game at its menu, for them to play alone: the lobby's Play local

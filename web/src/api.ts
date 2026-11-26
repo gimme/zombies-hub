@@ -47,6 +47,13 @@ export interface Title {
   id: string;
   /** Its name on the page: Black Ops. */
   name: string;
+  /** The server sends its game files to a player's launcher, for a PC that has none, or lacks a map. */
+  downloads?: boolean;
+  /**
+   * The size of what the launcher then downloads for every map of it, once the server has listed its files: all of
+   * Black Ops II, and of Black Ops III what every map needs, where each map has more of its own (MapInfo.bytes).
+   */
+  bytes?: number;
 }
 
 /** A Zombies map (server/rooms.go: mapView). */
@@ -59,6 +66,8 @@ export interface MapInfo {
   have?: boolean;
   /** The server has the list of files it reads, so a browser may play it. */
   list?: boolean;
+  /** The size of what a launcher downloads for the map alone, where the server sends its game a map at a time. */
+  bytes?: number;
   desc?: string;
   /** Where a Black Ops II map is (Green Run), which its card in the game's lobby has over its name (maps.ts: mapShot). */
   place?: string;
@@ -112,6 +121,13 @@ export interface You {
    */
   launcherDownloading?: boolean;
   launcherGot?: number;
+  /**
+   * The game that their launcher is at, by its title's id, while it runs; and, once the launcher has found the game's
+   * folder on their PC (launcherFolder), the maps of that game that the folder has. Play local shows them.
+   */
+  launcherOf?: string;
+  launcherFolder?: boolean;
+  launcherMaps?: string[];
 }
 
 /** A room in the list of rooms (server/rooms.go: roomItem). A room listed as private has no code. */
