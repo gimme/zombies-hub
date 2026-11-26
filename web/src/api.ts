@@ -108,6 +108,8 @@ export interface You {
   ready?: boolean;
   launcher?: boolean;
   launcherReady?: boolean;
+  /** The game runs that their launcher started: their room then offers no launch of it (room.ts: showLaunch). */
+  launcherGame?: boolean;
   launcherFailed?: string;
   launcherDoing?: string;
   /**

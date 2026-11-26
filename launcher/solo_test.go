@@ -83,6 +83,72 @@ func TestAloneWithNoServer(t *testing.T) {
 	}
 }
 
+// A launcher that waits for the game of its player's room starts the player's game at once, at its menu, when they
+// press the room's Launch game, and tells the server that the game runs, for as long as it does. The room's game is
+// then joined from the game that runs, through its console.
+func TestLaunchGameFromTheRoom(t *testing.T) {
+	l := newFakeServer(t)
+	l.play = launcherapi.Play{Player: "Ann", Room: "ABCD", Plutonium: 1}
+	tl := newTestLauncher(t, "")
+	ownCopy(t, tl)
+	var lines []string
+	var g *fakeGame
+	starts := &atomic.Int32{}
+	tl.start = func(exe, line, dir string) (game, error) {
+		lines = append(lines, line)
+		g = &fakeGame{}
+		g.open.Store(true)
+		starts.Add(1)
+		return g, nil
+	}
+	tl.stays = true
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan int, 1)
+	go func() { done <- tl.run(ctx, []string{l.link()}) }()
+	last := func(said func(l *fakeServer) []bool) bool {
+		l.mu.Lock()
+		defer l.mu.Unlock()
+		return len(said(l)) > 0 && said(l)[len(said(l))-1]
+	}
+	ready := func() bool { return last(func(l *fakeServer) []bool { return l.ready }) }
+	runs := func() bool { return last(func(l *fakeServer) []bool { return l.games }) }
+	eventually(t, "the launcher got the PC ready", ready)
+	time.Sleep(50 * time.Millisecond)
+	if starts.Load() != 0 || runs() {
+		t.Fatalf("the launcher started a game before the room's game, unasked: %d, said that it runs: %v", starts.Load(), runs())
+	}
+	tl.solo <- struct{}{}
+	eventually(t, "the game started at its menu", func() bool { return starts.Load() == 1 })
+	if !strings.HasSuffix(lines[0], ` -lan +name "Ann"`) {
+		t.Errorf("the game started with %q", lines[0])
+	}
+	eventually(t, "the server heard that the game runs, on a PC that is ready", func() bool { return runs() && ready() })
+	l.mu.Lock()
+	if said := l.ready[slices.Index(l.ready, true):]; slices.Contains(said, false) {
+		t.Errorf("the launcher took back that the PC is ready for the room's game, as it started the game: %v", said)
+	}
+	l.mu.Unlock()
+	if typed := g.typed(); len(typed) != 0 {
+		t.Errorf("the game was told %q with no room's game to join", typed)
+	}
+	// the room's game, which the game that runs joins from its menu
+	l.mu.Lock()
+	l.play.Game = &launcherapi.Game{ID: "one", Port: l.port(), Password: "pw", Name: "Ann", Up: true}
+	l.mu.Unlock()
+	eventually(t, "the game joined the room's game", func() bool { return len(g.typed()) == 1 })
+	if starts.Load() != 1 || !strings.HasPrefix(g.typed()[0], "password pw;connect ") {
+		t.Errorf("%d games started; typed %q", starts.Load(), g.typed())
+	}
+	g.open.Store(false)
+	eventually(t, "the server heard that the game was closed", func() bool { return !runs() })
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the launcher did not end as it was quit")
+	}
+}
+
 // A launcher in the tray, for its player's rooms, starts their game alone when they press Play local, and stays with
 // it: a room's game that they then ready up for joins from the game that runs, through its console.
 func TestAloneFromTheTray(t *testing.T) {

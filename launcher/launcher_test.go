@@ -41,6 +41,7 @@ type fakeServer struct {
 	t7       map[string]string                   // T7's game files, by path
 	packs    map[string]string                   // the pack of a file of T7's that is of a map's, by path
 	ofs      []string                            // the title that each call for what to play said the launcher is at
+	games    []bool                              // whether each call for what to play said that the player's game runs
 	listed   map[string]string                   // what the list says of a file's contents instead, by path
 	extra    []launcherapi.File                  // more of the list
 	cut      map[string]int                      // a file's answers end after this many bytes of theirs, by path
@@ -127,6 +128,7 @@ func (l *fakeServer) serve(w http.ResponseWriter, r *http.Request) {
 		}
 		l.ready = append(l.ready, r.URL.Query().Get("ready") == "1")
 		l.ofs = append(l.ofs, r.URL.Query().Get("of"))
+		l.games = append(l.games, r.URL.Query().Get("game") == "1")
 		if has, ok := r.URL.Query()["has"]; ok {
 			l.has = append(l.has, has[0])
 		} else {

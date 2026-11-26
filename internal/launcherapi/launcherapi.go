@@ -28,7 +28,7 @@
 //	                                the server takes it from a launcher of any version. The player's room then shows
 //	                                at once that the launcher starts, where its next call may come only after the
 //	                                launcher has updated itself
-//	GET  /launcher/play[?of=<title>][&ready=1][&has=<zones>][&seen=<version>]
+//	GET  /launcher/play[?of=<title>][&ready=1][&game=1][&has=<zones>][&seen=<version>]
 //	                                Play: what the player's PC is to play now. of is the title that the launcher is
 //	                                at, which ready and has are of: the title of the player's room, or the one that
 //	                                the player plays alone. A launcher that sends none is at T6. The launcher sends
@@ -36,9 +36,11 @@
 //	                                the game files) and it waits for the room's game. Once it knows the game folder
 //	                                that the player's game starts from, it sends has: those of the title's Zones
 //	                                that the folder has, with commas between them. A room on a map in another zone
-//	                                then shows that the player's copy lacks the map. With seen, the version of the
-//	                                answer the launcher has (Play.Version),
-//	                                the server holds the call until its answer is another one, for up to 45 seconds.
+//	                                then shows that the player's copy lacks the map. It sends game=1 while the
+//	                                player's game runs, which it started: the player's room offers to launch the
+//	                                game, at its menu, only while it doesn't. With seen, the version of the
+//	                                answer the launcher has (Play.Version), the server holds the call until its
+//	                                answer is another one, for up to 45 seconds.
 //	                                The launcher asks again as soon as it has an answer, so it has one call open.
 //	                                That call shows the server that the launcher runs, and the launcher learns of a
 //	                                change at once without asking on a timer. A launcher whose player has been in no

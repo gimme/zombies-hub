@@ -16,6 +16,9 @@ async function launcherOf(server: { url: string }, page: Page, version = '4') {
     /** Asks what to play, at Black Ops III, with the PC ready and the game folder having the zones. */
     has: async (zones: string) =>
       (await fetch(server.url + '/launcher/play?of=t7&ready=1&has=' + encodeURIComponent(zones), { headers })).status,
+    /** As has, from a launcher whose game runs, which it started. */
+    runs: async (zones: string) =>
+      (await fetch(server.url + '/launcher/play?of=t7&ready=1&game=1&has=' + encodeURIComponent(zones), { headers })).status,
     /** Asks what to play as a launcher from before it started Black Ops III does. */
     asks: async () => (await fetch(server.url + '/launcher/play?ready=1', { headers })).status,
   };
@@ -30,6 +33,7 @@ test('a Black Ops III room opens the launcher, says where to get it, and how to 
   // the room's button opens the launcher, and the box says where to get it, and what it installs for this game
   await expect(ann.locator('#ready')).toHaveText('Connect');
   await expect(ann.locator('#ready')).toHaveAttribute('data-does', 'launch');
+  await expect(ann.locator('#launchgame')).toBeHidden(); // nothing launches the game before the launcher is there
   await expect(ann.locator('#pcget')).toHaveText('First time? Install Zombies Launcher.');
   await ann.locator('#pcget button.what').click();
   await expect(ann.locator('#pcabout').getByRole('link', { name: 'BOIII' }))
@@ -55,10 +59,21 @@ test('a Black Ops III room opens the launcher, says where to get it, and how to 
   await expect(ann.locator('#ready')).toHaveText('Download');
   await expect(ann.locator('#roomnote')).toHaveText("Your Black Ops III doesn't have this map. The launcher can " +
     'download the game files from the server instead.');
+  await expect(ann.locator('#launchgame')).toBeHidden();
   expect(await launcher.has('zone/zm_factory.ff,zone/zm_tomb.ff')).toBe(200);
   await expect(ann.locator('#members li.mine .badge')).toHaveText('Not ready');
   await expect(ann.locator('#ready')).toHaveText('Need 1 more');
   await expect(ann.locator('#roomnote')).toBeHidden();
+  // With the PC ready for the room's map, the room offers to launch the game now, at its menu, ahead of the room's
+  // game: until the launcher says that the game runs, and again once it is closed. Not to a player who joins by hand.
+  await expect(ann.locator('#launchgame')).toHaveText('Launch game');
+  expect(await launcher.runs('zone/zm_factory.ff,zone/zm_tomb.ff')).toBe(200);
+  await expect(ann.locator('#launchgame')).toBeHidden();
+  await expect(ann.locator('#ready')).toHaveText('Need 1 more');
+  expect(await launcher.has('zone/zm_factory.ff,zone/zm_tomb.ff')).toBe(200);
+  await expect(ann.locator('#launchgame')).toBeVisible();
+  await ann.locator('#pchandrow').getByText('Join by hand').click();
+  await expect(ann.locator('#launchgame')).toBeHidden();
 });
 
 test("Play local has Black Ops III's maps, with what the PC has of them and what it would download", async ({ server, player }) => {

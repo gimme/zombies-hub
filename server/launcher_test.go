@@ -725,8 +725,22 @@ func TestLauncherTitles(t *testing.T) {
 		t.Errorf("the room of a player whose launcher is at another title: %+v, %+v", v.Room.Members[0], v.You)
 	}
 	asked("/launcher/play?of=t7&ready=1&has=zone/zm_factory.ff,zone/zm_tomb.ff", fits)
-	if v := l.viewOf(a); v.Room.Members[0].Missing || !v.You.LauncherReady || len(v.You.LauncherMaps) != 2 {
+	if v := l.viewOf(a); v.Room.Members[0].Missing || !v.You.LauncherReady || len(v.You.LauncherMaps) != 2 || v.You.LauncherGame {
 		t.Errorf("the room of a player whose copy has its map: %+v, %+v", v.Room.Members[0], v.You)
+	}
+	// the launcher says that it started the player's game, which runs: of the room's title, and of another, and that
+	// the game is closed
+	asked("/launcher/play?of=t7&ready=1&game=1&has=zone/zm_factory.ff,zone/zm_tomb.ff", fits)
+	if v := l.viewOf(a); !v.You.LauncherGame || !v.You.LauncherReady {
+		t.Errorf("the room of a player whose game runs: %+v", v.You)
+	}
+	asked("/launcher/play?ready=1&game=1", fits)
+	if v := l.viewOf(a); v.You.LauncherGame {
+		t.Errorf("the room of a player whose game of another title runs: %+v", v.You)
+	}
+	asked("/launcher/play?of=t7&ready=1&has=zone/zm_factory.ff,zone/zm_tomb.ff", fits)
+	if v := l.viewOf(a); v.You.LauncherGame || !v.You.LauncherReady {
+		t.Errorf("the room of a player whose game was closed: %+v", v.You)
 	}
 }
 

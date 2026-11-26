@@ -109,6 +109,11 @@ type launcher struct {
 	// That link starts another launcher, which finds this launcher running, signals it, and ends (main). solos gets a
 	// value each time the player asks to play alone, with the lobby's Play local, in the same way.
 	pressed, solos <-chan struct{}
+	// launchNow is set by a run that ended because the player asked to launch their game now, with their room's
+	// Launch game, while the launcher waited for the room's game (play). The next run is then for the game alone, as
+	// after a press of Play local (serve). keepsReady is set for that run: the PC has what the room's game needs, as
+	// the run before it said, and the room's button goes on saying so while this one starts the game.
+	launchNow, keepsReady bool
 	// clicked is set for a run that the player started with the room's button: the launcher's first, and each one
 	// after a press. Such a run may ask the player about a copy of the game that lacks the room's map (askMissing). A
 	// run that starts by itself, for the room's next game, asks nothing.
@@ -460,6 +465,7 @@ func (la *launcher) serve(ctx context.Context, url string) int {
 				srv.fail(ctx, sentence(err), errors.Is(err, errSetup))
 			}
 		})
+		la.keepsReady = false
 		setup = errors.Is(err, errSetup)
 		switch {
 		case ctx.Err() != nil || la.handed:
@@ -468,7 +474,11 @@ func (la *launcher) serve(ctx context.Context, url string) int {
 			return 1
 		}
 		var again bool
-		again, solo = la.idle(ctx, srv)
+		if la.launchNow {
+			la.launchNow, la.keepsReady, again, solo = false, true, true, true
+		} else {
+			again, solo = la.idle(ctx, srv)
+		}
 		if solo {
 			alone.of, alone.mapName = pressedSolo(la.home, l)
 		}
@@ -621,7 +631,7 @@ func (la *launcher) play(ctx context.Context, url string, srv *server, solo bool
 	} else if err := la.trust(l); err != nil {
 		return err
 	}
-	if solo && !offline {
+	if solo && !offline && !la.keepsReady {
 		srv.setReady(false) // until the game starts, the page's button says what the launcher does
 	}
 	// Only one launcher at a time changes what the PC's launchers share: their own program, the copy of Plutonium
@@ -769,6 +779,11 @@ func (la *launcher) play(ctx context.Context, url string, srv *server, solo bool
 				la.clicked = true
 				return nil
 			}
+		case <-la.solos:
+			// The room's Launch game, or the lobby's Play local: the player's game starts now, at its menu, and joins
+			// the room's game from there once that is up. The next run starts it (serve, alone).
+			la.clicked, la.launchNow = true, true
+			return nil
 		case <-next:
 		}
 	}
@@ -1005,6 +1020,10 @@ func (la *launcher) stayWith(ctx context.Context, srv *server, l link, g game, d
 	}
 	la.doing(ctx, srv, status)
 	defer la.doing(context.WithoutCancel(ctx), srv, "")
+	// The server hears that the player's game runs, for as long as it does: the player's room offers to launch the
+	// game until then, and again once it is closed.
+	srv.setGame(true)
+	defer srv.setGame(false)
 	select {
 	case <-la.pressed: // drop a press that came before the game was started: it was for that start
 	default:

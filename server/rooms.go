@@ -780,10 +780,12 @@ type youView struct {
 	Ready         bool   `json:"ready,omitempty"`   // they are ready to play their room's next game (isReady)
 	// Launcher is set while their launcher runs (launcherOpen). Their page then does not open a launcher.
 	// LauncherReady is set when the launcher reported that their PC has what the game needs: the game of their
-	// room's title, in a PC room (launcherReady). LauncherFailed is what
-	// kept the launcher from getting the PC ready, or from starting the game, when it last tried.
+	// room's title, in a PC room (launcherReady). LauncherGame is set while the game runs that the launcher started
+	// (launcherGame): their room then offers no launch of it. LauncherFailed is what kept the launcher from getting
+	// the PC ready, or from starting the game, when it last tried.
 	Launcher       bool   `json:"launcher,omitempty"`
 	LauncherReady  bool   `json:"launcherReady,omitempty"`
+	LauncherGame   bool   `json:"launcherGame,omitempty"`
 	LauncherFailed string `json:"launcherFailed,omitempty"`
 	// LauncherDoing describes in a few words what the launcher is doing to get the PC ready. It is "" when the
 	// launcher has nothing to report.
@@ -936,7 +938,7 @@ func (l *lobby) view(p *player) view {
 	// seat's join).
 	v := view{You: youView{ID: p.id, Name: p.asked, Avatar: l.avatar(p), Picture: l.pictureShown(p),
 		DiscordAvatar: p.discordAvatar(), Windows: p.shown.windows, Ready: l.isReady(p),
-		Launcher: l.launcherOpen(p), LauncherReady: l.launcherReady(p),
+		Launcher: l.launcherOpen(p), LauncherReady: l.launcherReady(p), LauncherGame: l.launcherGame(p),
 		LauncherFailed: p.launcher.Failed, LauncherDoing: p.launcher.Doing,
 		LauncherOld: p.launcher.old || p.launcher.Setup},
 		Size: l.roomSize, MinPlayers: l.minPlayers, Mods: modList, Pictures: l.picturesShown, Rooms: []roomItem{},

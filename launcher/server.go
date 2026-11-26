@@ -31,6 +31,9 @@ type server struct {
 	version   int64 // the launcher's version, which each call sends (launcherapi.VersionHeader)
 	// ready records that the PC has what the game needs. Each call that asks what to play sends it (setReady).
 	ready atomic.Bool
+	// game records that the player's game runs, which the launcher started. Each call that asks what to play sends
+	// it too (setGame).
+	game atomic.Bool
 	// poll is how long watch waits between two calls to a server that does not hold calls. Such a server answers at
 	// once, with no version (launcherapi.Play.Version).
 	poll time.Duration
@@ -151,6 +154,9 @@ func (s *server) ask(ctx context.Context, seen string) (*launcherapi.Play, error
 	q := url.Values{}
 	if s.ready.Load() {
 		q.Set("ready", "1")
+	}
+	if s.game.Load() {
+		q.Set("game", "1")
 	}
 	s.mu.Lock()
 	copied, has, of := s.copied, s.has, s.of
@@ -325,6 +331,20 @@ func (s *server) rests() bool {
 // setReady records whether the PC has what the game needs, and tells the server at once: it makes watch ask again.
 func (s *server) setReady(ready bool) {
 	if s.ready.Swap(ready) == ready {
+		return
+	}
+	s.mu.Lock()
+	renew := s.renew
+	s.mu.Unlock()
+	if renew != nil {
+		renew()
+	}
+}
+
+// setGame records whether the player's game runs, and tells the server at once, as setReady does. The player's room
+// then offers to launch the game only while it doesn't run.
+func (s *server) setGame(game bool) {
+	if s.game.Swap(game) == game {
 		return
 	}
 	s.mu.Lock()

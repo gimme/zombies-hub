@@ -280,6 +280,9 @@
                 <circle cx="12" cy="12" r="3"/></svg>
               <span>Black Ops settings</span>
             </button>
+            <!-- in a room of a game that the player's own PC plays: starts their game now, at its menu, ahead of the
+                 room's game (src/room.ts: showLaunch) -->
+            <button type="button" class="big hidden" id="launchgame">Launch game</button>
             <button type="button" class="big hidden" id="endgame" title="No one is playing it">End the game</button>
             <section id="pcbox" class="hidden">
               <!-- where to install the launcher; Play local shows it too, for a game that the player's PC plays

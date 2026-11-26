@@ -378,6 +378,7 @@ var launcherHold = 45 * time.Second
 func (h *web) serveLauncherPlay(w http.ResponseWriter, r *http.Request, of string) {
 	l := h.lobby
 	seen, ready := r.URL.Query().Get("seen"), r.URL.Query().Get("ready") == "1"
+	game := r.URL.Query().Get("game") == "1"
 	// has is there once the launcher knows the game folder that the player's game starts from, even when the folder
 	// has none of the zones
 	has, copied := r.URL.Query()["has"]
@@ -396,6 +397,10 @@ func (h *web) serveLauncherPlay(w http.ResponseWriter, r *http.Request, of strin
 	p.addr = pageAddr(r)
 	l.launcherAt(p, of)
 	l.launcherCalled(p, true, ready)
+	if p.launcher.game != game {
+		p.launcher.game = game
+		l.change()
+	}
 	l.launcherHas(p, copied, has)
 	play := h.launcherAnswer(l.launcherPlay(p))
 	gone, unknown := false, false
@@ -522,6 +527,7 @@ type launcherReport struct {
 	// player's room, or the one that the player plays alone. ready, copied and has are of that title.
 	of    string
 	ready bool // the PC has what the game needs, as of the last GET /launcher/play; the launcher waits for the game
+	game  bool // the player's game runs, which the launcher started, as of the last GET /launcher/play
 	// waits is set while the server keeps the room's game from the launcher, until the game of another player at the
 	// same address has joined another room's game (pcWaits).
 	waits bool
@@ -695,6 +701,16 @@ func (l *lobby) launcherReady(p *player) bool {
 	return p.room == nil || !pcTitle(titleOf(p.room.mapName)) || p.launcher.of == titleOf(p.room.mapName)
 }
 
+// launcherGame reports whether p's launcher runs and has said that it started the player's game, which runs: the
+// game of the title of p's room, when that is a PC room, as for launcherReady. Their room then offers no launch of
+// the game. The caller holds l.mu.
+func (l *lobby) launcherGame(p *player) bool {
+	if !l.launcherOpen(p) || !p.launcher.game {
+		return false
+	}
+	return p.room == nil || !pcTitle(titleOf(p.room.mapName)) || p.launcher.of == titleOf(p.room.mapName)
+}
+
 // launcherMaps returns the maps that the game folder of p's launcher has, of the title that the launcher is at, as it
 // said (launcherHas). known is false while it has said nothing of the folder. The caller holds l.mu.
 func (l *lobby) launcherMaps(p *player) (maps []string, known bool) {
@@ -838,6 +854,7 @@ func (l *lobby) launcherQuit(p *player) {
 func (l *lobby) launcherGone(p *player) {
 	p.launcher.seen, p.launcher.ready, p.launcher.Failed, p.launcher.Doing = time.Time{}, false, "", ""
 	p.launcher.copied, p.launcher.has, p.launcher.quit, p.launcher.of = false, nil, false, ""
+	p.launcher.game = false
 	l.change()
 }
 

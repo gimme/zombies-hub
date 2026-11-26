@@ -29,7 +29,7 @@ import {
   badgeSay, copy, flipSwitch, optionButtons, optionShow, setButton, showOnOff, switchButton, switchOn, switchShow,
 } from './controls';
 import { countDown } from './countdown';
-import { $, el } from './dom';
+import { $, el, isOff } from './dom';
 import { canRun, started } from './engine';
 import { knowMap, type MapButton, mapButton, showNote } from './files';
 import { checkLock, endNote, forgetOtherTab, lastEnd, lockElsewhere, otherTab } from './game';
@@ -43,7 +43,7 @@ import { store } from './storage';
 import { CLIENTS, mapsOf, ownPC, titleName, versusesOf, versusOf } from './titles';
 import {
   launcherDownloads, launcherHere, launcherMacLine, launcherMissed, launcherOpening, launcherSeen,
-  launcherSetup, launcherStarts, launcherStep, onMac, onWindows, t6Console, t7Console,
+  launcherSetup, launcherStarts, launcherStep, onMac, onWindows, openLauncher, t6Console, t7Console,
 } from './windows';
 
 // A gamepad, on a player whose page reads one: its two grips, its d-pad and two of its buttons.
@@ -242,6 +242,28 @@ export function showRoomButton(v: View, room: Room): void {
     $('roomnote').classList.remove('hidden');
   }
   countDown(open && room.startsIn ? room.startsIn : 0, m.label);
+  showLaunch(v, room);
+}
+
+/**
+ * Draws the room's Launch game button, in a room of a game of the players' own PCs. It has the launcher start the
+ * player's game now, at its menu, as Play local does (solo.ts): the player can change the game's settings there, and
+ * the game joins the room's game from its menu, in seconds, where it would otherwise start when the room's game
+ * does. No one has to press it. It is there while the room is open, once the launcher has the PC ready for the
+ * room's map, until the launcher says that the game runs (View.you.launcherGame), and not for a player who joins by
+ * hand. While the launcher is at it, the button says what the launcher does.
+ */
+function showLaunch(v: View, room: Room): void {
+  const b = $('launchgame');
+  const mine = room.members.find((x) => x.id === me.id);
+  const shows = room.state === 'open' && ownPC(room.of) && launcherStarts(room.of) && !handOn()
+    && !!v.you.launcher && !!v.you.launcherReady && !v.you.launcherGame && !v.you.launcherFailed
+    && !(mine && mine.missing);
+  b.classList.toggle('hidden', !shows);
+  if (!shows) return;
+  const doing = launcherStep(v.you.launcherDoing || '');
+  setButton(b, doing ? { label: doing + '...', disabled: true }
+    : { label: 'Launch game', title: "Opens the game now, at its menu. It joins the room's game from there." });
 }
 
 // What the room's button says and does while the room's game runs.
@@ -656,6 +678,12 @@ export function roomInit(): void {
     }
   };
   $('endgame').onclick = () => act('end');
+  // The launcher starts the game of the room's title, at its menu. Black Ops III is sent a map at a time, so the
+  // launcher is told the room's map, to get it first where its game files lack it, as from Play local (solo.ts).
+  $('launchgame').onclick = () => {
+    if (isOff($<HTMLButtonElement>('launchgame')) || !view || !view.room) return;
+    openLauncher(true, view.room.of || 't6', view.room.of === 't7' ? view.room.map : '');
+  };
   $('copypc').onclick = () => copy($('copypc'), $('pcconsole').textContent || '');
   for (const b of $('pcinstall').querySelectorAll<HTMLButtonElement>('button.what')) {
     b.onclick = () => {
