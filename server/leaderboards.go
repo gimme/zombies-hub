@@ -32,6 +32,12 @@ import (
 // keeps every game's report (gameResult). The lobby has a report for as long as a record names it (keepGame), for the
 // page to show. A game with mods (mods.go) counts like any other, and its report names the mods.
 //
+// The records are made from the games, and the database keeps none of them. A game's report has the round that each
+// of its players reached, also of a player who left before its end (gameLine), and each player's easter egg as an
+// event of the game (gameEvent). A player's record is the best of those over the games of a map and size of party
+// (keep). The lobby has the players' records as its games set them (keepRound, keepEgg), and a server that starts
+// makes them again from the games in the database (store.go: load), which gives the same.
+//
 // The maps on which the players play against each other (title.go: mapEntry.versus), T6's maps of Grief and Turned,
 // have no boards. Their games are won, not survived: a round of Grief is how long both teams lasted, and Turned
 // counts no rounds. Their games set no records, and the database keeps no report of them.
@@ -110,8 +116,9 @@ func (p *player) keepEgg(mapName string, party int, seconds int64, game string) 
 
 // keepRounds records the round of res for each of rg's players whose character is in the game: the players that rg has
 // a line of the scoreboard for. The size of the party is the number of players that started the game. keepRounds also
-// keeps the report. It then clears the lines of the scoreboard, so that the game's next lines are those of the players
-// who are in it then. On a map of Grief or Turned it keeps nothing, and only clears the lines. The caller holds l.mu.
+// keeps the report, with the part of every player who has been in the game (reach). It then clears the lines of the
+// scoreboard, so that the game's next lines are those of the players who are in it then. On a map of Grief or Turned
+// it keeps nothing, and only clears the lines. The caller holds l.mu.
 func (l *lobby) keepRounds(r *room, rg *roomGame, res *gameResult) {
 	if res.Round > 0 && rg.started && versusOf(r.mapName) == coop {
 		for _, s := range rg.seats {
@@ -119,10 +126,43 @@ func (l *lobby) keepRounds(r *room, rg *roomGame, res *gameResult) {
 				s.player.keepRound(r.mapName, len(rg.seats), res.Round, res.ID)
 			}
 		}
+		res.lines = rg.reach(res)
 		rg.report = res
 		l.keepGame(res)
 	}
 	rg.stats = nil
+}
+
+// reach notes what res says of the players whose character is in rg's game: their line of the scoreboard as it stands,
+// and the round they have reached, which is the report's when that is later than the one they had. It returns the
+// part of every player who has been in the game: first those of res, in its order, then those who have left, in the
+// order they came.
+func (rg *roomGame) reach(res *gameResult) []gameLine {
+	if rg.reached == nil {
+		rg.reached = map[string]gameLine{}
+	}
+	lines := []gameLine{}
+	for _, st := range res.Players {
+		line, was := rg.reached[st.ID]
+		if !was {
+			rg.order = append(rg.order, st.ID)
+		}
+		if res.Round > line.round {
+			line.round, line.seconds = res.Round, res.Seconds
+		}
+		line.playerStats, line.gone = st, false
+		rg.reached[st.ID] = line
+		lines = append(lines, line)
+	}
+	for _, id := range rg.order {
+		if !slices.ContainsFunc(res.Players, func(st playerStats) bool { return st.ID == id }) {
+			line := rg.reached[id]
+			line.gone = true
+			rg.reached[id] = line
+			lines = append(lines, line)
+		}
+	}
+	return lines
 }
 
 // keepGame keeps the report of a game, as it stands or as it ended: in the database, in the place of the game's

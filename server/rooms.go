@@ -261,7 +261,8 @@ type player struct {
 	stats        map[string]int
 	collectibles string
 	// rounds and eggs are the player's records for the leaderboards (leaderboards.go), one for each map and party
-	// size. rounds has their best round on the map. eggs has their fastest time through the map's easter egg.
+	// size. rounds has their best round on the map. eggs has their fastest time through the map's easter egg. They
+	// are made from the games: the database keeps the games, and none of these.
 	rounds, eggs []record
 }
 
@@ -335,8 +336,8 @@ type roomGame struct {
 	began   time.Time // when it started
 	up      time.Time // a T6 game: when Plutonium's server first answered; its players join it from then (t6Status)
 	held    time.Time // a T6 game: when it last waited for a player whose launcher was getting their PC ready (t6Late)
-	started bool      // round 1 has begun; a T5 game begins it once everyone is in
-	round1  time.Time // when round 1 began
+	started bool      // it has begun: everyone is in, or its level reported a round
+	round1  time.Time // when round 1 began, from which its clock counts (roundBegins)
 	// eggSeconds is when the map's easter egg was done, in seconds from round 1, or 0 when it is not done yet. The
 	// whole party gets this one time, however late the level credits one of its players.
 	eggSeconds int64
@@ -349,6 +350,14 @@ type roomGame struct {
 	stats  map[string]playerStats
 	report *gameResult // how the game stood when its last round began (keepRounds)
 	result *gameResult // how the game went, set at game over
+	// events is what has happened in it besides its rounds, in order (note), and rounds is when each of its rounds
+	// began (roundBegins).
+	events []gameEvent
+	rounds []gameRound
+	// reached has the part of each player who has been in the game, by their id, as the last report that had a line
+	// of theirs left it (keepRounds), and order has those players in the order they first had a line.
+	reached map[string]gameLine
+	order   []string
 }
 
 // gameResult is how a room's game went: the round it was on (0 when the level counts no rounds), how long its players
@@ -366,10 +375,137 @@ type gameResult struct {
 	Round   int           `json:"round,omitempty"`
 	Seconds int64         `json:"seconds"`
 	Players []playerStats `json:"players"`
-	// party is how many players started the game, and began is when it started. The database keeps them with the
-	// report (store.go).
-	party int
-	began time.Time
+	// party is how many players started the game, began is when it started, and round1 is when its round 1 began. The
+	// database keeps them with the report (store.go).
+	party  int
+	began  time.Time
+	round1 time.Time
+	// lines has the part of every player who has been in the game (gameLine), those of Players first, in their
+	// order. The database keeps the lines, and the players' records are made from them (leaderboards.go). A report
+	// that the lobby did not make of a game has none, and its lines are those of Players (allLines).
+	lines []gameLine
+	// events is what happened in the game besides its rounds, in order, and rounds is when each of its rounds began.
+	// The database keeps them with the report too.
+	events []gameEvent
+	rounds []gameRound
+}
+
+// gameLine is a player's part in a game, as the database keeps it: their line of the scoreboard as it last stood
+// while their character was in the game, and the round they reached, which is the last round that began with their
+// character in it. That round is their record of the game, whether they were there for its end or had left.
+type gameLine struct {
+	playerStats
+	round   int   // the round they reached
+	seconds int64 // when that round began, in seconds from round 1
+	gone    bool  // their character was no longer in the game at the report, whose Players have no line of theirs
+}
+
+// allLines returns the lines of the game's report: its own, or else those of its Players, each of whom reached the
+// report's round.
+func (res *gameResult) allLines() []gameLine {
+	if res.lines != nil {
+		return res.lines
+	}
+	lines := []gameLine{}
+	for _, st := range res.Players {
+		lines = append(lines, gameLine{playerStats: st, round: res.Round, seconds: res.Seconds})
+	}
+	return lines
+}
+
+// gameEvent is something that happened in a room's game besides its rounds: a fact about the game, which the database
+// keeps with the game's report (store.go) for whatever is made of it later. Nothing reads the events yet, and the
+// page is not sent them. An event is about one player. With when it happened, it says what a record of the game had
+// behind it: a round that began after a player took points out of the bank, an easter egg on one side of its quest.
+type gameEvent struct {
+	seconds int64  // when it happened, in seconds from round 1
+	round   int    // the round the game was on
+	kind    string // what happened: one of the kinds below
+	player  string // the id of the player it is about
+	what    string // for an easter egg, its side; for a persistent upgrade, its name; else ""
+}
+
+// The kinds of a game's events. A T6 game's script reports all but the first of a T5 game's (t6.go: t6Script).
+const (
+	// the player was in the game as the map's easter egg was finished, or the level credited them with it (t5.go).
+	// what is the side of the main quest that the players took, richtofen or maxis, where the quest has two.
+	eventEgg = "egg"
+	// the player took points out of the bank that they had there from an earlier game
+	eventBank = "bank"
+	// the player took out of their weapon locker the gun that they left there in an earlier game
+	eventLocker = "locker"
+	// the player came to the game with a persistent upgrade, from earlier games: what is its name in the game's
+	// scripts, such as jugg or nube
+	eventPerk = "perk"
+	// the player earned a persistent upgrade in the game
+	eventPerkEarned = "perk-earned"
+
+	richtofen = "richtofen"
+	maxis     = "maxis"
+)
+
+// note adds an event to rg's game, which happened so many seconds from round 1, in the round the game is on. An event
+// that the game has already, of that kind about that player and thing, is not added again: a player who comes back
+// to the game is reported once more. It reports whether it added the event.
+func (rg *roomGame) note(seconds int64, kind string, p *player, what string) bool {
+	e := gameEvent{seconds: seconds, kind: kind, player: p.id, what: what}
+	if rg.report != nil {
+		e.round = rg.report.Round
+	}
+	if slices.ContainsFunc(rg.events, func(had gameEvent) bool {
+		return had.kind == kind && had.player == p.id && had.what == what
+	}) {
+		return false
+	}
+	rg.events = append(rg.events, e)
+	return true
+}
+
+// gameRound is when a round of a game began: a fact about the game like its events, which the database keeps with the
+// game's report (store.go) for whatever is made of it later, such as how fast a party reached a round. Nothing reads
+// the rounds yet.
+type gameRound struct {
+	round int
+	ms    int64 // when it began, in milliseconds from round 1
+}
+
+// roundBegins notes that a round of rg's game begins now, as the game reports it. The game's clock starts with the
+// first round that it reports: round 1 began then, and everything of the game is timed from that moment. Until then
+// the clock counts from when the game was taken to have begun, which a game that reports no rounds is left with. A
+// T5 game reports its first round as it begins, with everyone in. A T6 game has begun once everyone is in too
+// (t6Status), but its level starts round 1 some seconds after that. A round that is no later than the last one is
+// not noted again.
+func (rg *roomGame) roundBegins(round int) {
+	now := time.Now()
+	switch n := len(rg.rounds); {
+	case round <= 0 || !rg.started:
+		return
+	case n == 0:
+		rg.round1 = now
+	case round <= rg.rounds[n-1].round:
+		return
+	}
+	rg.rounds = append(rg.rounds, gameRound{round: round, ms: now.Sub(rg.round1).Milliseconds()})
+}
+
+// sinceRound1 is how long rg's game has been played, in seconds from round 1, or 0 before round 1.
+func (rg *roomGame) sinceRound1() int64 {
+	if !rg.started {
+		return 0
+	}
+	return int64(time.Since(rg.round1).Seconds())
+}
+
+// keepEvents keeps the report of rg's game with the events that the game has had so far, where the game has a report
+// yet: a game that ends before its next round has them in its report all the same. The report is a copy of the one
+// before, which whoever has that one may still be reading. The caller holds l.mu.
+func (l *lobby) keepEvents(rg *roomGame) {
+	if rg.report != nil {
+		res := *rg.report
+		res.events = slices.Clone(rg.events)
+		rg.report = &res
+		l.keepGame(&res)
+	}
 }
 
 type playerStats struct {
@@ -1709,7 +1845,8 @@ func gameID(r *room, rg *roomGame) string { return fmt.Sprintf("%s-%d", r.code, 
 // wins, which are the points left to spend, and the lines go by those.
 func (l *lobby) result(r *room, rg *roomGame, round int) *gameResult {
 	res := &gameResult{ID: gameID(r, rg), Map: r.mapName, Mods: slices.Clone(r.mods), Round: round,
-		Players: []playerStats{}, party: len(rg.seats), began: rg.began}
+		Players: []playerStats{}, party: len(rg.seats), began: rg.began, round1: rg.round1,
+		events: slices.Clone(rg.events), rounds: slices.Clone(rg.rounds)}
 	if rg.started {
 		res.Seconds = int64(time.Since(rg.round1).Seconds())
 	}

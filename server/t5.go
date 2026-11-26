@@ -227,6 +227,7 @@ func (l *lobby) gameLine(r *room, rg *roomGame, line string) {
 		return // no page shows them yet
 	case "round": // a round begins: "round 5"
 		round, _ := strconv.Atoi(arg)
+		rg.roundBegins(round)
 		l.keepRounds(r, rg, l.result(r, rg, max(round, 0)))
 		return // the leaderboards are read when a page opens them
 	case "over": // game over, with the round it ended on when the level counts rounds: "over 5"
@@ -263,9 +264,8 @@ func (l *lobby) gameLine(r *room, rg *roomGame, line string) {
 					rg.eggSeconds = max(int64(time.Since(rg.round1).Seconds()), 1)
 				}
 				p.keepEgg(r.mapName, len(rg.seats), rg.eggSeconds, gameID(r, rg))
-				if rg.report != nil {
-					l.keepGame(rg.report) // so that the game has a report however it ends
-				}
+				rg.note(rg.eggSeconds, eventEgg, p, "")
+				l.keepEvents(rg) // so that the game has a report however it ends, with the easter egg in it
 			}
 			l.save()
 		}

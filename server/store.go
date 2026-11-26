@@ -16,9 +16,10 @@ import (
 )
 
 // The server's database is a SQLite file in the data folder (zombies.db). It has the players with their sessions,
-// stats and records (players.go), and the report of every game that began a round (leaderboards.go). The lobby works
-// from its own memory: it reads the database once, as the server starts (load), and writes what changed a moment
-// after each change (save).
+// stats and records (players.go), and the report of every game that began a round (leaderboards.go), with what
+// happened in the game besides its rounds (rooms.go: gameEvent) and when each of its rounds began (gameRound). The
+// lobby works from its own memory: it reads the database once, as the server starts (load), and writes what changed a
+// moment after each change (save).
 //
 // Only the server opens the database, with one connection. The journal is SQLite's default, a rollback journal, so
 // the data folder can be on any file system, and the database is the one file while the server is stopped. Only the
@@ -63,22 +64,8 @@ CREATE TABLE stats (
     PRIMARY KEY (player, name)
 ) STRICT, WITHOUT ROWID;
 
--- A player's best on a map with a party of one size: their highest round (kind 'round'), or their fastest time
--- through the map's easter egg (kind 'egg'). game is the id of the game that set it.
-CREATE TABLE records (
-    player  TEXT NOT NULL REFERENCES players (id) ON DELETE CASCADE,
-    kind    TEXT NOT NULL CHECK (kind IN ('round', 'egg')),
-    map     TEXT NOT NULL,
-    party   INTEGER NOT NULL,
-    round   INTEGER NOT NULL,
-    seconds INTEGER NOT NULL,
-    at      TEXT NOT NULL,
-    game    TEXT NOT NULL,
-    PRIMARY KEY (player, kind, map, party)
-) STRICT, WITHOUT ROWID;
-
 -- A game's report: how it stood when its last round began, or how it ended. party is how many players started it,
--- mods is a JSON array, and seconds counts from round 1.
+-- mods is a JSON array, round1 is when its round 1 began, and seconds counts from then.
 CREATE TABLE games (
     id      TEXT PRIMARY KEY,
     map     TEXT NOT NULL,
@@ -86,11 +73,16 @@ CREATE TABLE games (
     mods    TEXT NOT NULL,
     began   TEXT NOT NULL,
     round   INTEGER NOT NULL,
-    seconds INTEGER NOT NULL
+    seconds INTEGER NOT NULL,
+    round1  TEXT NOT NULL
 ) STRICT;
 
--- The lines of a report's scoreboard, in its order. player is the player's id, also when the server has forgotten the
--- player since, and name is the name they had then. doors is NULL when the game reported none.
+-- The part of each player who was in a game (rooms.go: gameLine): their line of the scoreboard as it last stood, the
+-- round they reached, and when that round began, in seconds from round 1. The lines of the report's scoreboard come
+-- first, in its order. gone is 1 on the line of a player who had left by then, which the scoreboard does not have.
+-- player is the player's id, also when the server has forgotten the player since, and name is the name they had
+-- then. doors is NULL when the game reported none. The players' records are made from these lines: a player's best
+-- round on a map with a party of one size is the highest they reached in such a game.
 CREATE TABLE game_players (
     game      TEXT NOT NULL REFERENCES games (id) ON DELETE CASCADE,
     place     INTEGER NOT NULL,
@@ -104,12 +96,63 @@ CREATE TABLE game_players (
     downs     INTEGER NOT NULL,
     revives   INTEGER NOT NULL,
     doors     INTEGER,
+    round     INTEGER NOT NULL,
+    seconds   INTEGER NOT NULL,
+    gone      INTEGER NOT NULL,
     PRIMARY KEY (game, place)
+) STRICT, WITHOUT ROWID;
+` + addedTables
+
+// addedTables are the tables that version 2 of the schema added: the games' events and rounds. A player's fastest
+// time through a map's easter egg, with a party of one size, is made from the events of the kind 'egg'.
+const addedTables = `
+-- What happened in a game besides its rounds, in its order (rooms.go: gameEvent). seconds counts from round 1, and
+-- round is the round the game was on. kind is 'egg' (the player finished the map's easter egg: what is the side of its
+-- main quest, 'richtofen' or 'maxis', or '' where the quest has none), 'bank' or 'locker' (the player took out of the
+-- bank, or of their weapon locker, what they had there from an earlier game), 'perk' (the player came to the game with
+-- the persistent upgrade that what names) or 'perk-earned' (they earned it in the game). player is the player's id,
+-- as in game_players.
+CREATE TABLE game_events (
+    game    TEXT NOT NULL REFERENCES games (id) ON DELETE CASCADE,
+    place   INTEGER NOT NULL,
+    seconds INTEGER NOT NULL,
+    round   INTEGER NOT NULL,
+    kind    TEXT NOT NULL,
+    player  TEXT NOT NULL,
+    what    TEXT NOT NULL,
+    PRIMARY KEY (game, place)
+) STRICT, WITHOUT ROWID;
+
+-- When each round of a game began, as far as the game got (rooms.go: gameRound). ms counts from round 1 too, in
+-- milliseconds, where the other tables count whole seconds. A game from before the server noted the rounds has none.
+CREATE TABLE game_rounds (
+    game  TEXT NOT NULL REFERENCES games (id) ON DELETE CASCADE,
+    round INTEGER NOT NULL,
+    ms    INTEGER NOT NULL,
+    PRIMARY KEY (game, round)
 ) STRICT, WITHOUT ROWID;
 `
 
-// schemaVersion is the version of the schema, which the database keeps as its user_version.
-const schemaVersion = 1
+// schemaVersion is the version of the schema, which the database keeps as its user_version. Version 1 kept each
+// player's records in a table of their own. Version 2 makes them from the games: a game has its events, the round
+// that each of its players reached, when its round 1 began, and when each round after it did. A database of version 1
+// becomes one of version 2 as it is opened (migrate).
+const schemaVersion = 2
+
+// fromVersion1 makes a database of version 1 one of version 2. Each line of a game's report reached the report's
+// round, and round 1 is taken to have begun as the game did. Its games have no times of their rounds. The table of
+// records goes: a record that a game's report does not have, such as one of a player who had left by the report, goes
+// with it.
+const fromVersion1 = `
+ALTER TABLE games ADD COLUMN round1 TEXT NOT NULL DEFAULT '';
+UPDATE games SET round1 = began;
+ALTER TABLE game_players ADD COLUMN round INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE game_players ADD COLUMN seconds INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE game_players ADD COLUMN gone INTEGER NOT NULL DEFAULT 0;
+UPDATE game_players SET round = (SELECT round FROM games WHERE id = game),
+    seconds = (SELECT seconds FROM games WHERE id = game);
+DROP TABLE records;
+` + addedTables
 
 type store struct {
 	db *sql.DB
@@ -136,8 +179,10 @@ type keptPlayer struct {
 	Picked       bool           `json:"picked,omitempty"`  // they picked the picture themselves
 	Stats        map[string]int `json:"stats,omitempty"`
 	Collectibles string         `json:"collectibles,omitempty"`
-	Rounds       []record       `json:"rounds,omitempty"`
-	Eggs         []record       `json:"eggs,omitempty"`
+	// Rounds and Eggs are the player's records, which load makes from the games. The database keeps none, and save
+	// writes none. The players file of a server from before the database has them (import.go).
+	Rounds []record `json:"rounds,omitempty"`
+	Eggs   []record `json:"eggs,omitempty"`
 }
 
 type keptSession struct {
@@ -190,7 +235,8 @@ func openStore(file string) (*store, error) {
 	return s, nil
 }
 
-// migrate makes the tables of a new database. It refuses a database with another version of the schema.
+// migrate makes the tables of a new database, and makes a database of version 1 one of this version (fromVersion1).
+// It refuses a database with any other version of the schema.
 func (s *store) migrate() error {
 	var version int
 	if err := s.db.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil {
@@ -202,6 +248,11 @@ func (s *store) migrate() error {
 	case 0:
 		return s.write(func(w *writer) {
 			w.exec(schema)
+			w.exec(fmt.Sprintf(`PRAGMA user_version = %d`, schemaVersion))
+		})
+	case 1:
+		return s.write(func(w *writer) {
+			w.exec(fromVersion1)
 			w.exec(fmt.Sprintf(`PRAGMA user_version = %d`, schemaVersion))
 		})
 	}
@@ -252,8 +303,9 @@ func (s *store) query(query string, row func(scan func(...any) error) error) err
 	return rows.Err()
 }
 
-// load reads the players and their sessions from the database, and the reports of the games that a record names. The
-// players are ordered by id.
+// load reads the players and their sessions from the database, makes each player's records from the games that the
+// database has, and reads the reports of the games that a record names. The players are ordered by id. It reads no
+// game's rounds (game_rounds), which nothing uses yet: a report that load read has none.
 func (s *store) load() (keptPlayers, error) {
 	players := map[string]*keptPlayer{}
 	var ids []string
@@ -296,28 +348,11 @@ func (s *store) load() (keptPlayers, error) {
 	if err != nil {
 		return keptPlayers{}, err
 	}
-	err = s.query(`SELECT player, kind, map, party, round, seconds, at, game FROM records
-		ORDER BY player, kind, map, party`,
-		func(scan func(...any) error) error {
-			var player, kind string
-			var r record
-			err := scan(&player, &kind, &r.Map, &r.Party, &r.Round, &r.Seconds, (*dbTime)(&r.At), &r.Game)
-			if p := players[player]; p != nil && kind == "egg" {
-				p.Eggs = append(p.Eggs, r)
-			} else if p != nil {
-				p.Rounds = append(p.Rounds, r)
-			}
-			return err
-		})
-	if err != nil {
-		return keptPlayers{}, err
-	}
-	k := keptPlayers{Players: []keptPlayer{}, Sessions: []keptSession{}}
 	s.players, s.sessions = map[string]keptPlayer{}, map[string]keptSession{}
 	for _, id := range ids {
-		k.Players = append(k.Players, *players[id])
 		s.players[id] = players[id].clone()
 	}
+	k := keptPlayers{Players: []keptPlayer{}, Sessions: []keptSession{}}
 	err = s.query(`SELECT hash, player, used FROM sessions ORDER BY hash`, func(scan func(...any) error) error {
 		var ks keptSession
 		err := scan(&ks.Hash, &ks.Player, (*dbTime)(&ks.Used))
@@ -328,17 +363,19 @@ func (s *store) load() (keptPlayers, error) {
 	if err != nil {
 		return keptPlayers{}, err
 	}
+	// Every game, for the records: each player's best of what the games have of them (keep), as the lobby keeps it
+	// while the games run (leaderboards.go).
 	games := map[string]*gameResult{}
-	err = s.query(`SELECT id, map, party, mods, began, round, seconds FROM games
-		WHERE id IN (SELECT game FROM records) ORDER BY id`,
+	var gameIDs []string
+	err = s.query(`SELECT id, map, party, mods, began, round1, round, seconds FROM games ORDER BY id`,
 		func(scan func(...any) error) error {
 			g := &gameResult{Players: []playerStats{}}
 			var mods string
-			if err := scan(&g.ID, &g.Map, &g.party, &mods, (*dbTime)(&g.began), &g.Round, &g.Seconds); err != nil {
+			if err := scan(&g.ID, &g.Map, &g.party, &mods, (*dbTime)(&g.began), (*dbTime)(&g.round1), &g.Round,
+				&g.Seconds); err != nil {
 				return err
 			}
-			games[g.ID] = g
-			k.Games = append(k.Games, g)
+			games[g.ID], gameIDs = g, append(gameIDs, g.ID)
 			if mods == "[]" {
 				return nil // none, as a report says it
 			}
@@ -347,19 +384,64 @@ func (s *store) load() (keptPlayers, error) {
 	if err != nil {
 		return keptPlayers{}, err
 	}
-	err = s.query(`SELECT game, player, name, score, cash, team, kills, headshots, downs, revives, doors
-		FROM game_players WHERE game IN (SELECT game FROM records) ORDER BY game, place`,
+	at := func(g *gameResult, seconds int64) time.Time {
+		return g.round1.Add(time.Duration(seconds) * time.Second)
+	}
+	err = s.query(`SELECT game, player, name, score, cash, team, kills, headshots, downs, revives, doors, round,
+			seconds, gone FROM game_players ORDER BY game, place`,
 		func(scan func(...any) error) error {
 			var game string
-			var line playerStats
+			var line gameLine
 			err := scan(&game, &line.ID, &line.Name, &line.Score, &line.Cash, &line.Team, &line.Kills, &line.Headshots,
-				&line.Downs, &line.Revives, &line.Doors)
-			if g := games[game]; g != nil {
-				g.Players = append(g.Players, line)
+				&line.Downs, &line.Revives, &line.Doors, &line.round, &line.seconds, &line.gone)
+			g := games[game]
+			if g == nil {
+				return err
+			}
+			if g.lines = append(g.lines, line); !line.gone {
+				g.Players = append(g.Players, line.playerStats)
+			}
+			if p := players[line.ID]; p != nil && line.round > 0 {
+				keep(&p.Rounds, record{Map: g.Map, Party: g.party, Round: line.round, At: at(g, line.seconds),
+					Game: g.ID})
 			}
 			return err
 		})
-	return k, err
+	if err != nil {
+		return keptPlayers{}, err
+	}
+	err = s.query(`SELECT game, seconds, round, kind, player, what FROM game_events ORDER BY game, place`,
+		func(scan func(...any) error) error {
+			var game string
+			var e gameEvent
+			err := scan(&game, &e.seconds, &e.round, &e.kind, &e.player, &e.what)
+			g := games[game]
+			if g == nil {
+				return err
+			}
+			g.events = append(g.events, e)
+			if p := players[e.player]; p != nil && e.kind == eventEgg {
+				keep(&p.Eggs, record{Map: g.Map, Party: g.party, Seconds: e.seconds, At: at(g, e.seconds), Game: g.ID})
+			}
+			return err
+		})
+	if err != nil {
+		return keptPlayers{}, err
+	}
+	// the reports that a record names
+	named := map[string]bool{}
+	for _, id := range ids {
+		k.Players = append(k.Players, *players[id])
+		for _, r := range slices.Concat(players[id].Rounds, players[id].Eggs) {
+			named[r.Game] = true
+		}
+	}
+	for _, id := range gameIDs {
+		if named[id] {
+			k.Games = append(k.Games, games[id])
+		}
+	}
+	return k, nil
 }
 
 // clone returns a copy of p that shares nothing with it.
@@ -374,12 +456,13 @@ func (p keptPlayer) clone() keptPlayer {
 
 // save makes the database's players and sessions those of k, and writes the reports of k's games, each in the place
 // of the game's earlier report. It writes the players and sessions that differ from what the database has, and
-// removes the ones that k lacks, each player with everything of theirs but the lines of reports. The store keeps k's
-// players, so the caller must not change them afterwards. Either all of it is written or, when save returns an
-// error, none of it.
+// removes the ones that k lacks, each player with everything of theirs but the lines of reports. It writes no
+// records: they are made from the games (load). The store keeps k's players, so the caller must not change them
+// afterwards. Either all of it is written or, when save returns an error, none of it.
 func (s *store) save(k keptPlayers) error {
 	players, sessions := map[string]keptPlayer{}, map[string]keptSession{}
 	for _, p := range k.Players {
+		p.Rounds, p.Eggs = nil, nil
 		players[p.ID] = p
 	}
 	for _, ks := range k.Sessions {
@@ -419,8 +502,7 @@ func (s *store) save(k keptPlayers) error {
 	return nil
 }
 
-// player writes a player, with their Discord account, stats and records, in the place of what the database had of
-// them.
+// player writes a player, with their Discord account and stats, in the place of what the database had of them.
 func (w *writer) player(p keptPlayer) {
 	w.exec(`INSERT INTO players (id, key, name, made, picture, picked, collectibles) VALUES (?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT (id) DO UPDATE SET key = excluded.key, name = excluded.name, made = excluded.made,
@@ -436,29 +518,36 @@ func (w *writer) player(p keptPlayer) {
 	for name, value := range p.Stats {
 		w.exec(`INSERT INTO stats (player, name, value) VALUES (?, ?, ?)`, p.ID, name, value)
 	}
-	w.exec(`DELETE FROM records WHERE player = ?`, p.ID)
-	for kind, list := range map[string][]record{"round": p.Rounds, "egg": p.Eggs} {
-		for _, r := range list {
-			// OR REPLACE: a players file of an earlier server, edited by hand, may have two for a map and party
-			w.exec(`INSERT OR REPLACE INTO records (player, kind, map, party, round, seconds, at, game)
-				VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-				p.ID, kind, r.Map, r.Party, r.Round, r.Seconds, dbTime(r.At), r.Game)
-		}
-	}
 }
 
-// game writes a game's report, in the place of the report that the database had of the game.
+// game writes a game's report, with the lines of its players and its events, in the place of the report that the
+// database had of the game. A report whose round 1 has no time is taken to have begun it as the game began. The
+// report's rounds are added to those that the database has of the game. A round began when it did, whatever a later
+// report says, so a report without rounds, as load reads one, takes none away.
 func (w *writer) game(g *gameResult) {
 	mods, _ := json.Marshal(append([]string{}, g.Mods...))
-	w.exec(`INSERT INTO games (id, map, party, mods, began, round, seconds) VALUES (?, ?, ?, ?, ?, ?, ?)
+	round1 := g.round1
+	if round1.IsZero() {
+		round1 = g.began
+	}
+	w.exec(`INSERT INTO games (id, map, party, mods, began, round1, round, seconds) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT (id) DO UPDATE SET map = excluded.map, party = excluded.party, mods = excluded.mods,
-			began = excluded.began, round = excluded.round, seconds = excluded.seconds`,
-		g.ID, g.Map, g.party, string(mods), dbTime(g.began), g.Round, g.Seconds)
+			began = excluded.began, round1 = excluded.round1, round = excluded.round, seconds = excluded.seconds`,
+		g.ID, g.Map, g.party, string(mods), dbTime(g.began), dbTime(round1), g.Round, g.Seconds)
 	w.exec(`DELETE FROM game_players WHERE game = ?`, g.ID)
-	for place, line := range g.Players {
+	for place, line := range g.allLines() {
 		w.exec(`INSERT INTO game_players (game, place, player, name, score, cash, team, kills, headshots, downs,
-				revives, doors) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+				revives, doors, round, seconds, gone) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			g.ID, place, line.ID, line.Name, line.Score, line.Cash, line.Team, line.Kills, line.Headshots, line.Downs,
-			line.Revives, line.Doors)
+			line.Revives, line.Doors, line.round, line.seconds, line.gone)
+	}
+	w.exec(`DELETE FROM game_events WHERE game = ?`, g.ID)
+	for place, e := range g.events {
+		w.exec(`INSERT INTO game_events (game, place, seconds, round, kind, player, what) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+			g.ID, place, e.seconds, e.round, e.kind, e.player, e.what)
+	}
+	for _, gr := range g.rounds {
+		w.exec(`INSERT INTO game_rounds (game, round, ms) VALUES (?, ?, ?) ON CONFLICT (game, round) DO NOTHING`,
+			g.ID, gr.round, gr.ms)
 	}
 }

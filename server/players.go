@@ -144,7 +144,8 @@ func (l *lobby) expire() {
 func (l *lobby) save() { l.unsaved = true }
 
 // kept returns what the database is to have: the players whose page has opened the server's event stream, their
-// sessions, and the reports that it lacks (keepGame). It shares nothing with the lobby. The caller holds l.mu.
+// sessions, and the reports that it lacks (keepGame), from which their records are made (leaderboards.go). It shares
+// nothing with the lobby. The caller holds l.mu.
 func (l *lobby) kept() keptPlayers {
 	k := keptPlayers{Players: []keptPlayer{}, Sessions: []keptSession{}}
 	for _, id := range slices.Sorted(maps.Keys(l.players)) {
@@ -153,7 +154,7 @@ func (l *lobby) kept() keptPlayers {
 			continue
 		}
 		kp := keptPlayer{ID: p.id, Key: p.key, Name: p.asked, Made: p.made, Discord: p.discord, Picture: p.picture,
-			Picked: p.picked, Stats: p.stats, Collectibles: p.collectibles, Rounds: p.rounds, Eggs: p.eggs}.clone()
+			Picked: p.picked, Stats: p.stats, Collectibles: p.collectibles}.clone()
 		if kp.Discord != nil {
 			kp.Discord.checking = false
 		}

@@ -440,9 +440,13 @@ func TestRoomsKeepRecords(t *testing.T) {
 // A round counts as it begins, for each player whose character the game then says is in it: a game that never reaches
 // game over keeps its rounds, and its report. Game over's report takes the place of the last round's.
 func TestRoomsKeepRoundsAsTheyBegin(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "zombies.db")
 	l := testLobby(t)
 	l.maps = func() []string { return []string{"zombie_theater"} }
+	loadFrom(t, l, file)
 	ann, bob := l.hello("", "Ann"), l.hello("", "Bob")
+	openPage(t, l, ann.Token)
+	openPage(t, l, bob.Token)
 	start := func() (string, string, string) {
 		do(l, ann.Token, "create", "map", "zombie_theater")
 		code := l.viewOf(ann.Token).Room.Code
@@ -491,6 +495,38 @@ func TestRoomsKeepRoundsAsTheyBegin(t *testing.T) {
 	}
 	if report.Round != 3 || len(report.Players) != 1 || report.Players[0].Score != 1500 {
 		t.Errorf("its report: %+v", report)
+	}
+	// The database keeps no records. A server that starts makes them from the game, whose report has the round each
+	// of its players reached: Bob's too, whose character was gone by its end, with his line as it last stood.
+	l.mu.Lock()
+	l.save()
+	l.mu.Unlock()
+	if err := l.writePlayers(); err != nil {
+		t.Fatal(err)
+	}
+	started := testLobby(t)
+	started.maps = l.maps
+	loadFrom(t, started, file)
+	for name, want := range map[string]int{ann.Token: 3, bob.Token: 2} {
+		token := started.hello(name, "").Token
+		if rounds, eggs := recordsOf(started, token); len(rounds) != 1 || rounds[0].Round != want ||
+			rounds[0].Party != 2 || rounds[0].Game != row.Game || len(eggs) != 0 {
+			t.Errorf("a record of round %d, once the server started again: %+v", want, rounds)
+		}
+	}
+	started.mu.Lock()
+	kept := started.reports[row.Game]
+	started.mu.Unlock()
+	if kept == nil || len(kept.Players) != 1 || kept.Players[0].Score != 1500 || len(kept.lines) != 2 ||
+		!kept.lines[1].gone || kept.lines[1].round != 2 || kept.lines[1].Score != 800 || kept.lines[0].round != 3 {
+		t.Errorf("the report, once the server started again: %+v", kept)
+	}
+	// and the database has when each of the game's three rounds began, from round 1, with which the game's clock began
+	st := testStore(t, file)
+	of := ` FROM game_rounds WHERE game = '` + row.Game + `'`
+	if n, first, last := count(t, st, `SELECT count(*)`+of), count(t, st, `SELECT ms`+of+` AND round = 1`),
+		count(t, st, `SELECT ms`+of+` AND round = 3`); n != 3 || first != 0 || last < 0 || last > 10000 {
+		t.Errorf("the game's rounds in the database: %d, round 1 at %d ms and round 3 at %d ms", n, first, last)
 	}
 
 	code, annAt, bobAt = start()

@@ -432,8 +432,15 @@ var t6Own = []string{"main", "players", "demos", "gamesettings", "scripts", "lob
 //	                                                headshots, downs, revives and doors bought, and their team in
 //	                                                Grief (1 or 2, else 0). It is printed before "round" and "over".
 //	zombies_lobby: round 5                          a round begins
-//	zombies_lobby: egg 0 2                          the map's main quest is done, with the slots of the players in
-//	                                                the game then. It is printed once a game.
+//	zombies_lobby: egg 2 0 1                        the map's main quest is done: the side the players took (1
+//	                                                Richtofen's, 2 Maxis's, 0 where the quest has none), then the
+//	                                                slots of the players in the game then. It is printed once a game.
+//	zombies_lobby: help bank 1                      the player in the slot had help from an earlier game: points out
+//	zombies_lobby: help locker 0                    of the bank, or the gun out of their weapon locker. Each is
+//	                                                printed once for a player.
+//	zombies_lobby: perk had jugg 1                  the player in the slot came to the game with a persistent upgrade
+//	zombies_lobby: perk got nube 0                  of the game's, by its name in the game's scripts, or earned one
+//	                                                in the game. Each is printed once for a player and upgrade.
 //	zombies_lobby: over 12 1                        game over, the round it ended on, and in Grief the team that won
 //	zombies_lobby: exit                             the game's end has played out (the words on the screen, then the
 //	                                                view over the map: 20 seconds). The game loads the map again a
@@ -475,6 +482,33 @@ var t6Own = []string{"main", "players", "demos", "gamesettings", "scripts", "lob
 // The script waits for each of them on any map, and reports the first. A quest runs in its map's classic mode alone,
 // and not on Easy, so another map or mode never notifies one.
 //
+// The quests of TranZit, Die Rise and Buried have two sides, Richtofen's and Maxis's, and the script reports which
+// one the players took. Buried notifies the level of each side by name. TranZit and Die Rise have one notify for
+// both. Just before it, they save the side as the last that each player finished, in the player's saved stats
+// (update_sidequest_stats: sq_transit_last_completed and sq_highrise_last_completed, 1 for Richtofen's and 2 for
+// Maxis's), for each player who was in the game when the quest started. The script reads the side from the first of
+// those players. A player who joined later keeps the side of an earlier game there, and is passed over.
+//
+// A player's saved stats are their own PC's: Plutonium's game keeps them in the player's Plutonium folder
+// (storage/demonware/18397/user), and sends them to the room's game as it joins. The room's game counts as an online
+// game (sessionmodeisonlinegame), so on TranZit, Die Rise and Buried the bank has what the player put there in
+// earlier games, and their weapon locker has the gun they left there. The three maps share the one bank and the one
+// locker (level.banking_map and level.weapon_locker_map are zm_transit on each). The script reports the first time
+// that a player has such help: when their bank balance (account_value, which maps/mp/zombies/_zm_banking.gsc sets as
+// they connect) is less than it was when they joined, and when their weapon locker no longer has the gun that it had
+// then (the name of the gun in their saved stats, which maps/mp/zombies/_zm_weapon_locker.gsc keeps). Points that a
+// player banks and takes back in the one game are no help, and neither is a gun that they stored in it.
+//
+// The saved stats also earn a player the game's persistent upgrades ("perma-perks"), on those three maps' classic
+// modes: more health, a Ray Gun for the Olympia off the wall, and so on (maps/mp/zombies/_zm_pers_upgrades.gsc
+// registers them, by names such as jugg and nube). The level gives a player the ones their stats have earned as they
+// first spawn, and gives and takes them as the stats change (_zm_pers_upgrades_system.gsc: pers_upgrades_monitor,
+// which keeps them in the player's pers_upgrades_awarded). The script reports each upgrade that a player has when it
+// first looks, as one they came with, and each one they have later, as one they earned in the game. It first looks a
+// moment after it first sees the player playing, when the level has given them theirs.
+//
+// The server keeps each of these as an event of the game (rooms.go: gameEvent).
+//
 // The script implements the room's mods (mods.go), as the engine does in a T5 game. The config sets a dvar for each
 // mod that the game has (t6ModDvar).
 //
@@ -505,8 +539,8 @@ var t6Own = []string{"main", "players", "demos", "gamesettings", "scripts", "lob
 // Pack-a-Punch. A player who bled out holds nothing. Only guns: every player starts with grenades. A player with the
 // gun still sees the prompt, for its ammo. The purchase itself has no check, so two players who buy the same gun
 // within that tenth of a second both get it.
-const t6Script = `// zombies-server's (server/t6.go): the rounds, the scoreboard at each, the main quest done, game over, its end
-// played out, in Grief each player's team, and the room's mods
+const t6Script = `// zombies-server's (server/t6.go): the rounds, the scoreboard at each, the main quest done and its
+// side, help from earlier games, game over, its end played out, in Grief each player's team, and the room's mods
 main()
 {
 	if ( getdvar( "g_gametype" ) == "zgrief" )
@@ -526,6 +560,7 @@ init()
 {
 	level thread lobby_rounds();
 	level thread lobby_egg();
+	level thread lobby_help();
 	level thread lobby_game_over();
 
 	if ( getdvarint( "zombies_mod_zombiecap" ) > 24 )
@@ -840,14 +875,14 @@ lobby_rounds()
 lobby_egg()
 {
 	level endon( "end_game" );
-	level thread lobby_egg_on( "transit_sidequest_achieved" );
-	level thread lobby_egg_on( "highrise_sidequest_achieved" );
-	level thread lobby_egg_on( "pop_goes_the_weasel_achieved" );
-	level thread lobby_egg_on( "sq_richtofen_complete" );
-	level thread lobby_egg_on( "sq_maxis_complete" );
-	level thread lobby_egg_on( "tomb_sidequest_complete" );
-	level waittill( "lobby_egg" );
-	line = "zombies_lobby: egg";
+	level thread lobby_egg_on( "transit_sidequest_achieved", 0, "sq_transit_last_completed" );
+	level thread lobby_egg_on( "highrise_sidequest_achieved", 0, "sq_highrise_last_completed" );
+	level thread lobby_egg_on( "pop_goes_the_weasel_achieved", 0 );
+	level thread lobby_egg_on( "sq_richtofen_complete", 1 );
+	level thread lobby_egg_on( "sq_maxis_complete", 2 );
+	level thread lobby_egg_on( "tomb_sidequest_complete", 0 );
+	level waittill( "lobby_egg", side );
+	line = "zombies_lobby: egg " + side;
 	players = getplayers();
 
 	for ( i = 0; i < players.size; i++ )
@@ -856,11 +891,137 @@ lobby_egg()
 	printf( line );
 }
 
-lobby_egg_on( done )
+// Waits for a map's main quest to be done. The side is the one given, or else the one that the map has just saved
+// as its players' last, in the stat given.
+lobby_egg_on( done, side, stat )
 {
 	level endon( "end_game" );
 	level waittill( done );
-	level notify( "lobby_egg" );
+
+	if ( isdefined( stat ) )
+		side = lobby_side( stat );
+
+	level notify( "lobby_egg", side );
+}
+
+// The side of a main quest that the map has saved as the last of the players who were in the game as the quest
+// started: 1 for Richtofen's, 2 for Maxis's, or 0 when it saved none.
+lobby_side( stat )
+{
+	players = getplayers();
+
+	for ( i = 0; i < players.size; i++ )
+	{
+		if ( !isdefined( players[i].transit_sq_started ) && !isdefined( players[i].highrise_sq_started ) )
+			continue;
+
+		side = players[i] maps\mp\zombies\_zm_stats::get_global_stat( stat );
+
+		if ( side == 1 || side == 2 )
+			return side;
+	}
+
+	return 0;
+}
+
+// What the players have from earlier games, on a map with a bank, a weapon locker or persistent upgrades: watches
+// each player in the game. The map has set the bank and the locker up by round 1 (TranZit as its rounds start:
+// maps/mp/zm_transit_classic.gsc).
+lobby_help()
+{
+	level endon( "end_game" );
+	level waittill( "start_of_round" );
+
+	if ( !isdefined( level.banking_map ) && !isdefined( level.weapon_locker_map ) && !isdefined( level.pers_upgrades_keys ) )
+		return;
+
+	for ( ;; )
+	{
+		wait 0.25;
+		players = getplayers();
+
+		for ( i = 0; i < players.size; i++ )
+			players[i] lobby_help_check();
+	}
+}
+
+// The gun in the player's weapon locker, as their saved stats have it, or "" for none. Outside an online game the
+// locker keeps a gun for the one game, and has none from an earlier one.
+lobby_locker_gun()
+{
+	if ( !isdefined( level.weapon_locker_map ) || !isdefined( level.weapon_locker_online ) || !level.weapon_locker_online )
+		return "";
+
+	gun = self maps\mp\zombies\_zm_stats::get_map_weaponlocker_stat( "name", level.weapon_locker_map );
+
+	if ( !isdefined( gun ) || !isstring( gun ) )
+		return "";
+
+	return gun;
+}
+
+// Reports the persistent upgrades that the player has and the script has not reported of them yet: as ones they came
+// to the game with ("had"), or as ones they earned in it ("got").
+lobby_perks_report( how )
+{
+	if ( !isdefined( level.pers_upgrades_keys ) || !isdefined( self.pers_upgrades_awarded ) )
+		return;
+
+	for ( i = 0; i < level.pers_upgrades_keys.size; i++ )
+	{
+		name = level.pers_upgrades_keys[i];
+
+		if ( isdefined( self.lobby_perks[name] ) )
+			continue;
+
+		if ( !isdefined( self.pers_upgrades_awarded[name] ) || !self.pers_upgrades_awarded[name] )
+			continue;
+
+		self.lobby_perks[name] = 1;
+		printf( "zombies_lobby: perk " + how + " " + name + " " + self getentitynumber() );
+	}
+}
+
+// Notes what the player has from earlier games a moment after the script first sees them playing, once the bank has
+// their balance and the level has given them their persistent upgrades. From then on it reports the first time they
+// have less of it, fewer points in the bank, or another gun or none in their weapon locker, and each persistent
+// upgrade that they earn.
+lobby_help_check()
+{
+	if ( !isdefined( self.lobby_bank ) )
+	{
+		if ( self.sessionstate != "playing" )
+			return;
+
+		if ( isdefined( level.banking_map ) && !isdefined( self.account_value ) )
+			return;
+
+		if ( !isdefined( self.lobby_seen ) )
+		{
+			self.lobby_seen = 1;
+			return;
+		}
+
+		self.lobby_bank = lobby_number( self.account_value );
+		self.lobby_gun = self lobby_locker_gun();
+		self.lobby_perks = [];
+		self lobby_perks_report( "had" );
+		return;
+	}
+
+	self lobby_perks_report( "got" );
+
+	if ( self.lobby_bank > 0 && lobby_number( self.account_value ) < self.lobby_bank )
+	{
+		self.lobby_bank = 0;
+		printf( "zombies_lobby: help bank " + self getentitynumber() );
+	}
+
+	if ( self.lobby_gun != "" && self lobby_locker_gun() != self.lobby_gun )
+	{
+		self.lobby_gun = "";
+		printf( "zombies_lobby: help locker " + self getentitynumber() );
+	}
 }
 
 lobby_game_over()
@@ -1138,8 +1299,9 @@ func (g *game) t6Watch(done <-chan struct{}, silent chan<- time.Duration) {
 // t6Status handles the clients that the status of a T6 room's game lists, each second that the game answers
 // (t6Watch). The caller does not hold l.mu. The game is up from its first answer, and its players can join from then.
 // A seat's player is in the game while the status lists a client at the seat's address, and the seat has that
-// client's slot. Round 1 begins once everyone with a seat is in, because the game waits for that many players
-// (zombies_minplayers).
+// client's slot. The game has begun once everyone with a seat is in, because the game waits for that many players
+// (zombies_minplayers). Its level starts round 1 some seconds after that, and the game's clock counts from the
+// level's report of it (roundBegins).
 func (l *lobby) t6Status(r *room, rg *roomGame, clients []t6Client) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -1226,10 +1388,12 @@ func (rg *roomGame) t6Whose(code string, at *seat, name string) *seat {
 //
 // Round 1 has begun once the script reports a round, whatever the status has listed of the players. The game decides
 // when round 1 begins: with everyone in, or without the rest once Plutonium's own script has waited long enough for
-// them (scripts/zm/ranked.gsc). A game that has begun is not called off. Each round sets its players' records, as in
-// a T5 game (keepRounds). The records come from the players' lines of the scoreboard. The script prints those by
-// client slot, so they count only for the clients that the status has listed by then. The end of the map's main quest
-// sets the easter egg's record of the players in the game then, whom the script names by slot too (t6Egg).
+// them (scripts/zm/ranked.gsc). The game's clock starts at that report, also when the status had everyone in before
+// it (roundBegins). A game that has begun is not called off. Each round sets its players' records, as in a T5 game
+// (keepRounds). The records come from the players' lines of the scoreboard. The script prints those by client slot,
+// so they count only for the clients that the status has listed by then. The end of the map's main quest sets the
+// easter egg's record of the players in the game then, whom the script names by slot too (t6Egg). What a player has
+// from earlier games, which the script reports as well, is an event of the game (t6Carried).
 //
 // The game ends when the level ends: at game over, or 20 seconds after its last player left. At game over the room
 // gets the game's result, which the players' pages show while the players watch the game's end. A game of Grief or
@@ -1279,12 +1443,18 @@ func (l *lobby) t6Said(r *room, rg *roomGame, line string) {
 	switch {
 	case ours && verb == "round":
 		if round, _ := strconv.Atoi(arg); rg.ending == "" {
+			rg.roundBegins(round)
 			l.keepRounds(r, rg, l.result(r, rg, max(round, 0)))
 		}
 		return // the leaderboards are read when a page opens them
 	case ours && verb == "egg":
 		if rg.ending == "" && hasEgg(r.mapName) {
 			l.t6Egg(r, rg, strings.Fields(arg))
+		}
+		return
+	case ours && (verb == "help" || verb == "perk"):
+		if rg.ending == "" {
+			l.t6Carried(r, rg, verb, strings.Fields(arg))
 		}
 		return
 	case ours && verb == "over" && rg.ending == "" && over == "Game over.":
@@ -1320,24 +1490,63 @@ func (l *lobby) t6Said(r *room, rg *roomGame, line string) {
 }
 
 // t6Egg keeps the easter egg of rg's map for the players whose client is in one of the slots: the script's report
-// that the map's main quest is done ("egg 0 2"), with the players in the game then. The whole party has the one time,
-// from round 1, as in a T5 game (t5.go: gameLine). The caller holds l.mu.
-func (l *lobby) t6Egg(r *room, rg *roomGame, slots []string) {
+// that the map's main quest is done ("egg 2 0 1"), with the side that the players took and the players in the game
+// then. The whole party has the one time, from round 1, as in a T5 game (t5.go: gameLine). The game has an event of
+// each of those players' easter egg, with the side (gameEvent). The caller holds l.mu.
+func (l *lobby) t6Egg(r *room, rg *roomGame, fields []string) {
+	if len(fields) == 0 {
+		return
+	}
 	if rg.eggSeconds == 0 {
 		rg.eggSeconds = max(int64(time.Since(rg.round1).Seconds()), 1)
 	}
-	for _, field := range slots {
-		slot, err := strconv.Atoi(field)
-		for _, s := range rg.seats {
-			if err == nil && slot >= 0 && s.slot == slot {
-				s.player.keepEgg(r.mapName, len(rg.seats), rg.eggSeconds, gameID(r, rg))
-			}
+	side := map[string]string{"1": richtofen, "2": maxis}[fields[0]]
+	for _, field := range fields[1:] {
+		if s := rg.seatIn(field); s != nil {
+			s.player.keepEgg(r.mapName, len(rg.seats), rg.eggSeconds, gameID(r, rg))
+			rg.note(rg.eggSeconds, eventEgg, s.player, side)
 		}
 	}
-	if rg.report != nil {
-		l.keepGame(rg.report) // so that the game has a report however it ends
-	}
+	l.keepEvents(rg) // so that the game has a report however it ends, with the easter egg in it
 	l.save()
+}
+
+// seatIn returns the seat of rg whose client is in the slot that the script names, or nil when none is.
+func (rg *roomGame) seatIn(field string) *seat {
+	slot, err := strconv.Atoi(field)
+	for _, s := range rg.seats {
+		if err == nil && slot >= 0 && s.slot == slot {
+			return s
+		}
+	}
+	return nil
+}
+
+// t6Perk is the name of a persistent upgrade as the game's scripts have it, such as jugg or multikill_headshots.
+var t6Perk = regexp.MustCompile(`^[a-z_]{1,32}$`)
+
+// t6Carried notes what a player of rg's game has from earlier games, as the script reports it, as an event of the
+// game (gameEvent). "help bank 1" and "help locker 1": the player in the slot took points out of the bank, or the gun
+// out of their weapon locker. "perk had jugg 1" and "perk got jugg 1": they came to the game with the persistent
+// upgrade, or earned it in the game. The caller holds l.mu.
+func (l *lobby) t6Carried(r *room, rg *roomGame, verb string, fields []string) {
+	var kind, what, slot string
+	switch {
+	case verb == "help" && len(fields) == 2 && (fields[0] == eventBank || fields[0] == eventLocker):
+		kind, slot = fields[0], fields[1]
+	case verb == "perk" && len(fields) == 3 && fields[0] == "had" && t6Perk.MatchString(fields[1]):
+		kind, what, slot = eventPerk, fields[1], fields[2]
+	case verb == "perk" && len(fields) == 3 && fields[0] == "got" && t6Perk.MatchString(fields[1]):
+		kind, what, slot = eventPerkEarned, fields[1], fields[2]
+	default:
+		return
+	}
+	s := rg.seatIn(slot)
+	if s == nil || !rg.note(rg.sinceRound1(), kind, s.player, what) {
+		return
+	}
+	log.Printf("server: in room %s's game, %s: %s", r.code, s.player.name, strings.TrimSpace(kind+" "+what))
+	l.keepEvents(rg)
 }
 
 // t6EndTakes is how long the server gives a T6 game's end to play out before it stops the game anyway. The end takes

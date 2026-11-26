@@ -1,6 +1,7 @@
 package main
 
 import (
+	"database/sql"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -54,44 +55,95 @@ func count(t *testing.T, st *store, query string) int {
 	return n
 }
 
-// keptSample is two players with everything the database keeps of a player between them, a session each, and the
-// report of a game, which a record of each names.
+// sampleAt is a moment of the samples' day, to the nanosecond.
+func sampleAt(second int) time.Time {
+	return time.Date(2026, 11, 21, 20, 15, second, 123456789, time.UTC)
+}
+
+// The samples' games: a game of two on Moon that both players finished, in which Zoë finished the easter egg, and a
+// game of three there that Zoë left in round 9, which Bob played on to round 14.
+const sampleGame, sampleLeft = "MBVN-1795138977453", "QJXK-1795139999000"
+
+// keptSample is what the database is given: two players with everything it keeps of a player between them, a session
+// each, and the reports of their two games, with every player's line, the games' events, and when some of their
+// rounds began.
 func keptSample() keptPlayers {
-	at := func(second int) time.Time { return time.Date(2026, 11, 21, 20, 15, second, 123456789, time.UTC) }
+	at := sampleAt
 	doors := 3
+	zoe := playerStats{ID: "aaaa0001", Name: "Zoë", Score: 1250, Cash: 620, Team: 1, Kills: 14, Headshots: 3,
+		Revives: 1, Doors: &doors}
+	bob := playerStats{ID: "bbbb0002", Name: "Bob", Score: 900, Cash: 450, Team: 2, Kills: 10, Headshots: 2, Downs: 1}
+	zoeLeft := playerStats{ID: "aaaa0001", Name: "Zoë", Score: 400, Cash: 150, Kills: 6}
+	bobOn := playerStats{ID: "bbbb0002", Name: "Bob", Score: 2100, Cash: 300, Kills: 40, Headshots: 9}
 	return keptPlayers{
 		Players: []keptPlayer{
 			{ID: "aaaa0001", Key: "key1", Name: "Zoë", Made: at(1), Picture: "revive", Picked: true,
 				Discord: &discordUser{ID: "42", Name: "zoe", Access: "access", Refresh: "refresh", Expires: at(2),
 					Checked: at(3), Avatar: "https://cdn.discordapp.com/avatars/42/a.png"},
-				Stats: map[string]int{"zombie_kills": 52, "ZOMBIE_MOON_SIDEQUEST_TOTAL": 1}, Collectibles: "0011",
-				Rounds: []record{{Map: "zombie_moon", Party: 2, Round: 21, At: at(4), Game: "MBVN-1795138977453"},
-					{Map: "zombie_moon", Party: 3, Round: 9, At: at(5), Game: "gone"}},
-				Eggs: []record{{Map: "zombie_moon", Party: 2, Seconds: 2500, At: at(6), Game: "MBVN-1795138977453"}}},
-			{ID: "bbbb0002", Key: "key2", Name: "Bob", Made: at(7),
-				Rounds: []record{{Map: "zombie_moon", Party: 2, Round: 21, At: at(4), Game: "MBVN-1795138977453"}}},
+				Stats: map[string]int{"zombie_kills": 52, "ZOMBIE_MOON_SIDEQUEST_TOTAL": 1}, Collectibles: "0011"},
+			{ID: "bbbb0002", Key: "key2", Name: "Bob", Made: at(7)},
 		},
 		Sessions: []keptSession{{Hash: "hash1", Player: "aaaa0001", Used: at(8)},
 			{Hash: "hash2", Player: "bbbb0002", Used: at(9)}},
-		Games: []*gameResult{{ID: "MBVN-1795138977453", Map: "zombie_moon", Mods: []string{"grief", "zombiecap=32"},
-			Round: 21, Seconds: 2600, party: 2, began: at(0), Players: []playerStats{
-				{ID: "aaaa0001", Name: "Zoë", Score: 1250, Cash: 620, Team: 1, Kills: 14, Headshots: 3, Revives: 1,
-					Doors: &doors},
-				{ID: "bbbb0002", Name: "Bob", Score: 900, Cash: 450, Team: 2, Kills: 10, Headshots: 2, Downs: 1}}}},
+		Games: []*gameResult{
+			{ID: sampleGame, Map: "zombie_moon", Mods: []string{"grief", "zombiecap=32"}, Round: 21, Seconds: 2600,
+				party: 2, began: at(0), round1: at(30), Players: []playerStats{zoe, bob},
+				lines: []gameLine{{playerStats: zoe, round: 21, seconds: 2540},
+					{playerStats: bob, round: 21, seconds: 2540}},
+				events: []gameEvent{{kind: eventPerk, player: "aaaa0001", what: "jugg"},
+					{seconds: 310, round: 4, kind: eventBank, player: "bbbb0002"},
+					{seconds: 2500, round: 20, kind: eventEgg, player: "aaaa0001"}},
+				rounds: []gameRound{{round: 1}, {round: 2, ms: 38250}, {round: 21, ms: 2540870}}},
+			{ID: sampleLeft, Map: "zombie_moon", Round: 14, Seconds: 1500, party: 3, began: at(40), round1: at(50),
+				Players: []playerStats{bobOn},
+				lines: []gameLine{{playerStats: bobOn, round: 14, seconds: 1400},
+					{playerStats: zoeLeft, round: 9, seconds: 700, gone: true}},
+				rounds: []gameRound{{round: 9, ms: 700010}, {round: 14, ms: 1400990}}},
+		},
 	}
 }
 
+// keptRead is what a server that starts reads of the database that was given keptSample: the same, and each player's
+// records, which it makes from the games. Zoë's round in the game she left is the round she reached in it. It reads
+// no game's rounds.
+func keptRead() keptPlayers {
+	k := keptSample()
+	set := func(game int, seconds int64) time.Time {
+		return k.Games[game].round1.Add(time.Duration(seconds) * time.Second)
+	}
+	for _, g := range k.Games {
+		g.rounds = nil
+	}
+	k.Players[0].Rounds = []record{{Map: "zombie_moon", Party: 2, Round: 21, At: set(0, 2540), Game: sampleGame},
+		{Map: "zombie_moon", Party: 3, Round: 9, At: set(1, 700), Game: sampleLeft}}
+	k.Players[0].Eggs = []record{{Map: "zombie_moon", Party: 2, Seconds: 2500, At: set(0, 2500), Game: sampleGame}}
+	k.Players[1].Rounds = []record{{Map: "zombie_moon", Party: 2, Round: 21, At: set(0, 2540), Game: sampleGame},
+		{Map: "zombie_moon", Party: 3, Round: 14, At: set(1, 1400), Game: sampleLeft}}
+	return k
+}
+
 // What the database is given, a server that starts reads from it again, to the nanosecond: each player with their
-// Discord account, stats and records, the sessions, and the reports that a record names.
+// Discord account and stats, the sessions, and the reports that a record names. It keeps no records: the server makes
+// them from the games, also the round of a player who left a game before its end.
 func TestStoreKeeps(t *testing.T) {
 	file := filepath.Join(t.TempDir(), "zombies.db")
 	st := testStore(t, file)
 	if err := st.save(keptSample()); err != nil {
 		t.Fatal(err)
 	}
-	got, want := dbHas(t, file), keptSample()
+	got, want := dbHas(t, file), keptRead()
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("the database has\n%+v\nwant\n%+v", got, want)
+	}
+	// the players' records are no part of what the database is given: the same with them writes nothing
+	before := count(t, st, `SELECT total_changes()`)
+	with := keptRead()
+	with.Games = nil
+	if err := st.save(with); err != nil {
+		t.Fatal(err)
+	}
+	if n := count(t, st, `SELECT total_changes()`) - before; n != 0 {
+		t.Errorf("rows written for the same players with their records: %d", n)
 	}
 	// a time of another zone is the same moment
 	local := time.Date(2026, 11, 21, 21, 15, 1, 5, time.FixedZone("CET", 3600))
@@ -138,7 +190,7 @@ func TestStoreWritesChanges(t *testing.T) {
 		t.Errorf("rows written for a session that was used: %d", n)
 	}
 	used.Players[1].Stats = map[string]int{"zombie_kills": 1}
-	if n := wrote("a player's stat", used); n != 4 { // Bob's row and stat, and his record deleted and written
+	if n := wrote("a player's stat", used); n != 2 { // Bob's row and stat
 		t.Errorf("rows written for a player's first stat: %d", n)
 	}
 	if n := count(t, st, `SELECT count(*) FROM stats`); n != 3 {
@@ -146,8 +198,8 @@ func TestStoreWritesChanges(t *testing.T) {
 	}
 }
 
-// A player the database is no longer given is removed from it, with their sessions, Discord account, stats and
-// records. The reports of their games stay, with their lines in them.
+// A player the database is no longer given is removed from it, with their sessions, Discord account and stats. The
+// reports of their games stay, with their lines in them, of which the server makes no records any more.
 func TestStoreForgets(t *testing.T) {
 	file := filepath.Join(t.TempDir(), "zombies.db")
 	st := testStore(t, file)
@@ -159,44 +211,212 @@ func TestStoreForgets(t *testing.T) {
 	if err := st.save(k); err != nil {
 		t.Fatal(err)
 	}
-	for table, want := range map[string]int{"players": 1, "discord": 0, "sessions": 1, "stats": 0, "records": 1,
-		"games": 1, "game_players": 2} {
+	for table, want := range map[string]int{"players": 1, "discord": 0, "sessions": 1, "stats": 0, "games": 2,
+		"game_players": 4, "game_events": 3, "game_rounds": 5} {
 		if n := count(t, st, `SELECT count(*) FROM `+table); n != want {
 			t.Errorf("rows of %s, a player forgotten: %d, want %d", table, n, want)
 		}
 	}
 	got := dbHas(t, file)
-	if len(got.Players) != 1 || got.Players[0].Name != "Bob" || len(got.Games) != 1 || len(got.Games[0].Players) != 2 ||
-		got.Games[0].Players[0].Name != "Zoë" {
+	if len(got.Players) != 1 || got.Players[0].Name != "Bob" || len(got.Players[0].Rounds) != 2 ||
+		len(got.Games) != 2 || len(got.Games[0].Players) != 2 || got.Games[0].Players[0].Name != "Zoë" ||
+		len(got.Games[1].lines) != 2 || got.Games[1].lines[1].Name != "Zoë" {
 		t.Errorf("the database, a player forgotten: %+v", got)
 	}
 }
 
 // The database keeps the report of every game, each game's last. A server that starts reads only those that a
-// record names.
+// record names: not that of a game in which no player did better than in another.
 func TestStoreKeepsEveryGame(t *testing.T) {
 	file := filepath.Join(t.TempDir(), "zombies.db")
 	st := testStore(t, file)
+	worse := func(round int) *gameResult {
+		return &gameResult{ID: "worse", Map: "zombie_moon", Round: round, party: 2, began: sampleAt(20),
+			Players: []playerStats{{ID: "bbbb0002", Name: "Bob"}}}
+	}
 	k := keptSample()
-	k.Games = append(k.Games, &gameResult{ID: "no record", Map: "zombie_theater", Round: 2,
-		Players: []playerStats{{ID: "bbbb0002", Name: "Bob"}}})
+	k.Games = append(k.Games, worse(2))
 	if err := st.save(k); err != nil {
 		t.Fatal(err)
 	}
 	later := keptSample()
-	later.Games = []*gameResult{{ID: "no record", Map: "zombie_theater", Round: 3, Players: []playerStats{}}}
+	later.Games = []*gameResult{worse(3)}
 	if err := st.save(later); err != nil {
 		t.Fatal(err)
 	}
-	if n := count(t, st, `SELECT count(*) FROM games`); n != 2 {
+	if n := count(t, st, `SELECT count(*) FROM games`); n != 3 {
 		t.Errorf("the games the database has: %d", n)
 	}
-	if round, lines := count(t, st, `SELECT round FROM games WHERE id = 'no record'`),
-		count(t, st, `SELECT count(*) FROM game_players WHERE game = 'no record'`); round != 3 || lines != 0 {
-		t.Errorf("the game's later report: round %d, with %d lines", round, lines)
+	// its line is that of its one player, who reached its round, and its round 1 began as it did, for all it says
+	if round, lines, reached := count(t, st, `SELECT round FROM games WHERE id = 'worse'`),
+		count(t, st, `SELECT count(*) FROM game_players WHERE game = 'worse'`),
+		count(t, st, `SELECT round FROM game_players WHERE game = 'worse'`); round != 3 || lines != 1 || reached != 3 {
+		t.Errorf("the game's later report: round %d, with %d lines, of round %d", round, lines, reached)
 	}
-	if got := dbHas(t, file).Games; len(got) != 1 || got[0].ID != "MBVN-1795138977453" {
-		t.Errorf("the reports a server reads as it starts: %+v", got)
+	if n := count(t, st, `SELECT count(*) FROM games WHERE id = 'worse' AND round1 = began`); n != 1 {
+		t.Errorf("the game's round 1, which its report had no time of, began as the game did: %d", n)
+	}
+	if got, want := dbHas(t, file), keptRead(); !reflect.DeepEqual(got, want) {
+		t.Errorf("a server that starts reads\n%+v\nwant\n%+v", got, want)
+	}
+}
+
+// The database keeps when each round of a game began, to the millisecond from round 1. A later report of the game
+// adds the rounds since. A round's time stays as it was first written, and a report without rounds, as a server
+// that starts reads one, takes none away.
+func TestStoreKeepsRounds(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "zombies.db")
+	st := testStore(t, file)
+	if err := st.save(keptSample()); err != nil {
+		t.Fatal(err)
+	}
+	rounds := func(game string) (got []gameRound) {
+		t.Helper()
+		err := st.query(`SELECT round, ms FROM game_rounds WHERE game = '`+game+`' ORDER BY round`,
+			func(scan func(...any) error) error {
+				var gr gameRound
+				err := scan(&gr.round, &gr.ms)
+				got = append(got, gr)
+				return err
+			})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return got
+	}
+	for _, g := range keptSample().Games {
+		if got := rounds(g.ID); !slices.Equal(got, g.rounds) {
+			t.Errorf("the rounds of %s: %+v, want %+v", g.ID, got, g.rounds)
+		}
+	}
+	later := keptSample()
+	later.Games = later.Games[:1]
+	later.Games[0].Round = 22
+	later.Games[0].rounds = []gameRound{{round: 1, ms: 5}, {round: 2, ms: 38250}, {round: 21, ms: 2540870},
+		{round: 22, ms: 2700100}}
+	before := count(t, st, `SELECT total_changes()`)
+	if err := st.save(later); err != nil {
+		t.Fatal(err)
+	}
+	want := append(keptSample().Games[0].rounds, gameRound{round: 22, ms: 2700100})
+	if got := rounds(sampleGame); !slices.Equal(got, want) {
+		t.Errorf("the game's rounds, a round later: %+v, want %+v", got, want)
+	}
+	// the game's row, its two lines and three events, written again, and the one round more
+	if n := count(t, st, `SELECT total_changes()`) - before; n != 1+2*2+2*3+1 {
+		t.Errorf("rows written for the game's next report: %d", n)
+	}
+	read := dbHas(t, file)
+	if len(read.Games) != 2 || read.Games[0].ID != sampleGame || read.Games[0].rounds != nil {
+		t.Fatalf("the games that a server reads: %+v", read.Games)
+	}
+	read.Games = read.Games[:1]
+	if err := st.save(read); err != nil {
+		t.Fatal(err)
+	}
+	if got := rounds(sampleGame); !slices.Equal(got, want) {
+		t.Errorf("the game's rounds, its report written as it was read: %+v, want %+v", got, want)
+	}
+}
+
+// versionOne is a database of version 1, which kept each player's records in a table of their own: Ann and Bob, who
+// played Kino to round 12 together, and a game on Five that Ann played to round 7 and Bob left in round 4.
+const versionOne = `
+CREATE TABLE players (id TEXT PRIMARY KEY, key TEXT NOT NULL UNIQUE, name TEXT NOT NULL, made TEXT NOT NULL,
+    picture TEXT NOT NULL, picked INTEGER NOT NULL, collectibles TEXT NOT NULL) STRICT;
+CREATE TABLE discord (player TEXT PRIMARY KEY REFERENCES players (id) ON DELETE CASCADE, id TEXT NOT NULL,
+    name TEXT NOT NULL, avatar TEXT NOT NULL, access TEXT NOT NULL, refresh TEXT NOT NULL, expires TEXT NOT NULL,
+    checked TEXT NOT NULL) STRICT;
+CREATE TABLE sessions (hash TEXT PRIMARY KEY, player TEXT NOT NULL REFERENCES players (id) ON DELETE CASCADE,
+    used TEXT NOT NULL) STRICT;
+CREATE TABLE stats (player TEXT NOT NULL REFERENCES players (id) ON DELETE CASCADE, name TEXT NOT NULL,
+    value INTEGER NOT NULL, PRIMARY KEY (player, name)) STRICT, WITHOUT ROWID;
+CREATE TABLE records (player TEXT NOT NULL REFERENCES players (id) ON DELETE CASCADE,
+    kind TEXT NOT NULL CHECK (kind IN ('round', 'egg')), map TEXT NOT NULL, party INTEGER NOT NULL,
+    round INTEGER NOT NULL, seconds INTEGER NOT NULL, at TEXT NOT NULL, game TEXT NOT NULL,
+    PRIMARY KEY (player, kind, map, party)) STRICT, WITHOUT ROWID;
+CREATE TABLE games (id TEXT PRIMARY KEY, map TEXT NOT NULL, party INTEGER NOT NULL, mods TEXT NOT NULL,
+    began TEXT NOT NULL, round INTEGER NOT NULL, seconds INTEGER NOT NULL) STRICT;
+CREATE TABLE game_players (game TEXT NOT NULL REFERENCES games (id) ON DELETE CASCADE, place INTEGER NOT NULL,
+    player TEXT NOT NULL, name TEXT NOT NULL, score INTEGER NOT NULL, cash INTEGER NOT NULL, team INTEGER NOT NULL,
+    kills INTEGER NOT NULL, headshots INTEGER NOT NULL, downs INTEGER NOT NULL, revives INTEGER NOT NULL,
+    doors INTEGER, PRIMARY KEY (game, place)) STRICT, WITHOUT ROWID;
+PRAGMA user_version = 1;
+
+INSERT INTO players VALUES ('aaaa0001', 'key1', 'Ann', '2026-11-21T20:15:01.000000000Z', '', 0, ''),
+    ('bbbb0002', 'key2', 'Bob', '2026-11-21T20:15:02.000000000Z', '', 0, '');
+INSERT INTO sessions VALUES ('hash1', 'aaaa0001', '2026-11-21T20:15:03.000000000Z');
+INSERT INTO stats VALUES ('aaaa0001', 'zombie_kills', 52);
+INSERT INTO games VALUES ('KINO-1795138977453', 'zombie_theater', 2, '["zombiecap=32"]',
+    '2026-11-21T19:00:00.000000000Z', 12, 1500), ('FIVE-1795139999000', 'zombie_pentagon', 2, '[]',
+    '2026-11-21T21:00:00.000000000Z', 7, 800);
+INSERT INTO game_players VALUES ('KINO-1795138977453', 0, 'aaaa0001', 'Ann', 9000, 400, 0, 120, 30, 2, 1, 5),
+    ('KINO-1795138977453', 1, 'bbbb0002', 'Bob', 7000, 300, 0, 90, 20, 3, 2, NULL),
+    ('FIVE-1795139999000', 0, 'aaaa0001', 'Ann', 3000, 200, 0, 40, 10, 1, 0, 2);
+INSERT INTO records VALUES
+    ('aaaa0001', 'round', 'zombie_theater', 2, 12, 0, '2026-11-21T19:20:00.000000000Z', 'KINO-1795138977453'),
+    ('bbbb0002', 'round', 'zombie_theater', 2, 12, 0, '2026-11-21T19:20:00.000000000Z', 'KINO-1795138977453'),
+    ('aaaa0001', 'round', 'zombie_pentagon', 2, 7, 0, '2026-11-21T21:10:00.000000000Z', 'FIVE-1795139999000'),
+    ('bbbb0002', 'round', 'zombie_pentagon', 2, 4, 0, '2026-11-21T21:05:00.000000000Z', 'FIVE-1795139999000');
+`
+
+// A database of version 1, which kept the players' records in a table, becomes one of this version as a server
+// opens it: its players and games stay, each line of a game's report reached the report's round, and the server makes
+// the records from the games from then on. A record that no game's report has is gone: Bob's of the game he had left.
+func TestStoreMakesVersion1ThisVersion(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "zombies.db")
+	db, err := sql.Open("sqlite", file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(versionOne); err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
+	st := testStore(t, file)
+	if version := count(t, st, `PRAGMA user_version`); version != schemaVersion {
+		t.Errorf("its version, opened: %d, want %d", version, schemaVersion)
+	}
+	if n := count(t, st, `SELECT count(*) FROM sqlite_master WHERE name = 'records'`); n != 0 {
+		t.Errorf("its table of records is still there")
+	}
+	if n := count(t, st, `SELECT count(*) FROM game_rounds`); n != 0 {
+		t.Errorf("the rounds it has, whose games had no times of them: %d", n)
+	}
+	k, err := st.load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(k.Players) != 2 || k.Players[0].Name != "Ann" || k.Players[0].Stats["zombie_kills"] != 52 ||
+		len(k.Sessions) != 1 || len(k.Games) != 2 {
+		t.Fatalf("the database, opened: %+v", k)
+	}
+	began := func(hour int) time.Time { return time.Date(2026, 11, 21, hour, 0, 0, 0, time.UTC) }
+	ann := []record{
+		{Map: "zombie_pentagon", Party: 2, Round: 7, At: began(21).Add(800 * time.Second), Game: "FIVE-1795139999000"},
+		{Map: "zombie_theater", Party: 2, Round: 12, At: began(19).Add(1500 * time.Second), Game: "KINO-1795138977453"}}
+	if got := k.Players[0]; !reflect.DeepEqual(got.Rounds, ann) || len(got.Eggs) != 0 {
+		t.Errorf("Ann's records, made from the games:\n%+v\nwant\n%+v", got.Rounds, ann)
+	}
+	if got := k.Players[1].Rounds; !reflect.DeepEqual(got, ann[1:]) {
+		t.Errorf("Bob's records, made from the games:\n%+v\nwant\n%+v", got, ann[1:])
+	}
+	kino := k.Games[1]
+	if kino.ID != "KINO-1795138977453" || kino.Round != 12 || !kino.round1.Equal(kino.began) ||
+		!slices.Equal(kino.Mods, []string{"zombiecap=32"}) || len(kino.Players) != 2 || kino.Players[0].Score != 9000 ||
+		kino.Players[1].Doors != nil || len(kino.lines) != 2 || kino.lines[1].round != 12 ||
+		kino.lines[1].seconds != 1500 || kino.lines[1].gone {
+		t.Errorf("the report of the game on Kino: %+v", kino)
+	}
+	// and it is written as any database of this version is: the games of the samples' players, who have the ids of
+	// these two, are theirs besides
+	if err := st.save(keptSample()); err != nil {
+		t.Fatal(err)
+	}
+	got := dbHas(t, file)
+	if n := count(t, st, `SELECT count(*) FROM games`); n != 4 || len(got.Games) != 4 ||
+		len(got.Players[0].Rounds) != 4 || len(got.Players[0].Eggs) != 1 || len(got.Players[1].Rounds) != 3 {
+		t.Errorf("with two more games written to it, it has %d games, and a server reads %+v", n, got)
 	}
 }
 
@@ -276,6 +496,20 @@ const playersJSON = `{
 					"round": 13,
 					"at": "2026-11-20T01:43:28.192115394Z",
 					"game": "MBVN-1795138977453"
+				},
+				{
+					"map": "zombie_moon",
+					"party": 2,
+					"round": 8,
+					"at": "2026-11-20T03:10:00Z",
+					"game": "DUOX-1795140000000"
+				},
+				{
+					"map": "zombie_moon",
+					"party": 4,
+					"round": 30,
+					"at": "2026-11-19T03:10:00Z",
+					"game": "GONE-1795100000000"
 				}
 			]
 		},
@@ -334,6 +568,24 @@ const playersJSON = `{
 					"revives": 0
 				}
 			]
+		},
+		{
+			"id": "DUOX-1795140000000",
+			"map": "zombie_moon",
+			"round": 20,
+			"seconds": 3000,
+			"players": [
+				{
+					"id": "8343ee44",
+					"name": "Lea",
+					"score": 9000,
+					"cash": 1200,
+					"kills": 300,
+					"headshots": 90,
+					"downs": 4,
+					"revives": 0
+				}
+			]
 		}
 	]
 }
@@ -381,13 +633,25 @@ func TestPlayersFileImported(t *testing.T) {
 		d.Avatar != "https://cdn.discordapp.com/avatars/42/a.png" {
 		t.Errorf("Lea's Discord account, imported: %+v", d)
 	}
-	set, _ := time.Parse(time.RFC3339Nano, "2026-11-20T01:43:28.192084952Z")
-	if r := lea.rounds; len(r) != 1 || r[0].Map != "zombie_moon" || r[0].Party != 3 || r[0].Round != 13 ||
-		!r[0].At.Equal(set) || r[0].Game != "MBVN-1795138977453" {
-		t.Errorf("Lea's rounds, imported: %+v", r)
+	// The records are made from the games, as the database keeps none. A round is set as its report says: 60 seconds
+	// from when the game began. Lea has the round of the game of two as well, which the file had no record of.
+	set := time.UnixMilli(1795138977453).Add(60 * time.Second)
+	if r := on(lea.rounds, "zombie_moon"); len(r) != 2 || r[1].Party != 3 || r[1].Round != 13 || !r[1].At.Equal(set) ||
+		r[1].Game != "MBVN-1795138977453" || r[0].Party != 2 || r[0].Round != 20 || r[0].Game != "DUOX-1795140000000" {
+		t.Errorf("Lea's rounds, imported: %+v", lea.rounds)
 	}
-	if e := lea.eggs; len(e) != 1 || e[0].Seconds != 2500 || e[0].Party != 3 || len(ola.eggs) != 0 ||
-		len(ola.rounds) != 1 {
+	// Ola's round of that game, which its report has no line of, is a line of it now, of a player who had left. The
+	// record that names a game of which the file has no report is not imported.
+	if r := ola.rounds; len(r) != 2 || r[0].Party != 2 || r[0].Round != 8 || r[0].Game != "DUOX-1795140000000" ||
+		r[1].Party != 3 || r[1].Round != 13 {
+		t.Errorf("Ola's rounds, imported: %+v", r)
+	}
+	if n := count(t, st, `SELECT count(*) FROM game_players WHERE game = 'DUOX-1795140000000' AND gone = 1 AND
+		player = 'e8f0b1f4' AND round = 8`); n != 1 {
+		t.Errorf("Ola's line of the game they had left: %d", n)
+	}
+	// an easter egg of the file is an event of its game now
+	if e := lea.eggs; len(e) != 1 || e[0].Seconds != 2500 || e[0].Party != 3 || len(ola.eggs) != 0 {
 		t.Errorf("the easter eggs, imported: Lea's %+v, Ola's %+v", e, ola.eggs)
 	}
 	if report == nil || report.Map != "zombie_moon" || report.Round != 13 || report.Seconds != 60 ||

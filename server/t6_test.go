@@ -34,7 +34,9 @@ import (
 // A client's "round 3"
 // is a round beginning, as the server's script in the game says it (t6Script), after each client's line of the
 // scoreboard (stats, with a team: 1 in the even slots and 2 in the odd), its "egg" the map's main quest done, with
-// every client in the game, and its "over" game over, on round 7, with its end played out a moment later ("over 4 2"
+// every client in the game ("egg 2" is Maxis's side of it), its "help bank", "help locker", "perk had jugg" or "perk
+// got jugg" what the client has from earlier games, as the script says it with the client's slot after it, and its
+// "over" game over, on round 7, with its end played out a moment later ("over 4 2"
 // is game over on round 4, and team 2 won); its "rotate" is the server rotating its map with no word of the script's.
 // Any other packet comes back as it is.
 func fakeT6(port string) {
@@ -112,6 +114,8 @@ func fakeT6(port string) {
 		}
 		round, isRound := strings.CutPrefix(text, "round ")
 		over, isOver := strings.CutPrefix(text, "over")
+		side, isEgg := strings.CutPrefix(text, "egg")
+		isCarried := strings.HasPrefix(text, "help ") || strings.HasPrefix(text, "perk ")
 		if name, named := strings.CutPrefix(text, "connectReq "); oob && named {
 			names[from.String()], text = name, "connectReq"
 		}
@@ -141,14 +145,16 @@ func fakeT6(port string) {
 			if i := slices.Index(clients, from.String()); i >= 0 {
 				clients[i] = ""
 			}
-		case oob && text == "egg":
-			line := "zombies_lobby: egg"
+		case oob && isEgg:
+			line := "zombies_lobby: egg " + cmp.Or(strings.TrimSpace(side), "0")
 			for slot, address := range clients {
 				if address != "" {
 					line += " " + strconv.Itoa(slot)
 				}
 			}
 			say(line)
+		case oob && isCarried:
+			say("zombies_lobby: " + text + " " + strconv.Itoa(slices.Index(clients, from.String())))
 		case oob && isOver:
 			stats(7)
 			say("zombies_lobby: over " + cmp.Or(strings.TrimSpace(over), "7"))
@@ -1077,6 +1083,65 @@ func TestT6RoomBeginsAsItsServerSays(t *testing.T) {
 	}
 }
 
+// A T6 game's clock starts as its level reports its first round, which is some time after its players were all in
+// and the game had begun for the room. The game's report counts from then, and has when each round began. A round
+// that the level reports again is not a round more.
+func TestT6ClockStartsWithRound1(t *testing.T) {
+	l, target := t6Lobby(t)
+	a, b := l.hello("", "Ann").Token, l.hello("", "Bob").Token
+	do(l, a, "create", "map", "zm_standard_town")
+	do(l, b, "join", "room", l.viewOf(a).Room.Code)
+	pagesOpen(l, a, b)
+	do(l, a, "ready", "ready", "true")
+	do(l, b, "ready", "ready", "true")
+	waitView(t, l, a, "the server up", func(v view) bool { return v.Room.T6 != nil && v.Room.T6.Up })
+	pagesAt(l, "127.0.0.1", a, b)
+	annsGame, bobsGame := windowsPlayer(t, target), windowsPlayer(t, target)
+	for _, game := range []*net.UDPConn{annsGame, bobsGame} {
+		game.Write([]byte("\xff\xff\xff\xffconnectReq"))
+		game.Read(make([]byte, 2048))
+	}
+	waitView(t, l, a, "both in the game", func(v view) bool { return v.Room.State == "playing" })
+	// the game's clock, and the report that the lobby keeps of the game, once it has one
+	game := func() (round1 time.Time, report gameResult) {
+		l.mu.Lock()
+		defer l.mu.Unlock()
+		rg := l.playerOf(a).room.game
+		if rg.report != nil {
+			report = *rg.report
+		}
+		return rg.round1, report
+	}
+	reached := func(round int) {
+		t.Helper()
+		annsGame.Write([]byte("\xff\xff\xff\xffround " + strconv.Itoa(round)))
+		waitFor(t, fmt.Sprintf("both players' round %d", round), func() bool {
+			rounds, _ := recordsOf(l, b)
+			return len(rounds) == 1 && rounds[0].Round == round
+		})
+	}
+	begun, _ := game()
+	const wait = 300 * time.Millisecond // the level's own start, before its round 1
+	time.Sleep(wait)
+	reached(1)
+	round1, report := game()
+	if round1.Sub(begun) < wait || !report.round1.Equal(round1) || report.Seconds != 0 ||
+		!slices.Equal(report.rounds, []gameRound{{round: 1}}) {
+		t.Errorf("the game's clock began %v after the game, and its report of round 1 has %d s and the rounds %+v",
+			round1.Sub(begun), report.Seconds, report.rounds)
+	}
+	time.Sleep(20 * time.Millisecond)
+	reached(2)
+	annsGame.Write([]byte("\xff\xff\xff\xffround 2"))
+	reached(3)
+	later, report := game()
+	rounds := report.rounds
+	if !later.Equal(round1) || len(rounds) != 3 || rounds[1].round != 2 || rounds[1].ms < 20 ||
+		rounds[2].round != 3 || rounds[2].ms < rounds[1].ms {
+		t.Errorf("the game's clock, which began at %v, at round 3: %v, and its rounds: %+v", round1, later, rounds)
+	}
+}
+
 // The end of the map's main quest, as the server's script in the game says it, is the easter egg's record of the
 // players in the game then, with the party the game started with, on T6's boards. It names the game, whose report is
 // that of the last round.
@@ -1121,6 +1186,99 @@ func TestT6RoomKeepsTheEasterEgg(t *testing.T) {
 	}
 	if all := boards.of(t6).Eggs.All; len(all.Rows) != 1 || all.Mine.Seconds != eggs[0].Seconds {
 		t.Errorf("T6's board of all its easter eggs: %+v", all)
+	}
+	// the game's report has the easter egg as an event of Ann's, in round 3: Origins' quest has no sides
+	l.mu.Lock()
+	events := l.reports[eggs[0].Game].events
+	l.mu.Unlock()
+	if len(events) != 1 || events[0].kind != eventEgg || events[0].player != l.playerOf(a).id ||
+		events[0].what != "" || events[0].round != 3 || events[0].seconds != eggs[0].Seconds {
+		t.Errorf("the game's events: %+v", events)
+	}
+}
+
+// What happens in a T6 game besides its rounds is kept with the game's report, as the server's script in the game
+// says it: a persistent upgrade that a player came with or earned, their points out of the bank and their gun out of
+// their weapon locker, from earlier games, and the easter egg with the side of the main quest that the players took.
+// Each has the player, the round the game was on and the time. A thing said again of a player is kept once.
+func TestT6GameHasEvents(t *testing.T) {
+	l, target := t6Lobby(t)
+	l.mu.Lock()
+	l.maps = func() []string { return []string{"zm_standard_town", "zm_classic_transit"} } // TranZit's quest has sides
+	l.mu.Unlock()
+	a, b := l.hello("", "Ann").Token, l.hello("", "Bob").Token
+	do(l, a, "create", "map", "zm_classic_transit")
+	do(l, b, "join", "room", l.viewOf(a).Room.Code)
+	pagesOpen(l, a, b)
+	do(l, a, "ready", "ready", "true")
+	do(l, b, "ready", "ready", "true")
+	waitView(t, l, a, "the server up", func(v view) bool { return v.Room.T6 != nil && v.Room.T6.Up })
+	pagesAt(l, "127.0.0.1", a, b)
+	annsGame, bobsGame := windowsPlayer(t, target), windowsPlayer(t, target)
+	for _, game := range []*net.UDPConn{annsGame, bobsGame} {
+		game.Write([]byte("\xff\xff\xff\xffconnectReq"))
+		game.Read(make([]byte, 2048))
+	}
+	waitView(t, l, a, "both in the game", func(v view) bool { return v.Room.State == "playing" })
+	// the events of the room's game so far, and those of the report that the lobby keeps of it
+	events := func() (game, kept []gameEvent) {
+		l.mu.Lock()
+		defer l.mu.Unlock()
+		rg := l.playerOf(a).room.game
+		if rg == nil {
+			return nil, nil
+		}
+		if rg.report != nil {
+			kept = l.unsavedGames[rg.report.ID].events
+		}
+		return slices.Clone(rg.events), slices.Clone(kept)
+	}
+	said := func(game *net.UDPConn, text string, n int) {
+		t.Helper()
+		game.Write([]byte("\xff\xff\xff\xff" + text))
+		waitFor(t, fmt.Sprintf("%d events after %q", n, text), func() bool { got, _ := events(); return len(got) == n })
+	}
+	said(annsGame, "round 2", 0)
+	waitFor(t, "both players' round 2", func() bool { rounds, _ := recordsOf(l, b); return len(rounds) == 1 })
+	said(annsGame, "perk had jugg", 1)
+	said(bobsGame, "help bank", 2)
+	annsGame.Write([]byte("\xff\xff\xff\xffround 3"))
+	waitFor(t, "both players' round 3", func() bool { rounds, _ := recordsOf(l, b); return rounds[0].Round == 3 })
+	said(annsGame, "help locker", 3)
+	said(annsGame, "perk got nube", 4)
+	// said again, and what the script would not say: neither is kept
+	for _, text := range []string{"perk had jugg", "help locker", "help fridge", "perk had Jugg!", "perk lost jugg"} {
+		annsGame.Write([]byte("\xff\xff\xff\xff" + text))
+	}
+	bobsGame.Write([]byte("\xff\xff\xff\xffhelp bank"))
+	said(annsGame, "egg 2", 6) // Maxis's side, with both in the game
+	ann, bob := l.playerOf(a).id, l.playerOf(b).id
+	got, kept := events()
+	want := []gameEvent{{round: 2, kind: eventPerk, player: ann, what: "jugg"},
+		{round: 2, kind: eventBank, player: bob}, {round: 3, kind: eventLocker, player: ann},
+		{round: 3, kind: eventPerkEarned, player: ann, what: "nube"},
+		{round: 3, kind: eventEgg, player: ann, what: maxis}, {round: 3, kind: eventEgg, player: bob, what: maxis}}
+	for i := range got {
+		if i < len(want) {
+			want[i].seconds = got[i].seconds // however long the test took
+		}
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("the game's events:\n%+v\nwant\n%+v", got, want)
+	}
+	if !slices.Equal(kept, want) {
+		t.Errorf("the events of the report that the lobby keeps:\n%+v\nwant\n%+v", kept, want)
+	}
+	if _, eggs := recordsOf(l, a); len(eggs) != 1 || eggs[0].Seconds != got[4].seconds {
+		t.Errorf("Ann's easter egg, and its event: %+v, %+v", eggs, got[4])
+	}
+	// the page is sent the report without them
+	l.mu.Lock()
+	boards := l.leaderboards(l.playerOf(a))
+	l.mu.Unlock()
+	if sent, err := json.Marshal(boards); err != nil || strings.Contains(string(sent), maxis) ||
+		strings.Contains(string(sent), "jugg") {
+		t.Errorf("the boards as the page gets them: %s, %v", sent, err)
 	}
 }
 

@@ -283,8 +283,8 @@ func runT6(conn net.PacketConn) {
 		case "round":
 			lines(number)
 			say("zombies_lobby: round " + value)
-		case "egg": // the map's main quest is done, with every client in the game
-			line := "zombies_lobby: egg"
+		case "egg": // the map's main quest is done, with every client in the game: a quest with no sides (0)
+			line := "zombies_lobby: egg 0"
 			for slot, c := range clients {
 				if c.address != "" {
 					line += " " + strconv.Itoa(slot)
