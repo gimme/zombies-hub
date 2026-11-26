@@ -151,10 +151,10 @@ func (*t7Title) drop(l *lobby, r *room, s *seat) {
 
 func (*t7Title) late(l *lobby, r *room, rg *roomGame) { l.pcLate(r, rg) }
 
-// lacks is false: nothing tells the server what a player's copy of Black Ops III has.
-func (*t7Title) lacks(*lobby, *player) bool { return false }
+// lacks reports whether p's copy of the game lacks their room's map, as their launcher says (launcher.go: pcLacks).
+func (*t7Title) lacks(l *lobby, p *player) bool { return l.pcLacks(p) }
 
-func (*t7Title) showMember(*lobby, *room, *player, *memberView) {}
+func (*t7Title) showMember(l *lobby, r *room, m *player, mv *memberView) { l.pcShowMember(r, m, mv) }
 
 func (*t7Title) showRoom(l *lobby, r *room, p *player, rv *roomView) {
 	rv.Password = r.password
@@ -183,6 +183,22 @@ func t7Reads(name string, server bool) bool {
 		return fastfile && !strings.Contains(name, "mp_")
 	}
 	return fastfile && strings.Contains(name, "zm_")
+}
+
+// t7Zone returns the game file that a T7 map's zone is, by its path in the game's folder, with slashes: a copy of the
+// game has the map when it has this file. It returns "" for a map that is none of T7's.
+func t7Zone(mapName string) string {
+	if slices.ContainsFunc(t7MapList, func(m mapEntry) bool { return m.name == mapName }) {
+		return "zone/" + mapName + ".ff"
+	}
+	return ""
+}
+
+// t7Sendable reports whether dir, a Black Ops III install, has what a player's game needs of the game, for the server
+// to send (gameSends): the game's program and its image packs, which a copy of what a server reads alone has not
+// (gameTakes).
+func t7Sendable(dir string) bool {
+	return isFile(filepath.Join(dir, "BlackOps3.exe")) && isFile(filepath.Join(dir, "zone", "base.xpak"))
 }
 
 // t7Installed returns the T7 maps that the game files have: dir is a Black Ops III install, and server one of Steam's

@@ -3,33 +3,41 @@
 // starts the launcher:
 //
 //	zombies-launcher://<host>[:<port>]/play?key=<key>[&tls=0]
-//	zombies-launcher://<host>[:<port>]/play?solo=1&name=<name>[&key=<key>][&tls=0]
+//	zombies-launcher://<host>[:<port>]/play?solo=1&name=<name>[&of=<title>][&map=<map>][&key=<key>][&tls=0]
 //
-// The second is the lobby's Play local: the launcher starts Black Ops II at its menu, for the player to play alone
-// under their name, and joins no room's game. Its key is there when the page could reach its server, and the
+// The second is the lobby's Play local: the launcher starts a game at its menu, for the player to play alone under
+// their name, and joins no room's game. The game is the title of (T6 when the link names none), and map is the map of
+// it that the player picked in the page: where the server sends game files a map at a time, the launcher gets that
+// map's before it starts the game. Its key is there when the page could reach its server, and the
 // launcher then calls the server as for a room, which shows how far the launcher is. Without it the launcher calls
 // no server: the page was the browser's copy, and the PC plays from what it has. An older launcher takes the link for
 // the first, and updates itself before it asks the server anything, so the release it takes plays alone.
+//
+// The launcher starts the titles that a player's own PC plays (T6, T7). The server takes a launcher for a title from
+// the version that plays it (MinVersionOf).
 //
 // The link names the page's server (tls=0 for a page on plain HTTP) and the player, by their key (server/rooms.go).
 // The launcher sends the key with every call, to identify its player. The key goes in a header, "Authorization: Key
 // <key>", and not in the URL, because a proxy in front of the server would log the URL. Every call also carries the
 // launcher's version, in the header Zombies-Launcher-Version (VersionHeader). The server answers a launcher older than
 // MinVersion, or one that sends no version, with 426 Upgrade Required and a sentence for the player, at every call
-// but the first two below.
+// but the first two below. It answers the same to a launcher that is too old for the title of its player's room.
 //
 //	POST /launcher/started          the launcher started a try, as the player pressed the room's button. It sends this
 //	                                first, before it looks for a later release of itself (launcher/update.go), and
 //	                                the server takes it from a launcher of any version. The player's room then shows
 //	                                at once that the launcher starts, where its next call may come only after the
 //	                                launcher has updated itself
-//	GET  /launcher/play[?ready=1][&has=<zones>][&seen=<version>]
-//	                                Play: what the player's PC is to play now. The launcher sends ready=1 once the
-//	                                PC has what the game needs (Plutonium, the game files) and it waits for the
-//	                                room's game. Once it knows the game folder that the player's game starts from,
-//	                                it sends has: those of the answer's Zones that the folder has, with commas
-//	                                between them. A room on a map in another zone then shows that the player's copy
-//	                                lacks the map. With seen, the version of the answer the launcher has (Play.Version),
+//	GET  /launcher/play[?of=<title>][&ready=1][&has=<zones>][&seen=<version>]
+//	                                Play: what the player's PC is to play now. of is the title that the launcher is
+//	                                at, which ready and has are of: the title of the player's room, or the one that
+//	                                the player plays alone. A launcher that sends none is at T6. The launcher sends
+//	                                ready=1 once the PC has what that title's game needs (Plutonium or BOIII, and
+//	                                the game files) and it waits for the room's game. Once it knows the game folder
+//	                                that the player's game starts from, it sends has: those of the title's Zones
+//	                                that the folder has, with commas between them. A room on a map in another zone
+//	                                then shows that the player's copy lacks the map. With seen, the version of the
+//	                                answer the launcher has (Play.Version),
 //	                                the server holds the call until its answer is another one, for up to 45 seconds.
 //	                                The launcher asks again as soon as it has an answer, so it has one call open.
 //	                                That call shows the server that the launcher runs, and the launcher learns of a
@@ -42,8 +50,10 @@
 //	                                next call. The server takes it from a launcher of any version, as it does the first
 //	POST /launcher/files            Report: how the launcher is doing, such as how far its download of the game files
 //	                                is. The room shows it
-//	GET  /launcher/t6/files         Files: Black Ops II's game files, as the server has them, when it sends game files
-//	GET  /launcher/t6/files/<path>  one of these files, from the offset in a Range header. Its ETag is its hash
+//	GET  /launcher/<title>/files    Files: a title's game files, as the server has them, when it sends them
+//	                                (Title.Downloads)
+//	GET  /launcher/<title>/files/<path>
+//	                                one of these files, from the offset in a Range header. Its ETag is its hash
 //	                                (File.Hash)
 //
 // The server does not hand out the launcher. Its builds are releases of the project on GitHub (Releases), which
@@ -77,6 +87,24 @@ const VersionHeader = "Zombies-Launcher-Version"
 // an older launcher, and of one that sends no version. Raise it when the server needs something that older launchers
 // do not do, once a release that does it is out. Version 0 is a dev build, which only a dev server takes.
 const MinVersion = 1
+
+// The titles that a launcher starts, by their ids on the server (server/title.go): Black Ops II, on Plutonium, and
+// Black Ops III, on BOIII.
+const (
+	T6 = "t6"
+	T7 = "t7"
+)
+
+// MinVersionOf returns the lowest version of the launcher that plays a title: MinVersion, or the version that
+// first started the title when that is later. A server refuses the calls of an older launcher while its player is in
+// a room of the title, as it refuses one older than MinVersion everywhere. The launcher then takes its latest
+// release, as it does before each try.
+func MinVersionOf(title string) int64 {
+	if title == T7 {
+		return max(MinVersion, 4)
+	}
+	return MinVersion
+}
 
 // Releases is where the launcher's releases are: the releases of the project on GitHub.
 const Releases = "https://github.com/gimme/zombies-hub/releases"
@@ -112,30 +140,45 @@ func ReleaseFile(releases string, version int64, file string) string {
 
 // Play is what a player's PC is to play now.
 type Play struct {
-	Player    string `json:"player"`              // the player's name, as their page shows it
-	Downloads bool   `json:"downloads,omitempty"` // the server sends Black Ops II's game files (see Files)
-	Room      string `json:"room,omitempty"`      // the code of the player's room, when it plays Black Ops II
-	InGame    bool   `json:"inGame,omitempty"`    // the player's game is in the room's game already
+	Player string `json:"player"` // the player's name, as their page shows it
+	// Room is the code of the player's room, when it plays a title that the launcher starts, and Of is that title. A
+	// server from before it hosted Black Ops III sends no Of: its rooms play T6.
+	Room   string `json:"room,omitempty"`
+	Of     string `json:"of,omitempty"`
+	InGame bool   `json:"inGame,omitempty"` // the player's game is in the room's game already
 	// Game is the room's game, from its start, when the game has a seat for the player and the player's game is not
 	// in it yet. It is nil while the room waits for its players, and when the game has no seat for the player.
 	Game *Game `json:"game,omitempty"`
-	// Plutonium is the revision of the server's copy of Plutonium, or 0 when the server has none yet. A room's game
-	// accepts only a player's game of the same revision. The server brings its copy up to date before each game, so
-	// the revision that comes with Game is the game's.
-	Plutonium int `json:"plutonium,omitempty"`
-	// Zones are the game files that tell which of the server's Black Ops II maps a copy of the game has: each map is
-	// in one of them, and a copy without a map's pack lacks its zone. Each is a path in the game's folder, with
-	// slashes (LocalPath). The launcher says which of them the player's game folder has (has, above). Needs is the
-	// zone of the room's map.
-	Zones []string `json:"zones,omitempty"`
-	Needs string   `json:"needs,omitempty"`
+	// Needs is the zone of the room's map, among the Zones of the room's title (Title).
+	Needs string `json:"needs,omitempty"`
+	// Titles has what the server says of each title that it hosts and a launcher starts, by the title's id.
+	Titles map[string]Title `json:"titles,omitempty"`
+	// Downloads, Plutonium and Zones are T6's (Title), as a launcher from before the launcher started Black Ops III
+	// reads them. They go once the server takes no such launcher (MinVersion).
+	Downloads bool     `json:"downloads,omitempty"`
+	Plutonium int      `json:"plutonium,omitempty"`
+	Zones     []string `json:"zones,omitempty"`
 	// Version identifies this answer: it changes when anything else in the answer changes. A launcher sends it back
 	// as seen, and the server then answers only once it has another answer. A server that does not hold calls sends
 	// no version.
 	Version string `json:"version,omitempty"`
 }
 
-// Game is a Black Ops II room's game, for the player's own game to join.
+// Title is what the server says of a title that a launcher starts.
+type Title struct {
+	// Downloads is set when the server sends the title's game files (Files), to a PC that has none, or lacks a map.
+	Downloads bool `json:"downloads,omitempty"`
+	// Zones are the game files that tell which of the server's maps of the title a copy of the game has: each map is
+	// in one of them, and a copy without a map's pack lacks its zone. Each is a path in the game's folder, with
+	// slashes (LocalPath). The launcher says which of them the player's game folder has (has, above).
+	Zones []string `json:"zones,omitempty"`
+	// Plutonium is the revision of the server's copy of Plutonium, for T6, or 0 when the server has none yet. A room's
+	// game accepts only a player's game of the same revision. The server brings its copy up to date before each game,
+	// so the revision that comes with Game is the game's.
+	Plutonium int `json:"plutonium,omitempty"`
+}
+
+// Game is a room's game, for the player's own game to join.
 type Game struct {
 	// ID identifies the game among the room's games. A launcher whose player's game runs for another of the room's
 	// games has the player's game join this one.
@@ -143,9 +186,9 @@ type Game struct {
 	Port     int    `json:"port"`     // the UDP port where the game is reached, on the server's host
 	Password string `json:"password"` // the game's password
 	Name     string `json:"name"`     // the name that the game knows the player by
-	// Up is set once Plutonium's server answers, and a player's game that asks to join gets in. A game that starts
-	// takes longer than the server does, so the launcher starts one before. A player's game that runs already, from
-	// the room's last game, asks to join only once the game is up.
+	// Up is set once the room's game answers the server, and a player's game that asks to join gets in. A game that
+	// starts takes longer than the room's does, so the launcher starts one before. A player's game that runs already,
+	// from the room's last game, asks to join only once the game is up.
 	Up bool `json:"up,omitempty"`
 }
 
@@ -176,10 +219,15 @@ type Files struct {
 }
 
 // File is one of the game files: its path in the game's folder, with slashes, and the hash of its contents (HashOf).
+// Pack names the part of the game that the file is of, where the server sends a title's files in parts: a map, by
+// its name on the server, for a file that only that map needs, or "" for a file that every map needs. A launcher
+// downloads the files that every map needs, and those of the maps that its player plays (the zone of a map, among a
+// title's Zones, is of the map's pack).
 type File struct {
 	Path string `json:"path"`
 	Size int64  `json:"size"`
 	Hash string `json:"hash"`
+	Pack string `json:"pack,omitempty"`
 }
 
 // StateFile is the name of the file that a launcher keeps in a folder of game files it downloaded. The file records

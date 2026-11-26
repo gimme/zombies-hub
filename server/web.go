@@ -119,10 +119,12 @@ type web struct {
 	downloads bool
 	pace      *pacer
 	// The launcher (launcher.go). t6Dir is the folder of T6's game files, which the launcher downloads, or "" on a
-	// server without them. t6list is the list of them that the server last made.
+	// server without them. t7Send is the folder that it downloads T7's from, or "" on a server that has none to send
+	// (main.go). sent has the list of each title's files that the server last made (sending).
 	t6Dir  string
-	t6mu   sync.Mutex
-	t6list *launcherFiles
+	t7Send string
+	sentMu sync.Mutex
+	sent   map[string]*sentFiles
 
 	hashes   fileHashes // the hashes of the game files' contents (hashes.go)
 	building sync.Mutex // one manifest is made at a time (buildManifest)

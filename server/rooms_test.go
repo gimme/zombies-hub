@@ -314,7 +314,7 @@ func TestRoomTitles(t *testing.T) {
 	const theater, pentagon, town, tomb = "zombie_theater", "zombie_pentagon", "zm_standard_town", "zm_classic_tomb"
 	l.maps = func() []string { return []string{theater, pentagon, town, tomb} }
 	ann, bob, cy := l.hello("", "Ann").Token, l.hello("", "Bob").Token, l.hello("", "Cy").Token
-	if got := l.viewOf(ann).Titles; !slices.Equal(got, []titleView{{t5, "Black Ops"}, {t6, "Black Ops II"}}) {
+	if got := l.viewOf(ann).Titles; !slices.Equal(got, []titleView{{ID: t5, Name: "Black Ops"}, {ID: t6, Name: "Black Ops II"}}) {
 		t.Errorf("the titles: %+v", got)
 	}
 	do(l, ann, "create")
@@ -439,7 +439,7 @@ func TestRoomTitles(t *testing.T) {
 	l.mu.Lock()
 	l.maps = func() []string { return []string{theater, pentagon} }
 	l.mu.Unlock()
-	if got := l.viewOf(cy).Titles; !slices.Equal(got, []titleView{{t5, "Black Ops"}}) {
+	if got := l.viewOf(cy).Titles; !slices.Equal(got, []titleView{{ID: t5, Name: "Black Ops"}}) {
 		t.Errorf("the titles of a server of Black Ops: %+v", got)
 	}
 	do(l, cy, "create")

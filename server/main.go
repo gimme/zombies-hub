@@ -154,7 +154,8 @@ func run() int {
 	consoleSocket := flag.String("console", env("ZOMBIES_CONSOLE", defaultConsole), `the console's Unix socket, for "zombies-server console"; "" for none (ZOMBIES_CONSOLE)`)
 	dev := flag.Bool("dev", envInt("ZOMBIES_DEV", 0) != 0, "a dev run: the web client blinks what it leaves out of the picture, as the engine does, instead of drawing it black, and the server takes dev builds of the launcher (ZOMBIES_DEV=1)")
 	cheats := flag.Bool("cheats", envInt("ZOMBIES_CHEATS", 0) != 0, "run games with cheats on (devmap), for tests (ZOMBIES_CHEATS=1)")
-	downloadRate := flag.String("download-rate", env("ZOMBIES_DOWNLOAD_RATE", ""), "send browsers the game files, at most this many bits a second in total (40M, 500k, 1G), or unlimited; empty sends none (ZOMBIES_DOWNLOAD_RATE)")
+	downloadRate := flag.String("download-rate", env("ZOMBIES_DOWNLOAD_RATE", ""), "send browsers and launchers the game files, at most this many bits a second in total (40M, 500k, 1G), or unlimited; empty sends none (ZOMBIES_DOWNLOAD_RATE)")
+	sendDir := flag.String("send-dir", env("ZOMBIES_SEND_DIR", ""), "game files that the server sends to launchers from another folder than its games read: a folder t7 there is a Black Ops III install, for a server whose t7 in -game-dir has only what a server reads of it; empty: it sends from -game-dir (ZOMBIES_SEND_DIR)")
 	hangTimeout := flag.Duration("hang-timeout", envDuration("ZOMBIES_HANG_TIMEOUT", time.Minute), "how long a game may run no frame, or answer no one, before it ends; 0: never (ZOMBIES_HANG_TIMEOUT)")
 	discordID := flag.String("discord-client-id", env("ZOMBIES_DISCORD_CLIENT_ID", ""), "have players sign in with Discord: your Discord application's client ID (needs -discord-client-secret) (ZOMBIES_DISCORD_CLIENT_ID)")
 	// The default is not taken from the environment, because -h prints the defaults and would show the secret.
@@ -403,6 +404,20 @@ func run() int {
 	if len(t6Maps) > 0 {
 		pages.t6Dir = t6Files
 	}
+	// A player's game needs far more of Black Ops III than its server reads. The server sends the game from the folder
+	// that has it all: the one its games read, or the one in -send-dir.
+	if len(t7Maps) > 0 && downloads {
+		from := t7Files
+		if dir := titleDir(*sendDir, t7); *sendDir != "" && t7Sendable(dir) {
+			from = dir
+		}
+		if t7Sendable(from) {
+			pages.t7Send = from
+		} else {
+			log.Printf("server: the server sends no game files of Black Ops III: %s has what a server reads of the game, and not what a player's game needs (the whole install; ZOMBIES_SEND_DIR names another folder that has one, as t7)", t7Files)
+		}
+	}
+	l.sends = pages.sentPacks
 	t5Maps := installedMaps(pages.paths)
 	l.maps = func() []string { return slices.Concat(t5Maps(), t6Maps, t7Maps) }
 	l.mapDesc = pages.mapDescription
@@ -438,14 +453,27 @@ func run() int {
 			}
 		}
 	}()
-	// List T6's game files now too, when the server sends them (launcher.go). Hashing them takes a while the first time.
-	if pages.sendsT6() {
-		go func() {
-			list := pages.t6Files()
-			log.Printf("files: the launcher downloads Black Ops II's game files to a PC without them: %d files, %.1f GB",
-				len(list.Files.Files), float64(list.Bytes)/1e9)
-		}()
-	}
+	// List the game files that the server sends to launchers now too (launcher.go). Hashing them takes a while the
+	// first time: a minute for Black Ops II, and several for Black Ops III. The page then has their sizes.
+	go func() {
+		for _, of := range []string{t6, t7} {
+			s := pages.sending(of)
+			if s == nil {
+				continue
+			}
+			list := pages.listFiles(s)
+			_, packs := pages.sentPacks(of)
+			each := ""
+			if len(packs) > 1 {
+				each = fmt.Sprintf(": %.1f GB that every map needs, and the rest a map at a time", float64(packs[""])/1e9)
+			}
+			log.Printf("files: the launcher downloads %s's game files to a PC without them, from %s: %d files, %.1f GB%s",
+				s.label, s.dir, len(list.Files.Files), float64(list.Bytes)/1e9, each)
+			l.mu.Lock()
+			l.change()
+			l.mu.Unlock()
+		}
+	}()
 	// Make the players' pictures now too (pictures.go), after the relay and the HTTP server have started. The pictures
 	// are read from the archives in the game files, and that waits for the hashes. Until the pictures are made the
 	// server has none. havePictures then gives one to each player who needs one.
@@ -482,7 +510,8 @@ func run() int {
 		log.Printf("server: its players join from their PCs with the launcher, from %s (%s)", launcherapi.Releases, takes)
 	}
 	if len(t7Maps) > 0 {
-		log.Printf("server: rooms play Black Ops III on BOIII (its copy: %s); their players join from their PCs, by hand", *boiiiDir)
+		log.Printf("server: rooms play Black Ops III on BOIII (its copy: %s); their players join from their PCs with the launcher, from version %d",
+			*boiiiDir, launcherapi.MinVersionOf(t7))
 	}
 	if gameUID != 0 {
 		log.Printf("server: the games run as user %d, the server as %d", gameUID, os.Getuid())

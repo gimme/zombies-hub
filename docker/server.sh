@@ -43,8 +43,8 @@
 # ZOMBIES_MIN_PLAYERS    The players a room needs to start a game (default 1 here, so that one player can try a game
 #                        alone; 2 is the server's own default).
 # ZOMBIES_MAX_PLAYERS    Passed through when set. The most players a room's host may set it to take, 1 to 8 (default 4).
-# ZOMBIES_DOWNLOAD_RATE  The most bits a second of game files that the server sends to browsers (40M), unlimited (the
-#                        default), or off.
+# ZOMBIES_DOWNLOAD_RATE  The most bits a second of game files that the server sends to browsers and to players'
+#                        launchers (40M), unlimited (the default), or off.
 # WINEDEBUG              Passed through when set. For example, WINEDEBUG=+loaddll shows which DLLs load (native or
 #                        builtin), and WINEDEBUG=+msgbox shows the text of a message box that a game is stuck on.
 #                        There is no display to show a message box. A game opens none, but a DLL might.
@@ -84,6 +84,9 @@ docker build --progress=$progress -f "$here/Dockerfile" --target server -t "$ima
 mkdir -p "$svhome"
 gamefiles=$(game_args zombies-hub-game "$image")
 mapfile -t gamefiles <<<"$gamefiles"
+sendfiles=$(send_args)
+mapfile -t sendfiles <<<"$sendfiles"
+[ -n "${sendfiles[0]}" ] || sendfiles=()
 mapfile -t engine < <(engine_args "$name")
 # In Git Bash the server's copies of Plutonium and of BOIII and the games' home folders go in Docker volumes too.
 # /config is a Windows folder there, and Wine can't run a program from one (host.sh). With Plutonium in /config, a
@@ -106,6 +109,6 @@ docker run --rm $tty --name "$name" $net --cap-add NET_ADMIN \
     ${ZOMBIES_CHEATS:+-e ZOMBIES_CHEATS="$ZOMBIES_CHEATS"} \
     -e ZOMBIES_MIN_PLAYERS="${ZOMBIES_MIN_PLAYERS:-1}" \
     ${ZOMBIES_MAX_PLAYERS:+-e ZOMBIES_MAX_PLAYERS="$ZOMBIES_MAX_PLAYERS"} \
-    "${gamefiles[@]}" -v "$(abs "$svhome"):/config" -v "$root/web/dist:/web:ro" \
+    "${gamefiles[@]}" "${sendfiles[@]}" -v "$(abs "$svhome"):/config" -v "$root/web/dist:/web:ro" \
     "${engine[@]}" "${pluto[@]}" \
     "$image" -map "$map" -- "$@"

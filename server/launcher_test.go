@@ -149,7 +149,10 @@ func TestLauncherPlay(t *testing.T) {
 		t.Errorf("a key as a page's token: %s", rsp.Status)
 	}
 	play := playOf(t, h, ann.Key)
-	if version := play.Version; version == "" || !reflect.DeepEqual(play, launcherapi.Play{Player: "Ann", Version: version}) {
+	// in no room, the answer has what the server says of each title that a launcher starts: its maps' zones
+	titles := map[string]launcherapi.Title{t6: {Zones: []string{"zone/all/zm_tomb.ff", "zone/all/zm_transit.ff"}}}
+	if version := play.Version; version == "" ||
+		!reflect.DeepEqual(play, launcherapi.Play{Player: "Ann", Titles: titles, Version: version}) {
 		t.Errorf("in no room: %+v", play)
 	}
 	// a T5 room is the page's to play
@@ -654,5 +657,148 @@ func TestLauncherSaysWhatTheCopyHas(t *testing.T) {
 	says(transit)
 	if l.viewOf(ann.Token).You.Ready || !missing() {
 		t.Error("a ready player whose game folder lost the room's map is still ready")
+	}
+}
+
+// A launcher starts the titles that a player's PC plays. The server tells it of each one that it hosts, takes it for
+// a title only from the version that plays the title, and keeps what it says of a title's game folder apart from
+// another title's.
+func TestLauncherTitles(t *testing.T) {
+	l := testLobby(t)
+	l.maps = func() []string { return []string{"zombie_theater", "zm_standard_town", "zm_factory", "zm_tomb"} }
+	dir, _ := t7GameFiles(t, "zm_factory", "zm_tomb")
+	h := &web{lobby: l, publicPort: 4000, t7Send: dir, downloads: true, pace: &pacer{}}
+	ann := l.hello("", "Ann")
+	a := ann.Token
+	fits := strconv.FormatInt(launcherapi.MinVersionOf(t7), 10)
+	old := strconv.FormatInt(launcherapi.MinVersionOf(t7)-1, 10)
+	asked := func(path, version string) (int, launcherapi.Play) {
+		rsp, body := asLauncher(h, http.MethodGet, path, ann.Key, "", launcherapi.VersionHeader, version)
+		var play launcherapi.Play
+		json.Unmarshal([]byte(body), &play)
+		return rsp.StatusCode, play
+	}
+	// each title's zones, and whether the server sends its game files: T7's here, and none of T6, which it has no
+	// folder of
+	_, play := asked("/launcher/play", fits)
+	want := map[string]launcherapi.Title{
+		t6: {Zones: []string{"zone/all/zm_transit.ff"}},
+		t7: {Zones: []string{"zone/zm_factory.ff", "zone/zm_tomb.ff"}, Downloads: true},
+	}
+	if !reflect.DeepEqual(play.Titles, want) || play.Downloads || play.Room != "" {
+		t.Errorf("the titles, to a launcher: %+v", play)
+	}
+	// a launcher from before the launcher started Black Ops III is taken in a T6 room, and when it asks of T6, and
+	// refused in a T7 room, and when it asks of T7: its room then says that it is too old
+	do(l, a, "create", "map", "zm_standard_town")
+	if status, play := asked("/launcher/play", old); status != http.StatusOK || play.Of != t6 || play.Room == "" ||
+		!slices.Equal(play.Zones, want[t6].Zones) {
+		t.Errorf("an older launcher, in a T6 room: %d, %+v", status, play)
+	}
+	if status, _ := asked("/launcher/play?of=t7", old); status != http.StatusUpgradeRequired {
+		t.Errorf("an older launcher that asks of T7: %d", status)
+	}
+	if status, _ := asked("/launcher/t7/files", old); status != http.StatusUpgradeRequired {
+		t.Errorf("T7's game files, to an older launcher: %d", status)
+	}
+	asked("/launcher/play", old) // the launcher is taken again
+	do(l, a, "room", "title", t7, "map", "zm_tomb")
+	if status, _ := asked("/launcher/play", old); status != http.StatusUpgradeRequired || !l.viewOf(a).You.LauncherOld {
+		t.Errorf("an older launcher, in a T7 room: %d, old %v", status, l.viewOf(a).You.LauncherOld)
+	}
+	status, play := asked("/launcher/play?of=t7&ready=1&has=zone/zm_factory.ff", fits)
+	if status != http.StatusOK || play.Of != t7 || play.Needs != "zone/zm_tomb.ff" || play.Zones != nil || play.Game != nil {
+		t.Errorf("a launcher, in a T7 room: %d, %+v", status, play)
+	}
+	// the launcher said that the game folder lacks the room's map: the room shows it, and what the folder has
+	v := l.viewOf(a)
+	if !v.Room.Members[0].Missing || !v.You.LauncherReady || v.You.LauncherOf != t7 || !v.You.LauncherFolder ||
+		!slices.Equal(v.You.LauncherMaps, []string{"zm_factory"}) {
+		t.Errorf("the room of a player whose copy lacks its map: %+v, %+v", v.Room.Members[0], v.You)
+	}
+	if err := l.setReady(l.playerOf(a), true); err == nil {
+		t.Error("a player whose copy lacks the room's map is ready")
+	}
+	// a launcher that is at T6 has said nothing of T7's folder, and has the PC ready for another game than the room's
+	asked("/launcher/play?ready=1&has=zone/all/zm_transit.ff", fits)
+	if v := l.viewOf(a); v.Room.Members[0].Missing || v.You.LauncherReady || v.You.LauncherOf != t6 {
+		t.Errorf("the room of a player whose launcher is at another title: %+v, %+v", v.Room.Members[0], v.You)
+	}
+	asked("/launcher/play?of=t7&ready=1&has=zone/zm_factory.ff,zone/zm_tomb.ff", fits)
+	if v := l.viewOf(a); v.Room.Members[0].Missing || !v.You.LauncherReady || len(v.You.LauncherMaps) != 2 {
+		t.Errorf("the room of a player whose copy has its map: %+v, %+v", v.Room.Members[0], v.You)
+	}
+}
+
+// The server sends Black Ops III's game files in packs: one for each map, and one that every map needs. The page has
+// their sizes once the server has listed the files. A server whose folder has only what a server reads sends none.
+func TestLauncherPacks(t *testing.T) {
+	l := testLobby(t)
+	l.maps = func() []string { return []string{"zm_factory", "zm_tomb"} }
+	dir, _ := t7GameFiles(t, "zm_factory", "zm_tomb")
+	for _, name := range []string{"boiii.exe", "boiii_players/properties.json", "zone/mp_common.ff", "CrashUploader.exe"} {
+		writeTestFile(t, filepath.Join(dir, filepath.FromSlash(name)))
+	}
+	if !t7Sendable(dir) {
+		t.Fatal("a whole install is not one to send")
+	}
+	h := &web{lobby: l, t7Send: dir, downloads: true, pace: &pacer{}}
+	l.sends = h.sentPacks
+	key := l.hello("", "Ann")
+	if downloads, packs := h.sentPacks(t7); !downloads || packs != nil {
+		t.Errorf("before the server listed the files: sends %v, packs %v", downloads, packs)
+	}
+	rsp, body := asLauncher(h, http.MethodGet, "/launcher/t7/files", key.Key, "", launcherapi.VersionHeader,
+		strconv.FormatInt(launcherapi.MinVersionOf(t7), 10))
+	var list launcherapi.Files
+	if err := json.Unmarshal([]byte(body), &list); err != nil || rsp.StatusCode != http.StatusOK {
+		t.Fatalf("the list: %s, %q (%v)", rsp.Status, body, err)
+	}
+	packs := map[string][]string{}
+	for _, f := range list.Files {
+		packs[f.Pack] = append(packs[f.Pack], f.Path)
+	}
+	want := map[string][]string{
+		"": {"BlackOps3.exe", "zone/base.xpak", "zone/core_common.ff", "zone/en_zm_common.ff", "zone/snd/all/zm_common.all.sabs",
+			"zone/zm_common.fd", "zone/zm_common.ff", "zone/zm_levelcommon.ff", "zone/zm_levelcommon.xpak", "zone/zm_patch.ff"},
+		"zm_factory": {"zone/en_zm_factory.ff", "zone/zm_factory.ff", "zone/zm_factory.xpak", "zone/zm_factory_patch.ff"},
+		"zm_tomb":    {"zone/en_zm_tomb.ff", "zone/zm_tomb.ff", "zone/zm_tomb.xpak", "zone/zm_tomb_patch.ff"},
+	}
+	if !reflect.DeepEqual(packs, want) {
+		t.Errorf("the packs: %v", packs)
+	}
+	rsp, body = asLauncher(h, http.MethodGet, "/launcher/t7/files/zone/zm_tomb.xpak", key.Key, "", launcherapi.VersionHeader,
+		strconv.FormatInt(launcherapi.MinVersionOf(t7), 10))
+	if rsp.StatusCode != http.StatusOK || body != "zm_tomb.xpak" {
+		t.Errorf("a file of a pack: %s, %q", rsp.Status, body)
+	}
+	// the page has the size of what every map needs on the title, and each map's own on the map
+	v := l.viewOf(key.Token)
+	title := v.Titles[slices.IndexFunc(v.Titles, func(t titleView) bool { return t.ID == t7 })]
+	var shared int64
+	for _, path := range want[""] {
+		shared += int64(len(filepath.Base(path)))
+	}
+	if !title.Downloads || title.Bytes != shared {
+		t.Errorf("the title, to the page: %+v, where every map needs %d bytes", title, shared)
+	}
+	for _, m := range v.Maps {
+		if m.Name == "zm_tomb" && m.Bytes != int64(len("en_zm_tomb.ffzm_tomb.ffzm_tomb.xpakzm_tomb_patch.ff")) {
+			t.Errorf("the map, to the page: %+v", m)
+		}
+	}
+	// a folder with only what a server reads of the game is none to send
+	read, _ := t7GameFiles(t, "zm_factory")
+	os.Remove(filepath.Join(read, "zone", "base.xpak"))
+	if t7Sendable(read) {
+		t.Error("a folder without the game's image packs is one to send")
+	}
+	h.t7Send = ""
+	if rsp, _ := asLauncher(h, http.MethodGet, "/launcher/t7/files", key.Key, "", launcherapi.VersionHeader,
+		strconv.FormatInt(launcherapi.MinVersionOf(t7), 10)); rsp.StatusCode != http.StatusForbidden {
+		t.Errorf("the list, from a server that sends none of T7: %s", rsp.Status)
+	}
+	if v := l.viewOf(key.Token); v.Titles[0].Downloads || v.Titles[0].Bytes != 0 {
+		t.Errorf("the title, to the page of a server that sends none of it: %+v", v.Titles[0])
 	}
 }

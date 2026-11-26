@@ -193,21 +193,10 @@ func (*t6Title) drop(l *lobby, r *room, s *seat) {
 
 func (*t6Title) late(l *lobby, r *room, rg *roomGame) { l.pcLate(r, rg) }
 
-// lacks reports whether p's game folder lacks the zone of their room's map, as their launcher says (launcherHas): a
-// copy of the game without the map's pack. The launcher gets the rest of what the PC lacks. lacks is false while the
-// launcher has said nothing of the folder: it is not running, it is still getting the game files, or it is a launcher
-// from before it said. A player who joins by hand is not checked either.
-func (*t6Title) lacks(l *lobby, p *player) bool {
-	zone := t6Zone(p.room.mapName)
-	return zone != "" && p.launcher.copied && !slices.Contains(p.launcher.has, zone)
-}
+// lacks reports whether p's copy of the game lacks their room's map, as their launcher says (launcher.go: pcLacks).
+func (*t6Title) lacks(l *lobby, p *player) bool { return l.pcLacks(p) }
 
-func (*t6Title) showMember(l *lobby, r *room, m *player, mv *memberView) {
-	if !mv.InGame {
-		mv.Downloading, mv.Got = m.downloading() // their launcher's download of T6's game files (launcher.go)
-	}
-	mv.Missing = r.game == nil && !mv.Downloading && l.missing(m)
-}
+func (*t6Title) showMember(l *lobby, r *room, m *player, mv *memberView) { l.pcShowMember(r, m, mv) }
 
 func (*t6Title) showRoom(l *lobby, r *room, p *player, rv *roomView) {
 	rv.Password = r.password

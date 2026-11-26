@@ -134,21 +134,24 @@ const defaultRoomSize = 4
 // The answer to a POST is {} or {"error": "..."}, and the page shows the error. The status is 401 for a token the
 // server doesn't know.
 type lobby struct {
-	roomSize    int                 // the most players a room may take (room.size), and its game's sv_maxclients
-	minPlayers  int                 // players a room's game needs, at least 1 (a player alone can play locally)
-	defaultMap  string              // the map of a new room
-	maps        func() []string     // returns the Zombies maps that the game files have
-	mapDesc     func(string) string // returns a map's description in the game's map select, or "" (mapart.go)
-	gamePorts   []int               // the games' ports on 127.0.0.1, one for each game that can run at once
-	loadTimeout time.Duration       // how long a game waits for its players before it is called off
-	joinWait    time.Duration       // how long a T6 player's game waits to join for a player before them (pcTurn)
-	pcWay       time.Duration       // how long a T6 player's game is waited for by another room's at its address (pcWaits)
-	sweepEvery  time.Duration       // how often sweep checks for players who are gone and games to end
-	countdown   time.Duration       // how long a room's game waits to start once everyone in the room is ready
-	privateFor  time.Duration       // how long a new room is listed as private, so that its maker can make it private
-	titles      []title             // the titles the server hosts (title.go); a map it doesn't list gets the first
-	files       *fileLists          // the lists of the files each map reads (files.go)
-	relay       *relay              // the relay, which gives the seats their addresses
+	roomSize   int                 // the most players a room may take (room.size), and its game's sv_maxclients
+	minPlayers int                 // players a room's game needs, at least 1 (a player alone can play locally)
+	defaultMap string              // the map of a new room
+	maps       func() []string     // returns the Zombies maps that the game files have
+	mapDesc    func(string) string // returns a map's description in the game's map select, or "" (mapart.go)
+	// sends, when set, reports whether the server sends a title's game files to launchers, and returns the size of
+	// each pack of them that it has listed so far (launcher.go: sentPacks).
+	sends       func(of string) (downloads bool, packs map[string]int64)
+	gamePorts   []int         // the games' ports on 127.0.0.1, one for each game that can run at once
+	loadTimeout time.Duration // how long a game waits for its players before it is called off
+	joinWait    time.Duration // how long a T6 player's game waits to join for a player before them (pcTurn)
+	pcWay       time.Duration // how long a T6 player's game is waited for by another room's at its address (pcWaits)
+	sweepEvery  time.Duration // how often sweep checks for players who are gone and games to end
+	countdown   time.Duration // how long a room's game waits to start once everyone in the room is ready
+	privateFor  time.Duration // how long a new room is listed as private, so that its maker can make it private
+	titles      []title       // the titles the server hosts (title.go); a map it doesn't list gets the first
+	files       *fileLists    // the lists of the files each map reads (files.go)
+	relay       *relay        // the relay, which gives the seats their addresses
 	ctx         context.Context
 
 	discord *discordAuth // players sign in with Discord (discord.go); when nil, anyone plays under a name they pick
@@ -726,6 +729,11 @@ type view struct {
 type titleView struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
+	// Downloads is set when the server sends the title's game files to a player's launcher (web.sending). Bytes is
+	// then the size of what the launcher downloads for every map of the title, once the server has listed its files:
+	// all of Black Ops II, and of Black Ops III what every map needs, where each map has more of its own (mapView).
+	Downloads bool  `json:"downloads,omitempty"`
+	Bytes     int64 `json:"bytes,omitempty"`
 }
 
 type mapView struct {
@@ -742,6 +750,9 @@ type mapView struct {
 	// Versus is how its players play against each other: "grief" or "turned", or "" on a co-op map (mapEntry). A room's
 	// grid shows the maps of the room's versus alone.
 	Versus string `json:"versus,omitempty"`
+	// Bytes is the size of what a launcher downloads for the map alone, where the server sends its title's game files
+	// a map at a time (titleView), once the server has listed them.
+	Bytes int64 `json:"bytes,omitempty"`
 }
 
 // pictureView is a picture of the set (pictures.go): its id (the page loads GET /pictures/<id>.png), its name, and
@@ -766,7 +777,8 @@ type youView struct {
 	Windows       bool   `json:"windows,omitempty"` // they play on Windows (onWindows)
 	Ready         bool   `json:"ready,omitempty"`   // they are ready to play their room's next game (isReady)
 	// Launcher is set while their launcher runs (launcherOpen). Their page then does not open a launcher.
-	// LauncherReady is set when the launcher reported that their PC has what the game needs. LauncherFailed is what
+	// LauncherReady is set when the launcher reported that their PC has what the game needs: the game of their
+	// room's title, in a PC room (launcherReady). LauncherFailed is what
 	// kept the launcher from getting the PC ready, or from starting the game, when it last tried.
 	Launcher       bool   `json:"launcher,omitempty"`
 	LauncherReady  bool   `json:"launcherReady,omitempty"`
@@ -784,6 +796,12 @@ type youView struct {
 	// which has no room, shows it here.
 	LauncherDownloading bool    `json:"launcherDownloading,omitempty"`
 	LauncherGot         float64 `json:"launcherGot,omitempty"`
+	// LauncherOf is the title that their launcher is at (launcherAt), while it runs. LauncherMaps are the maps of that
+	// title that the game folder of their PC has, once the launcher has said (launcherMaps): LauncherFolder is set
+	// then, also for a folder that has none. The lobby's Play local shows them.
+	LauncherOf     string   `json:"launcherOf,omitempty"`
+	LauncherFolder bool     `json:"launcherFolder,omitempty"`
+	LauncherMaps   []string `json:"launcherMaps,omitempty"`
 }
 
 // roomItem is a room in the list. A room that is private, or less than privateFor old, is listed as private and
@@ -916,23 +934,34 @@ func (l *lobby) view(p *player) view {
 	// seat's join).
 	v := view{You: youView{ID: p.id, Name: p.asked, Avatar: l.avatar(p), Picture: l.pictureShown(p),
 		DiscordAvatar: p.discordAvatar(), Windows: p.shown.windows, Ready: l.isReady(p),
-		Launcher: l.launcherOpen(p), LauncherReady: l.launcherOpen(p) && p.launcher.ready,
+		Launcher: l.launcherOpen(p), LauncherReady: l.launcherReady(p),
 		LauncherFailed: p.launcher.Failed, LauncherDoing: p.launcher.Doing,
 		LauncherOld: p.launcher.old || p.launcher.Setup},
 		Size: l.roomSize, MinPlayers: l.minPlayers, Mods: modList, Pictures: l.picturesShown, Rooms: []roomItem{},
 		Full: l.full(), DefaultMap: l.mapName("")}
 	v.You.LauncherDownloading, v.You.LauncherGot = p.downloading()
+	if l.launcherOpen(p) {
+		v.You.LauncherOf = p.launcher.of
+		v.You.LauncherMaps, v.You.LauncherFolder = l.launcherMaps(p)
+	}
 	if v.Pictures == nil {
 		v.Pictures = []pictureView{} // none yet
 	}
 	v.Titles = []titleView{}
+	packs := map[string]map[string]int64{} // the size of each pack of each title's game files that the server sends
 	for _, t := range l.hosted() {
-		v.Titles = append(v.Titles, titleView{ID: t.id(), Name: t.label()})
+		tv := titleView{ID: t.id(), Name: t.label()}
+		if l.sends != nil {
+			tv.Downloads, packs[t.id()] = l.sends(t.id())
+			tv.Bytes = packs[t.id()][""]
+		}
+		v.Titles = append(v.Titles, tv)
 	}
 	have := l.maps()
 	for _, m := range mapTitles {
 		mv := mapView{Name: m.name, Title: m.title, Of: m.of, Have: slices.Contains(have, m.name),
-			List: l.files != nil && l.files.reads[m.name] != nil, Place: m.place, Mode: m.mode, Versus: m.versus}
+			List: l.files != nil && l.files.reads[m.name] != nil, Place: m.place, Mode: m.mode, Versus: m.versus,
+			Bytes: packs[m.of][m.name]}
 		if l.mapDesc != nil {
 			mv.Desc = l.mapDesc(m.name)
 		}
@@ -2147,7 +2176,7 @@ func (l *lobby) setGamepad(p *player, on bool) {
 	l.change()
 }
 
-// setHand stores whether the player joins their T6 rooms' games by hand (POST /lobby/hand), as the checkbox in their
+// setHand stores whether the player joins their PC rooms' games by hand (POST /lobby/hand), as the checkbox in their
 // page says, which their browser remembers. Their launcher is then sent no game (launcherPlay). The server doesn't
 // store it: a page tells it again each time its event stream opens.
 func (l *lobby) setHand(p *player, on bool) {
@@ -2155,7 +2184,7 @@ func (l *lobby) setHand(p *player, on bool) {
 		return
 	}
 	p.byHand = on
-	log.Printf("server: %s joins Black Ops II games %s", p.asked, map[bool]string{true: "by hand", false: "with the launcher"}[on])
+	log.Printf("server: %s joins the games of their own PC %s", p.asked, map[bool]string{true: "by hand", false: "with the launcher"}[on])
 	l.change()
 }
 

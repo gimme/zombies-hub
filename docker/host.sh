@@ -45,6 +45,12 @@
 #             whatever its note says.
 # game_args <volume> <image>
 #             Prints docker run's arguments for those mounts, one per line.
+# send_args   Prints docker run's arguments, one per line, for the game files that the server sends to players'
+#             launchers from another folder than its games run on (ZOMBIES_SEND_DIR, server/main.go). On Linux there
+#             are none: the games run on the install folders, which have all of a game. In Git Bash the volume has
+#             of Black Ops III only what its server reads (game_mounts), which is not what a player's game needs. So
+#             that game's install folder is mounted as well, as it is, at /send/t7: the server only reads the files
+#             there to send them, which a Windows folder does for.
 # engine_args <name>
 #             Prints docker run's arguments for the engine build of the server container <name>, one per line. The
 #             server downloads the pinned build by itself (internal/bo1zombies). ZOMBIES_ENGINE_URL is passed through
@@ -98,6 +104,12 @@ game_args() {
     while IFS= read -r mount; do
         printf '%s\n' -v "$mount:ro"
     done <<<"$mounts"
+}
+send_args() {
+    local path
+    [ -n "${MSYSTEM:-}" ] || return 0
+    path=$(game_folder t7) || return
+    [ -z "$path" ] || printf '%s\n' -v "$path:/send/t7:ro" -e ZOMBIES_SEND_DIR=/send
 }
 engine_args() {
     local file=${ZOMBIES_ENGINE_FILE:-}

@@ -40,6 +40,44 @@ func TestT6Takes(t *testing.T) {
 	}
 }
 
+// Of a Black Ops III install, a player's game needs Zombies' files and what every mode has, in packs: a map's files in
+// the map's own, and the rest in the one that every map needs. The other modes' files, and what BOIII and a player
+// left in the folder, are not sent.
+func TestT7Sends(t *testing.T) {
+	for rel, pack := range map[string]string{
+		"BlackOps3.exe": "", "steam_api64.dll": "", "d3dcompiler_46.dll": "", "localization.txt": "", "codlogo.bmp": "",
+		"zone/base.xpak": "", "zone/base_dlc2.xpak": "", "zone/base_patch_tu32.xpak": "", "zone/initial.xpak": "",
+		"zone/en_base.xpak": "", "zone/core_common.ff": "", "zone/core_common.fd": "", "zone/en_core_frontend.ff": "",
+		"zone/zm_common.ff": "", "zone/zm_common_all.ff": "", "zone/zm_levelcommon.xpak": "", "zone/zm_patch.ff": "",
+		"zone/zm_initial.xpak": "", "zone/en_zm_common.fd": "", "zone/ge_zm_patch.ff": "",
+		"zone/snd/all/core_ui.all.sabs": "", "zone/snd/en/zm_common.en.p.sabl": "", "zone/snd/all/zm_patch.all.sabs": "",
+		"video/bo3_global_logo_logosequence.mkv": "", "video/zm_frontend_load.mkv": "", "video/zm_outro_tomb.mkv": "",
+		"zone/zm_factory.ff": "zm_factory", "zone/zm_factory.fd": "zm_factory", "zone/zm_factory.xpak": "zm_factory",
+		"zone/zm_factory_d.xpak": "zm_factory", "zone/zm_factory_patch.ff": "zm_factory",
+		"zone/en_zm_factory.ff": "zm_factory", "zone/fr_zm_factory_patch.ff": "zm_factory",
+		"zone/snd/all/zm_factory.all.sabs": "zm_factory", "zone/snd/en/zm_factory_patch.en.sabl": "zm_factory",
+		"zone/snd/all/zm_tomb.all.p.sabs": "zm_tomb", "video/zm_tomb_loadingmovie.mkv": "zm_tomb",
+		"video/zm_factory_load_factoryloadingmovie.mkv": "zm_factory", "Zone/ZM_Zod.ff": "zm_zod",
+	} {
+		if got, sends := t7Sends(rel); !sends || got != pack {
+			t.Errorf("%s: sent %v, in pack %q, want pack %q", rel, sends, got, pack)
+		}
+	}
+	for _, rel := range []string{
+		"boiii.exe", "ext.dll", "CrashUploader.exe", "controller.vdf", "installscript_311210.vdf", "t7.log",
+		"boiii_players/properties.json", "boiii_players/user/config.cfg", "players/config.ini",
+		"zone/mp_common.ff", "zone/mp_nuketown_x.xpak", "zone/en_mp_common.ff", "zone/cp_common.xpak",
+		"zone/cp_mi_cairo_aquifer.ff", "zone/en_cp_common.ff", "zone/zm_factory.ff.part", "zone/readme.txt",
+		"zone/snd/all/mp_common.all.sabs", "zone/snd/en/cp_common.en.sabl", "zone/snd/zm_common.all.sabs",
+		"video/cp_ramses1_fs.mkv", "video/mp_intro.mkv", "video/zm_factory.txt",
+		"usermaps/zm_test/zone/zm_test.ff", "mods/zm_mod/zone/mod.ff", "UnrankedServer/zone/core_common.ff",
+	} {
+		if pack, sends := t7Sends(rel); sends {
+			t.Errorf("%s is sent, in pack %q", rel, pack)
+		}
+	}
+}
+
 // Of the folder of Steam's dedicated server of Black Ops III, the server takes the server without its multiplayer maps.
 func TestT7ServerTakes(t *testing.T) {
 	for rel, want := range map[string]bool{
