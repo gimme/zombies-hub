@@ -36,6 +36,15 @@ export const versusOf = (map: MapInfo): string => map.versus || '';
 export const versusesOf = (maps: MapInfo[], of: string): Versus[] =>
   VERSUS.filter((v) => mapsOf(maps, of, v.id).some((m) => m.have));
 
+/**
+ * Whether a title's games are played on the players' own PCs, outside the page (server/title.go: inPage): Black Ops
+ * II's, on Plutonium, and Black Ops III's, on BOIII. The page needs no map for them, and does not run the engine.
+ */
+export const ownPC = (of?: string): boolean => of === 't6' || of === 't7';
+
+/** Whether the server has pictures of a title's maps. It has none of a Black Ops III map (server/t7.go: t7MapList). */
+export const hasPictures = (of?: string): boolean => of !== 't7';
+
 /** The name of a title, such as Black Ops II, or '' for one that the server does not host. */
 export const titleName = (titles: Title[], of: string): string => titles.find((t) => t.id === of)?.name || '';
 

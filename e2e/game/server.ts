@@ -7,10 +7,11 @@
 // off, or moves a player), rooms' games that wait 150 s for their players, the game files sent at any rate, and rooms
 // whose game starts with one player.
 //
-// ZOMBIES_TEST_GAME is what is mounted at /game: the game files' folder, or in Git Bash the volume docker/test-games.sh
-// copied them into, as Wine can't run a game from a Windows folder (docker/host.sh: for_wine). The engine is the
-// pinned build, which the server downloads, or ZOMBIES_ENGINE_FILE's, or ZOMBIES_ENGINE_URL's. On Windows the server
-// unpacks it into the volume <container>-engine, for the same reason.
+// ZOMBIES_TEST_GAME is what is mounted for the game files, a line each, <source>:<path in the container>: each of
+// their folders at its place in /game, or in Git Bash the volume docker/test-games.sh copied them into, as Wine can't
+// run a game from a Windows folder (docker/host.sh: game_mounts). The engine is the pinned build, which the server
+// downloads, or ZOMBIES_ENGINE_FILE's, or ZOMBIES_ENGINE_URL's. On Windows the server unpacks it into the volume
+// <container>-engine, for the same reason.
 import { type ChildProcess, execFile, spawn } from 'node:child_process';
 import { createHash, createPublicKey } from 'node:crypto';
 import { createSocket } from 'node:dgram';
@@ -44,6 +45,16 @@ export function docker(args: string[]): Promise<{ code: number; out: string; err
 export function mount(source: string, target: string, readonly = false): string[] {
   const folder = isAbsolute(source) || /^[A-Za-z]:[\\/]/.test(source);
   return ['--mount', `type=${folder ? 'bind' : 'volume'},src=${source},dst=${target}${readonly ? ',readonly' : ''}`];
+}
+
+/** docker run's arguments that mount the game files (ZOMBIES_TEST_GAME, above), which a container only reads. */
+export function gameMounts(): string[] {
+  const mounts = (process.env.ZOMBIES_TEST_GAME ?? '').split(/\r?\n/).filter((line) => line.trim());
+  if (!mounts.length) throw new Error('no ZOMBIES_TEST_GAME: run the game tests with docker/test-games.sh');
+  return mounts.flatMap((line) => {
+    const at = line.lastIndexOf(':'); // a Windows folder has a colon of its own, after its drive
+    return mount(line.slice(0, at), line.slice(at + 1).trim(), true);
+  });
 }
 
 /** docker run's arguments for the server's engine build (above). */
@@ -108,7 +119,8 @@ export interface ServerOptions {
   /**
    * For Black Ops II games: the server keeps its copy of Plutonium in the volume <container>-plutonium, which stays
    * for the next run, so that the copy is downloaded once. On Windows the games' homes are a volume too,
-   * <container>-homes, as in docker/server.sh: from a Windows folder, Wine runs no game of Plutonium's.
+   * <container>-homes, as in docker/server.sh: from a Windows folder, Wine runs no game of Plutonium's. Where the
+   * game files have Black Ops III, every server keeps its copy of BOIII the same way, in <container>-boiii.
    */
   t6?: boolean;
 }
@@ -159,8 +171,7 @@ export class Server {
    * listed what the map reads, which a browser downloads before it plays the map.
    */
   static async start(name: string, dir: string, options: ServerOptions = {}): Promise<Server> {
-    const game = process.env.ZOMBIES_TEST_GAME;
-    if (!game) throw new Error('no ZOMBIES_TEST_GAME: run the game tests with docker/test-games.sh');
+    const game = gameMounts();
     await docker(['rm', '-f', name, `${name}-proxy`]);
     mkdirSync(join(dir, 'config'), { recursive: true });
     const [port, proxyPort] = await freePorts(2);
@@ -169,21 +180,30 @@ export class Server {
       ZOMBIES_DOWNLOAD_RATE: 'unlimited', ZOMBIES_MIN_PLAYERS: '1', ZOMBIES_MAX_PLAYERS: '4',
       ZOMBIES_PUBLIC_PORT: String(port), ...options.env,
     };
+    // What the server keeps in volumes: its copy of Plutonium, for Black Ops II games (options.t6), and its copy of
+    // BOIII where the game files have Black Ops III (ZOMBIES_TEST_T7). A server whose game files have that game
+    // has its dedicated server fetch a file as the container first starts (docker/entrypoint.sh), and keeps it with
+    // BOIII: the volume stays for the next run, so that it is fetched once.
     const t6: string[] = [];
+    const kept: string[] = [];
     if (options.t6) {
       const homes = process.platform === 'win32' ? ['/config/game'] : [];
       t6.push(...mount(`${name}-plutonium`, '/plutonium'), '-e', 'ZOMBIES_PLUTONIUM_DIR=/plutonium',
         ...homes.flatMap((path) => mount(`${name}-homes`, path)));
-      // the volumes, as Docker makes them, are root's: the server's user (PUID:PGID) is given them
-      await docker(['run', '--rm', '-u', '0', '--entrypoint', 'chown', ...t6, image, '99:100', '/plutonium',
-        ...homes]);
+      kept.push('/plutonium', ...homes);
     }
+    if (process.env.ZOMBIES_TEST_T7) {
+      t6.push(...mount(`${name}-boiii`, '/boiii'), '-e', 'ZOMBIES_BOIII_DIR=/boiii');
+      kept.push('/boiii');
+    }
+    // the volumes, as Docker makes them, are root's: the server's user (PUID:PGID) is given them
+    if (kept.length) await docker(['run', '--rm', '-u', '0', '--entrypoint', 'chown', ...t6, image, '99:100', ...kept]);
     if (allStopping || stopAsked()) throw new Error(`no server is started as ${name}: the run is stopping`);
     const proc = spawn('docker', ['run', '--rm', '--name', name, '--network', 'bridge',
       '-p', `127.0.0.1:${port}:3075/tcp`, '-p', `127.0.0.1:${port}:3075/udp`, '-p', `127.0.0.1:${proxyPort}:443/tcp`,
       ...(options.noFirewall ? [] : ['--cap-add', 'NET_ADMIN']),
       ...Object.entries(env).flatMap(([k, v]) => ['-e', `${k}=${v}`]),
-      ...mount(game, '/game', true), ...engineArgs(name), ...mount(join(dir, 'config'), '/config'), ...t6, image],
+      ...game, ...engineArgs(name), ...mount(join(dir, 'config'), '/config'), ...t6, image],
     { windowsHide: true });
     const server = new Server(name, dir, port, proxyPort, proc);
     running.add(server);

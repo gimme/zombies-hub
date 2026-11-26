@@ -11,7 +11,7 @@
 # of its own: on 8 cores, four keep them busy, and six at a time overload them. A run of long, or of bigsquad, runs
 # one test at a time: bigsquad's six browsers need the machine to themselves (ZOMBIES_TEST_PLAYERS: 5 to 8 of them).
 # So does a run of bo2, or of one of its tests: Black Ops II's players draw on the CPU (docker/t6-player.sh), two to
-# three cores each. bo2's tests need Black Ops II's game files too (game/t6), and are skipped without them.
+# three cores each. bo2's tests need Black Ops II's game files too (ZOMBIES_T6), and are skipped without them.
 #
 # It builds the server image as zombies-hub:test, the Windows player's image (docker/Dockerfile: windows-player) and the
 # Black Ops II player's (t6-player), and runs the tests with Playwright on this machine, which needs Node, npm ci in
@@ -31,8 +31,8 @@
 # still captures the machine's mouse whenever its page captures the game's, which a window station of its own has no
 # mouse for. On Linux they run in a session of their own (setsid), which the terminal's signals don't reach.
 #
-# ZOMBIES_GAME_DIR, ZOMBIES_ENGINE_URL, ZOMBIES_ENGINE_FILE  the game files and the engine build, as for
-#                            docker/server.sh
+# ZOMBIES_T5, ZOMBIES_T6, ZOMBIES_T7, ZOMBIES_T7_SERVER, ZOMBIES_ENGINE_URL, ZOMBIES_ENGINE_FILE
+#                            the game files and the engine build, as for docker/server.sh. The tests need Black Ops'.
 # ZOMBIES_TEST_FPS           the frames a second a player's game draws at most (default 30; 0: the display's rate)
 # ZOMBIES_TEST_DRIVER_CACHE  on Windows: the MB written to a file of the NVIDIA driver's cache of Chrome's shaders past
 #                            which the run deletes it (default 64; 0 leaves the files alone: e2e/game/chrome.ts)
@@ -111,10 +111,14 @@ command -v node >/dev/null || { echo "test-games: the tests run in Node, which t
     { echo "test-games: the tests need their library: npm ci in e2e" >&2; exit 2; }
 [ -n "${MSYSTEM:-}" ] || command -v setsid >/dev/null ||
     { echo "test-games: the tests run in a session of their own, which needs setsid (util-linux)" >&2; exit 2; }
-game=${ZOMBIES_GAME_DIR:-$root/game}
-[ -d "$game/t5/zone" ] ||
-    { echo "test-games: no game files in $game/t5 (no zone folder): copy a Black Ops install there" >&2; exit 1; }
-game=$(abs "$game")
+t5=$(game_folder t5)
+t6=$(game_folder t6)
+t7=$(game_folder t7)
+t7server=$(game_folder t7-server)
+[ -n "$t5" ] && [ -d "$t5/zone" ] ||
+    { echo "test-games: no Black Ops game files: ZOMBIES_T5 in .env names the game's install folder" \
+          "(.env.example)" >&2
+      exit 1; }
 if pid=$(running); then
     echo "test-games: a run of the game tests is going (process $pid, build/test/run.pid): wait for it, or stop it" \
         "(--stop)" >&2
@@ -136,10 +140,13 @@ for player in windows-player t6-player; do
     docker build --progress=$progress -f "$here/Dockerfile" --target "$player" -t "zombies-hub-$player" \
         --build-arg UID="$uid" --build-arg GID="$gid" "$here" >/dev/null
 done
-ZOMBIES_TEST_GAME=$(for_wine "$game" zombies-hub-game zombies-hub:test)
-export ZOMBIES_TEST_GAME ZOMBIES_TEST_INSTALL=$game/t5 ZOMBIES_TEST_MAP=$map
+ZOMBIES_TEST_GAME=$(game_mounts zombies-hub-game zombies-hub:test)
+export ZOMBIES_TEST_GAME ZOMBIES_TEST_INSTALL=$t5 ZOMBIES_TEST_MAP=$map
 # bo2's tests run where the game files have Black Ops II's
-[ ! -d "$game/t6/zone" ] || export ZOMBIES_TEST_T6=1
+[ ! -d "$t6/zone" ] || export ZOMBIES_TEST_T6=1
+# Where they have Black Ops III and its dedicated server, each test's server hosts it, and keeps what it needs for it
+# (e2e/game/server.ts).
+[ ! -d "$t7/zone" ] || [ ! -d "$t7server/UnrankedServer" ] || export ZOMBIES_TEST_T7=1
 if [ -n "${ZOMBIES_ENGINE_FILE:-}" ]; then
     ZOMBIES_ENGINE_FILE=$(abs "$(dirname "$ZOMBIES_ENGINE_FILE")")/$(basename "$ZOMBIES_ENGINE_FILE")
     export ZOMBIES_ENGINE_FILE

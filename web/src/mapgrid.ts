@@ -5,6 +5,7 @@ import { el } from './dom';
 import { dlState } from './engine';
 import { mapButton } from './files';
 import { mapPicture } from './maps';
+import { ownPC } from './titles';
 
 /**
  * Draws a grid of maps to pick from: a button for each map, with the picked one checked. pick is called with the
@@ -48,8 +49,8 @@ export function showMaps(
     }
     // null: the store is yet to say what it has of the map, after a download ended or the folder changed. The button
     // stays as it was.
-    const why = !m.have || (browser && !m.list && m.of !== 't6') ? 'not available'
-      : !browser || m.of === 't6' ? '' : dlState[m.name] ? mapButton(m.name, '').cant || '' : null;
+    const why = !m.have || (browser && !m.list && !ownPC(m.of)) ? 'not available'
+      : !browser || ownPC(m.of) ? '' : dlState[m.name] ? mapButton(m.name, '').cant || '' : null;
     if (why === null) return;
     b.disabled = !!why;
     b.title = why ? m.title + ': ' + why : m.title;

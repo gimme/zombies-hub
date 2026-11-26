@@ -70,7 +70,7 @@ type launcherFiles struct {
 // writes there, not the game's own files.
 var launcherSkipDirs = map[string]bool{"players": true, "$recycle.bin": true}
 
-// t6Files lists T6's game files as they are now: the files in their folder, each by its path, with its size and the
+// t6Files lists T6's game files as they are now: Zombies' files in their folder (t6Takes), each by its path, with its size and the
 // hash of its contents. The server stores the hashes (hashes.go), so only the first listing reads the files (about
 // 9 GB, which takes a minute). The server sends files by this list until it makes the next one (t6List).
 func (h *web) t6Files() *launcherFiles {
@@ -92,7 +92,9 @@ func (h *web) t6Files() *launcherFiles {
 			return nil
 		}
 		rel, _ := filepath.Rel(h.t6Dir, file)
-		if rel = filepath.ToSlash(rel); !launcherapi.LocalPath(rel) {
+		if rel = filepath.ToSlash(rel); !t6Takes(rel) {
+			return nil // another mode's, which the same folder has where Steam installed it too (gamefiles.go)
+		} else if !launcherapi.LocalPath(rel) {
 			log.Printf("files: Black Ops II's %q is not sent: a player's PC may not take its name", rel)
 			return nil
 		}

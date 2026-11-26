@@ -557,7 +557,7 @@ func (rg *roomGame) lost(s *seat) bool {
 func newLobby(ctx context.Context) *lobby {
 	return &lobby{ctx: ctx, players: map[string]*player{}, sessions: map[string]*session{}, keys: map[string]*player{},
 		rooms: map[string]*room{}, reports: map[string]*gameResult{}, unsavedGames: map[string]*gameResult{},
-		titles: []title{&t5Title{}, &t6Title{knocked: map[netip.Addr]time.Time{}}},
+		titles: []title{&t5Title{}, &t6Title{knocked: map[netip.Addr]time.Time{}}, &t7Title{}},
 		busy:   map[int]bool{}, changed: make(chan struct{}), roomSize: 4, minPlayers: 2,
 		loadTimeout: 5 * time.Minute, joinWait: 30 * time.Second, t6Way: time.Minute,
 		sweepEvery: time.Second, countdown: 4 * time.Second, privateFor: 3 * time.Second}
@@ -823,6 +823,8 @@ type roomView struct {
 	// T6 is set in a T6 room for a player with a seat in its game. It has what their own game needs to join it
 	// (t6View).
 	T6 *t6View `json:"t6,omitempty"`
+	// T7 is the same in a T7 room: what the player's own game needs to join the room's game (t7.go).
+	T7 *t6View `json:"t7,omitempty"`
 	// Up is set in a T6 room once Plutonium's server is up. The room's game then waits for its players' games, which
 	// can join it from that moment.
 	Up bool `json:"up,omitempty"`

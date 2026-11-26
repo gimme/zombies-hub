@@ -43,7 +43,7 @@ export interface View {
 
 /** A game the server hosts (server/rooms.go: titleView). */
 export interface Title {
-  /** t5 (Black Ops) or t6 (Black Ops II). */
+  /** t5 (Black Ops), t6 (Black Ops II) or t7 (Black Ops III). */
   id: string;
   /** Its name on the page: Black Ops. */
   name: string;
@@ -53,7 +53,7 @@ export interface Title {
 export interface MapInfo {
   name: string;
   title: string;
-  /** The title it belongs to: t5 (Black Ops) or t6 (Black Ops II). */
+  /** The title it belongs to: t5 (Black Ops), t6 (Black Ops II) or t7 (Black Ops III). */
   of?: string;
   /** The game files have it, so a room may play it. */
   have?: boolean;
@@ -132,7 +132,7 @@ export interface RoomItem {
 export interface Room {
   code: string;
   map: string;
-  /** The title of its map. A page can't play a t6 room's game. */
+  /** The title of its map. A page can't play a t6 or a t7 room's game (titles.ts: ownPC). */
   of: string;
   private: boolean;
   size: number;

@@ -1,6 +1,8 @@
 # what the dev server and the tests keep
 /build/
-# the game files, with a folder for each title. Never commit them.
+# this machine's settings for the scripts in docker/, such as where the games are installed (.env.example)
+/.env
+# game files that are kept in the checkout. Never commit them.
 /game/
 # what the server in compose.yaml writes
 /config/

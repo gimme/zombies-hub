@@ -366,7 +366,7 @@ func TestLauncherNeedsASession(t *testing.T) {
 	}
 }
 
-// T6's game files, as the launcher downloads them: the list of what the folder has, but what a game or a launcher
+// T6's game files, as the launcher downloads them: the list of what the folder has of Zombies, but what a game or a launcher
 // wrote there; each file whole, or from where a launcher left off, when it is still the file it has the start of; at
 // the server's rate; and only where the server sends game files.
 func TestLauncherFiles(t *testing.T) {
@@ -375,13 +375,13 @@ func TestLauncherFiles(t *testing.T) {
 	big := noise(300<<10, 3)
 	files := map[string]string{
 		"zone/all/patch_zm.ff": "the patch", "zone/all/zm_transit.ff": big, "binkw32.dll": "bink", "t6zm.exe": "the game",
-		"video/zm (1).webm": "a video",
+		"video/zm_tomb (1).webm": "a video",
 	}
 	for name, text := range files {
 		writeFile(t, filepath.Join(dir, filepath.FromSlash(name)), text)
 	}
 	for _, name := range []string{"players/settings.cfg", "console.log", "zone/all/x.ff.part", launcherapi.StateFile,
-		"sound/con.sabs", "video/a;b.bik"} {
+		"sound/con.sabs", "video/zm_a;b.webm", "t6mp.exe", "zone/all/mp_nuketown_2020.ff", "sound/mpl_nuketown.all.sabs"} {
 		writeFile(t, filepath.Join(dir, filepath.FromSlash(name)), "not sent")
 	}
 	h := &web{lobby: l, t6Dir: dir, downloads: true, pace: &pacer{}}
@@ -426,7 +426,7 @@ func TestLauncherFiles(t *testing.T) {
 	if rsp.StatusCode != http.StatusOK || body != big {
 		t.Errorf("the rest of a file that is another now: %s, %d bytes", rsp.Status, len(body))
 	}
-	if rsp, body = asLauncher(h, http.MethodGet, "/launcher/t6/files/video/zm%20(1).webm", key, ""); body != "a video" {
+	if rsp, body = asLauncher(h, http.MethodGet, "/launcher/t6/files/video/zm_tomb%20(1).webm", key, ""); body != "a video" {
 		t.Errorf("a file with a space in its name: %s, %q", rsp.Status, body)
 	}
 	// nothing but the list's files

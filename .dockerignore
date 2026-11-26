@@ -1,6 +1,7 @@
 # The image's Go stage takes the checkout as a build context (docker/Dockerfile: "repo") and copies only the Go code
 # out of it. Nothing listed here is ever copied, and some of it is tens of GB.
 .git
+.env
 build
 game
 config

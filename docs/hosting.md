@@ -30,8 +30,18 @@ On Unraid, copy `docker/unraid/my-zombies-hub.xml` to `/boot/config/plugins/dock
 | --- | --- |
 | Black Ops | `/game/t5` |
 | Black Ops II | `/game/t6` |
+| Black Ops III | `/game/t7`, and `/game/t7-server` |
 
-By default the server sends no game files to players. They use their own copy: Black Ops players import it in the browser, and the launcher finds a Black Ops II install from Steam. Set `ZOMBIES_DOWNLOAD_RATE` to send the files to players who have none.
+Black Ops III takes two folders, because its dedicated server is a program of its own:
+
+- **`/game/t7-server`** is the install folder of the tool Call of Duty: Black Ops III - Unranked Dedicated Server, the one that has `UnrankedServer` in it. Steam gives the tool to who has the game: in Steam's library, show Tools. On a machine without Steam, `steamcmd +@sSteamCmdForcePlatformType windows +force_install_dir <folder> +login <your account> +app_update 545990` downloads it. It is 4 GB, of which the server reads 1 GB: everything but the multiplayer maps (`UnrankedServer/zone/*mp_*`).
+- **`/game/t7`** is the game's install folder, which is 87 GB. The server reads 3 GB of it: the fastfiles of Zombies, which are the files in `zone` with `zm_` in their names that end in `.ff` or `.fd`. A dedicated server draws nothing and plays no sound, so the rest need not be there: the `.xpak` files, `zone/snd` and `video`.
+
+A folder of `/game` can also be a mount of its own, so that a game stays where it is installed: `-v "/games/Call of Duty Black Ops III:/game/t7:ro"`. A link in the folder that is mounted at `/game` does not work, because the container does not see where it leads.
+
+An install folder may have more than Zombies, such as the game's multiplayer or campaign, which Steam installs into the same folder. The server takes only Zombies' files (`server/gamefiles.go`), so the rest changes nothing: it is not read, and not sent to players.
+
+By default the server sends no game files to players. They use their own copy: Black Ops players import it in the browser, and the launcher finds a Black Ops II install from Steam. Set `ZOMBIES_DOWNLOAD_RATE` to send the files to players who have none. The server sends no files of Black Ops III: its players play from their own install.
 
 A Black Ops II player's copy may lack a map pack. A room on a map of that pack shows the player as missing the map, and its game does not start with them. With `ZOMBIES_DOWNLOAD_RATE` set, such a player can have the launcher download the server's game files, which have every map the server has, and use those instead.
 
@@ -41,6 +51,8 @@ On Docker Desktop for Windows, keep the game files in a Docker volume. Wine can'
 
 - **The Black Ops engine**, the first time it starts with Black Ops: about 10 MB from the [releases of bo1-zombies](https://github.com/gimme/bo1-zombies/releases), into `/config/engine`. The download is checked against a SHA-256 that is fixed in the server. Later starts download nothing until an update of the server needs another build. `ZOMBIES_ENGINE_URL` sets another address for the same file.
 - **Plutonium**, when the first Black Ops II game starts: about 56 MB from Plutonium's updater, into `/config/plutonium`. The server checks for updates before a Black Ops II game, because players can only join a server of the same Plutonium version. It does not check while another Black Ops II game is running: that game keeps the version it started with, and so do the games that start beside it.
+- **BOIII**, the first time it starts with Black Ops III: about 15 MB from BOIII's updater, into `/config/boiii`. The server checks for updates before a Black Ops III game, as it does for Plutonium.
+- **Black Ops III's fastfile of the day**, the first time the container starts with Black Ops III: a file of 189 kB that the game's dedicated server downloads from the game's publisher, and without which it hosts nothing. The container has the dedicated server fetch it once, before the games' firewall is up, and keeps it in `/config/boiii/lpc`. From then on a Black Ops III game asks no one for it. The file is for one version of the game: after an update of the game, the next start of the container fetches it again. That first start takes half a minute longer and needs the internet. If it fails, the log says so, rooms can't start Black Ops III, and the next start of the container tries again. To have the server ask no one, keep the file with the game files: copy it from `/config/boiii/lpc` into the dedicated server's folder, as `UnrankedServer/identities/dedicatedpc/LPC/core_sv_ffotd_tu32_593.ff`, which is where that server leaves the file when it runs from its own folder. A container whose game files have it fetches nothing, and its log says so.
 
 ## HTTPS
 
@@ -77,6 +89,7 @@ Settings are environment variables. `docker run --rm zombies-hub -h` lists all o
 | `ZOMBIES_HANG_TIMEOUT` | `1m` | How long a game may stop responding before the server ends it. |
 | `ZOMBIES_GAME_ARGS` | empty | Extra command line for every Black Ops game, such as `+set g_deadChat 0`. |
 | `ZOMBIES_ENGINE_URL` | empty | Another download address for the Black Ops engine. `{version}` is replaced with the release, such as `v1`. |
+| `ZOMBIES_BOIII_DIR` | `/config/boiii` | Where the server keeps its copy of BOIII, for Black Ops III. |
 | `ZOMBIES_DISCORD_...` | empty | See [Discord sign-in](#discord-sign-in). |
 | `PUID`, `PGID` | `1000` | The user and group the server runs as. |
 
@@ -102,13 +115,14 @@ How the launcher is released is in [Development](development.md#releasing-the-la
 - The launcher has no Windows code-signing certificate, so Windows and the browser warn about it the first time.
 - Players get the launcher from GitHub. Their PCs need to reach github.com to install it and to update it.
 - Dead Ops Arcade is not available.
+- Black Ops III players join their room's game by hand, from their game's console: the launcher starts no Black Ops III yet. The page has no pictures of its maps, its rooms have no mods, and its games count rounds but no easter eggs.
 
 ## Security
 
-The Black Ops engine's network code is decompiled from a 2010 game and has not been audited. Plutonium's server is a program that the server downloads and that this project has not reviewed. The container limits what a compromised game can do:
+The Black Ops engine's network code is decompiled from a 2010 game and has not been audited. Plutonium's server and BOIII are programs that the server downloads and that this project has not reviewed. The container limits what a compromised game can do:
 
 - Games run as a separate user (uid 3075) that can't read the server's data, such as player keys and the Discord secret.
-- With `NET_ADMIN`, a firewall lets that user reach only the server's relay. Without it, a game can reach the network, and the container's log says so.
+- With `NET_ADMIN`, a firewall lets that user reach only the server's relay. Without it, a game can reach the network, and the container's log says so. The one exception is the run that fetches Black Ops III's fastfile of the day, before the firewall is up: no player reaches that run.
 - The server passes a game only the kinds of packets a client sends, from the players seated in that game.
 - All games run as the same user, so a compromised game could reach the other running games.
 

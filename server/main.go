@@ -1,12 +1,13 @@
 // zombies-server hosts co-op games of Call of Duty Zombies. Players open its web page, group into rooms and start
-// games together. For each room's game the server runs a dedicated server of the game under Wine: BO1Zombies.exe, or
-// Plutonium's server for a room on a Black Ops II map. Players connect only to the server, which relays their packets
-// to the games.
+// games together. For each room's game the server runs a dedicated server of the game under Wine: BO1Zombies.exe,
+// Plutonium's server for a room on a Black Ops II map, or Steam's on BOIII for one on a Black Ops III map. Players
+// connect only to the server, which relays their packets to the games.
 //
 //   - rooms.go: the rooms and their members, which the page shows, and each room's game.
 //   - internal/bo1zombies: the Black Ops engine build. The server downloads it the first time it starts.
 //   - game.go: runs a game, writes its output to a log file, and kills it when it stops answering.
 //   - t6.go: a Black Ops II room's game, on Plutonium. The server downloads Plutonium and keeps it up to date.
+//   - t7.go: a Black Ops III room's game, on BOIII, which the server downloads and keeps up to date too.
 //   - relay.go: relays the players' packets to the UDP port of their room's game, which only the server reaches.
 //     Browsers send their packets over WebTransport, and Windows players over UDP.
 //   - web.go: serves the web client, the game files it downloads (files.go) and the rooms' API, over HTTP.
@@ -17,6 +18,8 @@
 // Usage:
 //
 //	zombies-server [flags] [-- engine command line, e.g. +set g_debug 1]
+//	zombies-server -t7-fetch [flags]                   (t7.go: fetches what Black Ops III's server downloads, and ends)
+//	zombies-server game-files <folder> <dir>           (gamefiles.go: lists what the server takes of a game's folder)
 //	zombies-server probe [-timeout 10s] <host:port>   (probe.go)
 //	zombies-server console [command]                   (console.go)
 //	zombies-server list-files <dir> [map...]           (files.go: lists what each map reads, for server/reads/)
@@ -49,12 +52,14 @@ import (
 	_ "time/tzdata" // the time zones, so the log files' times follow TZ even without the image's zoneinfo
 
 	"zombies/internal/bo1zombies"
+	"zombies/internal/boiii"
 	"zombies/internal/launcherapi"
 	"zombies/internal/plutonium"
 )
 
-// titleDir returns the folder of a title's game files, a copy of the title's install. It is the folder in gameDir
-// that is named after the title (t5 in t5.go, t6 in t6.go).
+// titleDir returns the folder of a title's game files, the title's install or a copy of it. It is the folder in
+// gameDir that is named after the title (t5 in t5.go, t6 in t6.go, t7 in t7.go). Steam's dedicated server of Black Ops
+// III has a folder there as well (t7Server).
 func titleDir(gameDir, title string) string { return filepath.Join(gameDir, title) }
 
 func main() {
@@ -73,6 +78,9 @@ func main() {
 	}
 	if len(os.Args) > 1 && os.Args[1] == "console" {
 		os.Exit(consoleCommand(os.Args[2:]))
+	}
+	if len(os.Args) > 1 && os.Args[1] == "game-files" {
+		os.Exit(gameFilesCommand(os.Args[2:]))
 	}
 	os.Exit(run())
 }
@@ -134,8 +142,10 @@ func run() int {
 	loadTimeout := flag.Duration("load-timeout", envDuration("ZOMBIES_LOAD_TIMEOUT", 5*time.Minute), "how long a room's game waits for its players to load before it is called off (ZOMBIES_LOAD_TIMEOUT)")
 	gameArgs := flag.String("game-args", env("ZOMBIES_GAME_ARGS", ""), "more of the engine's command line, before the arguments after -- (ZOMBIES_GAME_ARGS)")
 	gamePort := flag.Int("game-port", envInt("ZOMBIES_GAME_PORT", 3100), "the first game's UDP port, on 127.0.0.1, which only the server reaches; more games take the ports above it, and none takes one of the ports from 3074 that Plutonium's servers open (ZOMBIES_GAME_PORT)")
-	gameDir := flag.String("game-dir", env("ZOMBIES_GAME_DIR", "/game"), "the game files, a folder for each title the server hosts, at least one: t5, a copy of a Black Ops install; t6, one of a Black Ops II install, which rooms play on Plutonium; only read (ZOMBIES_GAME_DIR)")
+	gameDir := flag.String("game-dir", env("ZOMBIES_GAME_DIR", "/game"), "the game files, a folder for each title the server hosts, at least one: t5, a Black Ops install; t6, a Black Ops II install, which rooms play on Plutonium; t7, a Black Ops III install, which rooms play on BOIII, with Steam's Unranked Dedicated Server of it in t7-server; only read (ZOMBIES_GAME_DIR)")
 	plutoniumDir := flag.String("plutonium-dir", env("ZOMBIES_PLUTONIUM_DIR", ""), "where the server keeps its copy of Plutonium, which it downloads for Black Ops II rooms; empty: plutonium in -data-dir (ZOMBIES_PLUTONIUM_DIR)")
+	boiiiDir := flag.String("boiii-dir", env("ZOMBIES_BOIII_DIR", ""), "where the server keeps its copy of BOIII, which it downloads for Black Ops III rooms, and what Steam's server of that game fetched; empty: boiii in -data-dir (ZOMBIES_BOIII_DIR)")
+	fetchT7 := flag.Bool("t7-fetch", false, "fetch what Steam's server of Black Ops III downloads from the game's publisher as it starts, unless the server has it, and end; the image's entrypoint does it before its firewall is up")
 	engineURL := flag.String("engine-url", env("ZOMBIES_ENGINE_URL", ""), "where the server downloads the Black Ops engine from, with {version} replaced by the release's version; empty: the releases of bo1-zombies on GitHub (ZOMBIES_ENGINE_URL)")
 	engineFile := flag.String("engine-file", env("ZOMBIES_ENGINE_FILE", ""), "an engine archive to run instead of the downloaded build, for work on the engine (ZOMBIES_ENGINE_FILE)")
 	dataDir := flag.String("data-dir", env("ZOMBIES_DATA_DIR", "/config"), "where the server writes its game data, logs and database (zombies.db), and keeps the engine (ZOMBIES_DATA_DIR)")
@@ -195,10 +205,19 @@ func run() int {
 	st, err := os.Stat(filepath.Join(t5Files, "zone"))
 	haveT5 := err == nil && st.IsDir()
 	t6Maps := t6Installed(t6Files)
-	if !haveT5 && len(t6Maps) == 0 {
-		log.Printf("server: no game files in %s: copy a Black Ops install to %s or a Black Ops II install to %s",
-			*gameDir, t5Files, t6Files)
+	t7Files, t7ServerFiles := titleDir(*gameDir, t7), titleDir(*gameDir, t7Server)
+	t7Maps := t7Installed(t7Files, t7ServerFiles)
+	if *fetchT7 && len(t7Maps) == 0 {
+		return 0 // no Black Ops III, so nothing to fetch for it
+	}
+	if !haveT5 && len(t6Maps) == 0 && len(t7Maps) == 0 {
+		log.Printf("server: no game files in %s: copy a Black Ops install to %s, a Black Ops II install to %s, or a Black Ops III install to %s and Steam's dedicated server of it to %s",
+			*gameDir, t5Files, t6Files, t7Files, t7ServerFiles)
 		return 1
+	}
+	if st, err := os.Stat(filepath.Join(t7Files, "zone")); len(t7Maps) == 0 && err == nil && st.IsDir() {
+		log.Printf("server: no Black Ops III: %s has the game, and %s is to have Steam's dedicated server of it, its folder UnrankedServer (the tool Call of Duty: Black Ops III - Unranked Dedicated Server)",
+			t7Files, t7ServerFiles)
 	}
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
@@ -215,6 +234,60 @@ func run() int {
 	if err != nil {
 		log.Printf("server: %v", err)
 		return 1
+	}
+
+	// T7, when the game files have it. A T7 room's game is Steam's dedicated server on BOIII, which the server
+	// downloads when the first T7 game starts. ZOMBIES_BOIII_URL replaces the address of the manifest of BOIII's
+	// updater, for tests. One port more than the rooms' games have is for the run that fetches what Steam's server
+	// downloads (t7Fetch).
+	ports := gamePorts(*gamePort, *maxGames+1, *port)
+	var t7Boiii *t7Copy
+	var newT7 func(code, mapName, home string, port, size int, password string) *game
+	if len(t7Maps) > 0 {
+		if *boiiiDir == "" {
+			*boiiiDir = filepath.Join(*dataDir, "boiii")
+		}
+		t7Boiii = &t7Copy{Copy: &boiii.Copy{Dir: *boiiiDir, URL: env("ZOMBIES_BOIII_URL", boiii.Manifest),
+			Client: &http.Client{Timeout: 10 * time.Minute}, State: "zombies-server-files.json", Logf: log.Printf},
+			exe: filepath.Join(t7ServerFiles, filepath.FromSlash(t7Exe))}
+		newT7 = func(code, mapName, home string, port, size int, password string) *game {
+			g := &game{
+				name: code, wine: *wine, uid: gameUID, dir: t7Files, logDir: filepath.Join(*dataDir, "logs"),
+				home: home, ip: "127.0.0.1", port: port, output: prefixed{"[" + code + "] ", output},
+				engine:       newT7Game(t7Boiii, t7ServerFiles, mapName, size, password),
+				startTimeout: max(5*time.Minute, *hangTimeout),
+			}
+			if *hangTimeout > 0 {
+				g.quietTimeout = *hangTimeout + 10*time.Second
+			}
+			return g
+		}
+	}
+	// fetchT7Files fetches what Steam's server downloads as it starts, unless the server's copy of BOIII has it for
+	// this build of Steam's server (t7Copy.lpc). The
+	// run's home is in the folder of that copy, and not among the rooms' games' homes: Wine runs a game from wherever
+	// the copy is, which on Windows is a volume when the homes are not (docker/server.sh).
+	fetchT7Files := func() error {
+		if own := t7Boiii.own(); len(own) > 0 {
+			log.Printf("server: Black Ops III's server has its files from the game's publisher with the game files (%s)",
+				filepath.Dir(own[0]))
+			return nil
+		}
+		if len(t7Boiii.fetched()) > 0 {
+			return nil
+		}
+		log.Printf("server: Black Ops III's server fetches its files from the game's publisher, once (into %s)",
+			t7Boiii.lpc())
+		g := newT7("fetch", "", filepath.Join(*boiiiDir, "fetch"), ports[len(ports)-1], 1, randomHex(8))
+		g.kind = "fetch"
+		return t7Fetch(ctx, g)
+	}
+	if *fetchT7 {
+		if err := fetchT7Files(); err != nil {
+			log.Printf("server: %v", err)
+			return 1
+		}
+		return 0
 	}
 
 	certs := &certificates{}
@@ -252,7 +325,7 @@ func run() int {
 		log.Printf("server: can't read the players: %v", err)
 		return 1
 	}
-	l.gamePorts = gamePorts(*gamePort, *maxGames, *port)
+	l.gamePorts = ports[:len(ports)-1]
 	if haveT5 {
 		l.t5().newGame = func(code, mapName string, port, players int, mods []string) *game {
 			// sv_timeout: the game keeps the character of a dropped player for keepCharacter
@@ -305,6 +378,24 @@ func run() int {
 			return g
 		}
 	}
+	if len(t7Maps) > 0 {
+		l.t7().copy = t7Boiii
+		l.t7().newGame = func(code, mapName string, port, players int, password string) *game {
+			home := filepath.Join(*dataDir, "game", strconv.Itoa(slices.Index(l.gamePorts, port)+1))
+			return newT7(code, mapName, home, port, l.sizeFor(mapName), password)
+		}
+		// Steam's server has what it downloads from the entrypoint's run, before the image's firewall was up
+		// (-t7-fetch). A server that runs without the entrypoint fetches it now, and its rooms play Black Ops III
+		// once it has.
+		go func() {
+			if err := fetchT7Files(); err != nil {
+				log.Printf("server: no Black Ops III: %v. It fetches them where the games reach the internet: as the image's container starts, before its firewall is up", err)
+			}
+			l.mu.Lock()
+			l.change()
+			l.mu.Unlock()
+		}()
+	}
 	pages := &web{certs: certs, publicPort: *publicPort, pageDir: *webPage, buildDir: eng.Web,
 		pipelinesDir: eng.Pipelines, gameDir: t5Files,
 		dev: *dev, lobby: l, downloads: downloads, pace: &pacer{rate: rate},
@@ -313,7 +404,7 @@ func run() int {
 		pages.t6Dir = t6Files
 	}
 	t5Maps := installedMaps(pages.paths)
-	l.maps = func() []string { return append(t5Maps(), t6Maps...) }
+	l.maps = func() []string { return slices.Concat(t5Maps(), t6Maps, t7Maps) }
 	l.mapDesc = pages.mapDescription
 	reads, err := committedReads()
 	if err != nil {
@@ -389,6 +480,9 @@ func run() int {
 			takes += ", and dev builds"
 		}
 		log.Printf("server: its players join from their PCs with the launcher, from %s (%s)", launcherapi.Releases, takes)
+	}
+	if len(t7Maps) > 0 {
+		log.Printf("server: rooms play Black Ops III on BOIII (its copy: %s); their players join from their PCs, by hand", *boiiiDir)
 	}
 	if gameUID != 0 {
 		log.Printf("server: the games run as user %d, the server as %d", gameUID, os.Getuid())

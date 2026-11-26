@@ -4,16 +4,21 @@ A community hub for playing Call of Duty Zombies together, on a dedicated server
 
 - **Black Ops** plays in the browser (Chrome, WebGPU). Each player imports the game files from their own copy of Black Ops, and the browser keeps them. Imported maps can be played offline too.
 - **Black Ops II** plays on [Plutonium](https://plutonium.pw/). The server runs Plutonium's dedicated server, and each player automatically joins from their own PC with the help of a small launcher, which sits in the tray. A Mac with Apple Silicon can play too.
+- **Black Ops III** plays on [BOIII](https://github.com/Ezz-lol/boiii-free). The server runs Steam's dedicated server of the game, and each player joins from their own PC, with a line that their room shows them.
 - The server runs in Docker.
 
 ## Quick start
 
-You need Docker, `make`, and a copy of at least one of the games. The server hosts the games whose files it finds:
+You need Docker, `make`, and at least one of the games installed. Copy `.env.example` to `.env`, and name each game's install folder there. The server hosts the games it finds, and only reads their folders:
 
-| Game | Copy its install folder to | Usually installed in |
+| Game | In `.env` | Usually installed in |
 | --- | --- | --- |
-| Black Ops | `game/t5/` | `C:\Program Files (x86)\Steam\steamapps\common\Call of Duty Black Ops` |
-| Black Ops II | `game/t6/` | `C:\Program Files (x86)\Steam\steamapps\common\Call of Duty Black Ops II` |
+| Black Ops | `ZOMBIES_T5` | `C:\Program Files (x86)\Steam\steamapps\common\Call of Duty Black Ops` |
+| Black Ops II | `ZOMBIES_T6` | `C:\Program Files (x86)\Steam\steamapps\common\Call of Duty Black Ops II` |
+| Black Ops III | `ZOMBIES_T7` | `C:\Program Files (x86)\Steam\steamapps\common\Call of Duty Black Ops III` |
+| Black Ops III's dedicated server | `ZOMBIES_T7_SERVER` | `C:\Program Files (x86)\Steam\steamapps\common\Call of Duty Black Ops III 545990` |
+
+Black Ops III needs both of its folders. The dedicated server is a tool that Steam gives to who has the game: in Steam's library, show Tools, and install Call of Duty: Black Ops III - Unranked Dedicated Server.
 
 ```sh
 # runs the server on port 3075
@@ -22,7 +27,7 @@ make dev
 
 Then open <http://localhost:3075/> in Chrome. On Windows, run it in Git Bash with Docker Desktop started.
 
-The server downloads the rest by itself: the Black Ops engine ([bo1-zombies](https://github.com/gimme/bo1-zombies)) the first time it starts with Black Ops, and Plutonium when the first Black Ops II game starts.
+The server downloads the rest by itself: the Black Ops engine ([bo1-zombies](https://github.com/gimme/bo1-zombies)) the first time it starts with Black Ops, Plutonium when the first Black Ops II game starts, and BOIII the first time it starts with Black Ops III.
 
 ## Documentation
 

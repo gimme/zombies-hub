@@ -6,7 +6,7 @@ import { expect, test } from '../fixtures';
 import { gameOver, makeRoom, noRecords, playGame, steerReport } from '../t6';
 
 test.use({ serverOptions: { t6: true } });
-test.skip(!process.env.ZOMBIES_TEST_T6, 'no Black Ops II game files (game/t6)');
+test.skip(!process.env.ZOMBIES_TEST_T6, 'no Black Ops II game files (ZOMBIES_T6 in .env)');
 
 test('in a room of Turned, the player who takes the cure is the human, and with the most points wins',
   async ({ server, t6 }) => {

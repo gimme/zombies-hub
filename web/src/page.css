@@ -409,7 +409,7 @@ ul.members { gap: 8px; }
    line has all of the box's width but the button's, and where it is longer it scrolls, cut off before the button */
 .codeline { display: flex; align-items: center; gap: 4px; padding-right: 5px; border-radius: 8px;
   background: rgba(0, 0, 0, 0.4); border: 1px solid var(--line); }
-#playbat, #t6console, #t6macline, #soloown .codeline span { flex: 1; min-width: 0; padding: 10px 4px 10px 12px; font: 13px/1.4 ui-monospace, Consolas, monospace;
+#playbat, #t6console, #t7console, #t6macline, #soloown .codeline span { flex: 1; min-width: 0; padding: 10px 4px 10px 12px; font: 13px/1.4 ui-monospace, Consolas, monospace;
   white-space: nowrap; overflow-x: auto; user-select: all; scrollbar-width: thin; }
 .codeline button.copy { flex: none; width: 30px; height: 28px; padding: 0; border: none; border-radius: 6px;
   background: rgba(255, 255, 255, 0.08); color: var(--muted); }
@@ -418,12 +418,12 @@ ul.members { gap: 8px; }
 /* a room on a Black Ops II map (showT6): what a player needs for its game, which their own Plutonium plays, and
    the line that joins it. What installs the launcher (#t6install) is in Play local instead while that shows Black
    Ops II (placeInstall). */
-#t6box, #t6install { display: flex; flex-direction: column; gap: 12px; }
-#t6box p, #t6install p, #t6handrow { font-size: 14px; line-height: 1.45; color: var(--muted); }
+#t6box, #t7box, #t6install { display: flex; flex-direction: column; gap: 12px; }
+#t6box p, #t7box p, #t6install p, #t6handrow { font-size: 14px; line-height: 1.45; color: var(--muted); }
 #t6handrow { align-self: flex-start; display: flex; align-items: center; gap: 8px; cursor: pointer; }
 #t6hand { width: 14px; height: 14px; margin: 0; accent-color: var(--accent); cursor: pointer; }
-#t6box p, #t6install p { margin: 0; }
-#t6box a, #t6install a { color: var(--fg); }
+#t6box p, #t7box p, #t6install p { margin: 0; }
+#t6box a, #t7box a, #t6install a { color: var(--fg); }
 #t6handline, #t6mac { display: flex; flex-direction: column; gap: 10px; }
 /* the "?" by what installs the launcher, which shows what the launcher is (showT6) */
 #t6install button.what { width: 18px; height: 18px; padding: 0; border: 1px solid var(--line); border-radius: 50%;

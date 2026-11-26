@@ -9,7 +9,7 @@ import { gameOver, makeRoom, noRecords, playGame } from '../t6';
 const sleep = (ms: number) => new Promise((done) => setTimeout(done, ms));
 
 test.use({ serverOptions: { t6: true, env: { ZOMBIES_MAX_PLAYERS: '2' } } });
-test.skip(!process.env.ZOMBIES_TEST_T6, 'no Black Ops II game files (game/t6)');
+test.skip(!process.env.ZOMBIES_TEST_T6, 'no Black Ops II game files (ZOMBIES_T6 in .env)');
 
 test('a room of Grief plays in two teams, past the most players, and the team left standing wins',
   async ({ server, t6 }) => {

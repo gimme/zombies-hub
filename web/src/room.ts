@@ -39,10 +39,10 @@ import { modNames, modOn, modValue } from './mods';
 import { mayLeaveGame } from './question';
 import { bo1Settings } from './settings';
 import { store } from './storage';
-import { mapsOf, titleName, versusesOf, versusOf } from './titles';
+import { mapsOf, ownPC, titleName, versusesOf, versusOf } from './titles';
 import {
   launcherDownloads, launcherHere, launcherMacLine, launcherMissed, launcherOn, launcherOpening, launcherSeen,
-  launcherSetup, launcherStep, onWindows, t6Console,
+  launcherSetup, launcherStep, onWindows, t6Console, t7Console,
 } from './windows';
 
 // A gamepad, on a player whose page reads one: its two grips, its d-pad and two of its buttons.
@@ -90,6 +90,7 @@ export function showRoom(v: View, room: Room): void {
   // The room's mods are those that the games of its title can have.
   showRoomMods(v.mods.filter((m) => m.titles.includes(room.of)), room, open);
   showT6(v, room);
+  showT7(room);
 
   // The list has a row for each seat of the room, with an empty row for each seat that no one has. The list, and
   // what is below it, then stays in place as players come and go.
@@ -129,9 +130,9 @@ function memberRow(m: Member, room: Room, open: boolean): HTMLLIElement {
   const name = el('span', 'name', m.name);
   if (mine) name.append(el('span', 'sr', ' (you)'));
   // A member has a team in a room with Grief on, or on a map of Grief (server/mods.go: teamOf). On Windows says that
-  // they play a Black Ops game in the Windows client and not in their page. Every player of a Black Ops II game plays
-  // it outside their page, on Windows or on a Mac, so the room says it of none.
-  const what = [m.team && 'Team ' + m.team, m.host && 'Host', m.windows && room.of !== 't6' && 'On Windows',
+  // they play a Black Ops game in the Windows client and not in their page. Every player of a Black Ops II or Black
+  // Ops III game plays it outside their page, on Windows or on a Mac, so the room says it of none.
+  const what = [m.team && 'Team ' + m.team, m.host && 'Host', m.windows && !ownPC(room.of) && 'On Windows',
     m.away && 'Away'].filter(Boolean).join(' · ');
   const line = el('div', 'line');
   line.append(name);
@@ -181,20 +182,21 @@ export let readyGets = '';
 export function showRoomButton(v: View, room: Room): void {
   const open = room.state === 'open';
   const windows = onWindows();
-  // The game of a Black Ops II room is played by the player's own Plutonium. The page needs no map for it, and does
-  // not run the engine.
+  // The game of a Black Ops II room is played by the player's own Plutonium, and that of a Black Ops III room by
+  // their own BOIII. The page needs no map for it, and does not run the engine.
   const t6 = room.of === 't6';
+  const pc = ownPC(room.of);
   let m: RoomButton;
   let lacks = ''; // what the line under the button says of a Black Ops II player's copy that lacks the room's map
   if (!open) m = gameButton(v, room);
-  else if (!canRun && !v.you.windows && !t6) m = { label: "Can't play in this browser", disabled: true };
+  else if (!canRun && !v.you.windows && !pc) m = { label: "Can't play in this browser", disabled: true };
   else {
     // No one can be ready while all of the server's games are running (server/rooms.go: full), or while the room has
     // fewer players than a game needs.
     const short = v.minPlayers - room.members.length;
     const label = v.you.ready ? 'Unready' : v.full ? 'Server full' : short > 0 ? `Need ${short} more` : 'Ready';
-    if (!windows && !t6) knowMap(room.map);
-    m = windows || t6 ? { label, ready: true } : mapButton(room.map, label);
+    if (!windows && !pc) knowMap(room.map);
+    m = windows || pc ? { label, ready: true } : mapButton(room.map, label);
     if (m.ready && !v.you.ready && (v.full || short > 0)) m.disabled = true;
     m.does = m.gets ? 'map' : 'ready';
     m.primary = !!m.gets || (!!m.ready && !v.you.ready);
@@ -229,7 +231,7 @@ export function showRoomButton(v: View, room: Room): void {
   readyGets = m.gets || '';
   $('ready').dataset.does = m.disabled ? '' : m.does || '';
   setButton($('ready'), m, m.primary);
-  showNote($('roomnote'), room.map, m, open && !windows && canRun && !t6);
+  showNote($('roomnote'), room.map, m, open && !windows && canRun && !pc);
   // The launcher has no window, so the room says what it failed at, and what the player's copy of the game lacks.
   const says = t6 ? v.you.launcherFailed || lacks : '';
   if (says) {
@@ -246,7 +248,7 @@ function gameButton(v: View, room: Room): RoomButton {
   if (room.state === 'ending') return said('Ending the game...');
   if (room.left) return said('Out of the game'); // their character is gone from the game
   if (!room.seat) return said('Game in progress'); // the game began without them
-  if (room.of !== 't6') {
+  if (!ownPC(room.of)) {
     // Another tab of the player's plays the game, or did until it closed. The button moves the game to this tab.
     if (room.join && otherTab && !started && !onWindows()) {
       return { label: lockElsewhere ? 'Play here' : 'Rejoin', does: 'here', primary: true };
@@ -262,7 +264,8 @@ function gameButton(v: View, room: Room): RoomButton {
   // game is in it. Until it is, the button opens the launcher. A launcher that is already at it does nothing more. A
   // player who joins by hand, with that checkbox checked, gets no launcher, as at the Ready button (showRoomButton).
   if (mine && mine.inGame) return said('In game');
-  if (!launcherOn() || handOn()) return said('Join by hand');
+  // The launcher starts no Black Ops III yet: its players join by hand (showT7).
+  if (room.of !== 't6' || !launcherOn() || handOn()) return said('Join by hand');
   // Their launcher has started their game, which is on its way in.
   if (v.you.launcher && v.you.launcherDoing) return said(v.you.launcherDoing + '...');
   return { label: 'Join the game', does: 'launch', primary: true };
@@ -291,6 +294,15 @@ export function showT6(v: View, room: Room): void {
   $('t6console').textContent = t6Console(room);
   placeInstall($('t6box'));
   showInstall(v, !byHand);
+}
+
+/**
+ * Draws the box of a room on a Black Ops III map: the line that joins the room's game by hand, from the console of
+ * the player's own game.
+ */
+export function showT7(room: Room): void {
+  $('t7box').classList.toggle('hidden', room.of !== 't7');
+  if (room.of === 't7') $('t7console').textContent = t7Console(room);
 }
 
 /**
@@ -632,6 +644,7 @@ export function roomInit(): void {
   };
   $('endgame').onclick = () => act('end');
   $('copyt6').onclick = () => copy($('copyt6'), $('t6console').textContent || '');
+  $('copyt7').onclick = () => copy($('copyt7'), $('t7console').textContent || '');
   for (const b of $('t6install').querySelectorAll<HTMLButtonElement>('button.what')) {
     b.onclick = () => {
       aboutShown = !aboutShown;

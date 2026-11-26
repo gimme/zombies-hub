@@ -33,6 +33,7 @@ import { loadedServer } from './server';
 import { closeSolo, openSolo, showSolo, soloFollowUrl, soloOpen } from './solo';
 import { menuSound, roomSounds } from './sounds';
 import { store } from './storage';
+import { ownPC } from './titles';
 import { onWindows } from './windows';
 
 let shownRoom = ''; // the code of the room that the page last showed
@@ -56,7 +57,7 @@ export function show(v: View): void {
   // The player's game runs outside the page, in their own Black Ops II or in the Windows client, from the start of the
   // room's game. That game has its own music, which plays on in its menu when the room's game is over. So the lobby's
   // music is off from then until the player leaves the room.
-  const outside = !!room && room.state !== 'open' && !!room.seat && !room.left && (room.of === 't6' || windows);
+  const outside = !!room && room.state !== 'open' && !!room.seat && !room.left && (ownPC(room.of) || windows);
   if (room && outside) quietRoom = room.code;
   else if (!room || room.code !== quietRoom) quietRoom = '';
   musicOutside(!!quietRoom);
@@ -93,7 +94,7 @@ export function show(v: View): void {
       roomPushed = roomPushed && !!room;
       history.replaceState(null, '', url);
     }
-    if (room && !windows && room.of !== 't6') prefetchEngine();
+    if (room && !windows && !ownPC(room.of)) prefetchEngine();
   }
   const result = resultToShow(room);
   $('outside').classList.toggle('hidden', !!room || soloOpen || boardsOpen);
@@ -109,7 +110,7 @@ export function show(v: View): void {
   if (report) showResult(report);
   setBackdrop(report ? report.map : result ? result.map : room ? room.map : soloMapName(v));
   // The store says what it has of the map of the view's button. A download of another map stops.
-  const buttonMap = windows || (room && room.of === 't6') ? '' : room ? room.map : soloMapName(v);
+  const buttonMap = windows || (room && ownPC(room.of)) ? '' : room ? room.map : soloMapName(v);
   if (player.store.downloading && player.store.downloading !== buttonMap) stopDownload();
   knowMap(buttonMap);
   if (!room) {

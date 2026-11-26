@@ -24,7 +24,7 @@
 # the script goes on with the next map. Run the script again when the renderer changes what it draws with, with
 # ZOMBIES_ENGINE_FILE set to an archive of that build. The script needs the game files.
 #
-# ZOMBIES_GAME_DIR, ZOMBIES_ENGINE_URL, ZOMBIES_ENGINE_FILE  as for docker/server.sh
+# The game files (.env), ZOMBIES_ENGINE_URL, ZOMBIES_ENGINE_FILE  as for docker/server.sh
 # ZOMBIES_PIPELINES_NAME  The containers' name (default zombies-hub-pipelines). Two runs with different names can make
 #                         different maps' lists at the same time.
 set -euo pipefail

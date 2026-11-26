@@ -8,16 +8,18 @@ Each game it hosts is a title, named after its engine:
 
 - **`t5`, Black Ops.** The game process is `BO1Zombies.exe` from [bo1-zombies](https://github.com/gimme/bo1-zombies), running as a dedicated server. Players run the same engine in the browser, as WebAssembly, and connect over WebTransport.
 - **`t6`, Black Ops II.** The game process is Plutonium's dedicated server. Players run Plutonium on their own PC. The launcher installs and starts it, and their game connects over UDP.
+- **`t7`, Black Ops III.** The game process is Steam's dedicated server of the game, run by [BOIII](https://github.com/Ezz-lol/boiii-free), under 64-bit Wine. Players run BOIII on their own PC and join by hand, and their game connects over UDP.
 
 A room plays one title: its map's. The page keeps the titles apart. A room's host picks the title, then a map of it, and the leaderboards are by title. Where the server hosts one title, the page offers no choice.
 
 ## Layout
 
-- `server/`: the server. `rooms.go` has the rooms, `game.go` runs a game process, `relay.go` relays players' packets, and `web.go` serves the page and the game files. Each title has a file: `t5.go`, `t6.go`. `title.go` has what the rest of the server knows of a title, and which map a room goes to when its host picks one. `store.go` is the SQLite database that keeps the players and the games' reports, and has its schema.
+- `server/`: the server. `rooms.go` has the rooms, `game.go` runs a game process, `relay.go` relays players' packets, and `web.go` serves the page and the game files. Each title has a file: `t5.go`, `t6.go`, `t7.go`. `title.go` has what the rest of the server knows of a title, and which map a room goes to when its host picks one. `store.go` is the SQLite database that keeps the players and the games' reports, and has its schema.
 - `launcher/`: Zombies Launcher, the Windows program that starts a player's Black Ops II. Its releases are on GitHub ([below](#releasing-the-launcher)), and the room's page links to the latest one. `mac.sh` installs the launcher on a Mac and runs it there, in Wine. A release has it as `zombies-launcher-mac.sh`, and the room's page shows a Mac the line that fetches it.
 - `internal/`: Go packages.
   - `bo1zombies/`: downloads and unpacks the Black Ops engine build.
   - `plutonium/`: keeps a copy of Plutonium up to date, for the server and the launcher.
+  - `boiii/`: keeps a copy of BOIII up to date, for the server.
   - `launcherapi/`: what the server and the launcher say to each other, and where the launcher's releases are.
   - `release/`: the signature on a launcher release.
 - `cmd/launcher-release/`: makes the launcher's signing key and signs a release.
@@ -31,7 +33,7 @@ A room plays one title: its map's. The page keeps the titles apart. A room's hos
   - `game/` has the game tests, in four groups: `smoke/`, `engine/`, `long/` and `bo2/`. `game/fixtures.ts` starts a server container for each test (`server.ts`), opens players in Chrome (`player.ts`), and starts Black Ops II players in containers (`t6.ts`).
 - `docker/`: the image, and the scripts that build, run and test it. They work on Linux and in Git Bash on Windows.
 - `.github/workflows/`: what GitHub runs. `test.yml` checks every push and pull request, and `launcher.yml` releases the launcher.
-- `game/` (not in the repo): the game files, `game/t5` and `game/t6`.
+- `.env` (not in the repo): this machine's settings for the scripts in `docker/`. It names where the games are installed ([below](#the-game-files)). `.env.example` is the one to copy.
 - `build/` (not in the repo): what the dev server and the tests keep.
 
 Every setting starts with `ZOMBIES_`. The server image is `zombies-hub`, and the other Docker images, containers and volumes start with `zombies-hub-`.
@@ -44,7 +46,20 @@ Every setting starts with `ZOMBIES_`. The server image is `zombies-hub`, and the
 
 After a change in `web/`, run `make web` and reload the page. The page is built in Docker, so it needs no Node on the host. With Node installed, `npm ci` and then `npm run watch` in `web/` build the page on every change instead. `npm run check` checks its TypeScript, and `npm test` runs its tests in under a second.
 
-On Windows, Wine can't run programs or load game files from a Windows folder. The scripts therefore copy the game files into the Docker volume `zombies-hub-game` (9 GB per game, once), and the server unpacks the engine into the volume `<container>-engine`.
+## The game files
+
+The scripts take each game from where it is installed, so a game is on the disk once and can still be played there. `.env` at the top of the checkout names the folders (`docker/host.sh`), and `.env.example` is the one to copy:
+
+```sh
+ZOMBIES_T7=C:/Program Files (x86)/Steam/steamapps/common/Call of Duty Black Ops III
+ZOMBIES_T7_SERVER=C:/Program Files (x86)/Steam/steamapps/common/Call of Duty Black Ops III 545990
+```
+
+`ZOMBIES_T5` and `ZOMBIES_T6` name Black Ops and Black Ops II the same way. A path needs no quotes, and one that is not absolute is from the top of the checkout. The scripts mount each folder read-only at its place in the container (`/game/t5`, `/game/t7-server`), which is how a host mounts them too ([hosting.md](hosting.md#game-files)).
+
+On Linux that is all: the games run from the install folders. On Windows, Wine can't run programs or load game files from a Windows folder, which is what Docker Desktop mounts: Black Ops III's dedicated server hangs on the second fastfile it loads from one, as the other games fail there. The scripts therefore copy what the server reads into the Docker volume `zombies-hub-game`, a folder at a time, and again only when a folder's files change. That is all of Black Ops and Zombies' files of Black Ops II, 9 to 12 GB each, and of Black Ops III 4 GB of its 91: the fastfiles of Zombies, and the dedicated server without its multiplayer maps (`server/gamefiles.go` has the rules for each game, and the scripts ask the image's server for them: `zombies-server game-files`). So a Windows machine has each game once where Steam installed it, and once more, in the volume, only what its server reads. The server also unpacks the engine into the volume `<container>-engine`, and keeps Plutonium and BOIII in volumes of their own.
+
+The image has 32-bit and 64-bit Wine, because Black Ops III's dedicated server is a 64-bit program. `--build-arg WINE_ARCH=win32` builds an image without the 64-bit one, which is 0.8 GB smaller and hosts no Black Ops III.
 
 To try a change to the launcher, `make launcher` builds it into `build/zombies-launcher-setup.exe` (`docker/launcher.sh`). Run that file on a Windows PC to install it over the launcher the PC has. It is a dev build, of version 0: it never updates itself, and only a dev server takes it. On any other server the room says that the launcher is too old, and links to the latest release.
 
@@ -73,7 +88,7 @@ Two things in this repo depend on the engine build:
   - `smoke`: what a deploy needs to work. The server image as Unraid runs it, a room's game of two to game over, playing alone offline and from the player's own install, downloads at a capped rate, and the Windows client.
   - `engine`: what the engine does in the page and as a room's game. Playing alone with the settings menu, the gamepad, tabs, the end scoreboard, mods, a hung game and a client of another build.
   - `long`: a revive, a door bought, and six players in a room, one at a time, in about six minutes.
-  - `bo2`: Black Ops II's games, one at a time: a room's game of co-op to game over, a game with the room's mods, Grief in two teams past the server's most players, and Turned. Each player is a container of its own (`docker/t6-player.sh`), with their page's calls and Plutonium's game under Wine, which Mesa draws on the CPU, two to three cores a player. The players stand still: a script that the tests put in the server's games (`e2e/game/bo2/steer.gsc`) keeps the zombies away, downs players, gives a player a gun off the wall, and moves a player onto Turned's cure, and the game does the rest. The tests need the Black Ops II game files too (`game/t6`), and are skipped without them. The first run downloads Plutonium for the test servers and compiles the game's shaders, which takes minutes longer.
+  - `bo2`: Black Ops II's games, one at a time: a room's game of co-op to game over, a game with the room's mods, Grief in two teams past the server's most players, and Turned. Each player is a container of its own (`docker/t6-player.sh`), with their page's calls and Plutonium's game under Wine, which Mesa draws on the CPU, two to three cores a player. The players stand still: a script that the tests put in the server's games (`e2e/game/bo2/steer.gsc`) keeps the zombies away, downs players, gives a player a gun off the wall, and moves a player onto Turned's cure, and the game does the rest. The tests need the Black Ops II game files too (`ZOMBIES_T6`), and are skipped without them. The first run downloads Plutonium for the test servers and compiles the game's shaders, which takes minutes longer.
 
   With nothing named, `smoke` and `engine` run, in about seven minutes. `docker/test-games.sh smoke` runs a group, and `docker/test-games.sh coop solo` the named tests. A test's results are in `build/test/results`: the server's log and data, each player's log, and screenshots. One run goes at a time.
 

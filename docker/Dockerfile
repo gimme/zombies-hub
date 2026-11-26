@@ -31,9 +31,10 @@ ARG UBUNTU=ubuntu:24.04
 ARG PLAYWRIGHT_VERSION=1.62.1
 # The version of Node that builds the page (stage web-build).
 ARG NODE_VERSION=26.13.1
-# WINE_ARCH selects the Wine for the games. win32 installs 32-bit Wine only, which Black Ops and Black Ops II run on.
-# win64 also installs 64-bit Wine, for a game that is a 64-bit program. That adds about 1 GB.
-ARG WINE_ARCH=win32
+# WINE_ARCH selects the Wine for the games. win64 installs 32-bit and 64-bit Wine: Black Ops and Black Ops II are
+# 32-bit programs, and Black Ops III's dedicated server is a 64-bit one (server/t7.go). win32 installs 32-bit Wine
+# only, for an image that is 0.8 GB smaller and hosts no Black Ops III.
+ARG WINE_ARCH=win64
 
 # ---- stage wine-games: Wine for the games, shared by the wine and server targets. It is half the size of the Wine in
 # the engine's build image (bo1-zombies/docker/Dockerfile) ----

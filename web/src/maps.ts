@@ -2,13 +2,14 @@
 import type { MapInfo, View } from './api';
 import { view } from './lobby';
 import { store } from './storage';
+import { hasPictures } from './titles';
 
 /** What the lobby says of a map. A map that the view does not list has only its name. */
 export const mapInfo = (name: string): MapInfo =>
   (view && view.maps.find((m) => m.name === name)) || { name, title: name };
 
 /** The maps a page plays in the engine: Black Ops' own. A Black Ops II map is played in Plutonium. */
-export const t5Maps = (maps: MapInfo[]): MapInfo[] => maps.filter((m) => m.of !== 't6');
+export const t5Maps = (maps: MapInfo[]): MapInfo[] => maps.filter((m) => m.of === 't5');
 
 /**
  * Whether the server has any map of a title. The page to play locally asks it of the maps, which a page that is
@@ -39,6 +40,10 @@ export const lastTitle = {
   set: (of: string): void => store.set('zombies-title', of),
 };
 
+// A picture of nothing, one clear pixel, for a map that the server has no picture of. An <img> of it shows what is
+// behind it, and none of what a browser draws for a picture that is missing.
+const NO_PICTURE = 'data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==';
+
 /**
  * Sets an <img> to a map's picture: its preview, or the picture of another kind, such as its loading screen
  * (server/mapart.go). The picture is set only when it changes. The <img> says the map's game (data-of): a Black Ops
@@ -46,7 +51,7 @@ export const lastTitle = {
  */
 export function mapPicture(img: HTMLImageElement, name: string, kind?: string): HTMLImageElement {
   const map = mapInfo(name);
-  const src = '/maps/' + encodeURIComponent(name) + '/' + (kind || 'preview');
+  const src = hasPictures(map.of) ? '/maps/' + encodeURIComponent(name) + '/' + (kind || 'preview') : NO_PICTURE;
   if (img.getAttribute('src') !== src) img.src = src;
   img.alt = map.title;
   img.dataset.of = map.of || '';

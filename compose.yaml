@@ -3,8 +3,11 @@
 # Unraid's template (docker/unraid/my-zombies-hub.xml) runs the same image the same way.
 #
 # The game files go in game/ next to this file, or in the folder that ZOMBIES_GAME_DIR names. They have a folder for
-# each title the server hosts: game/t5 is a copy of a Black Ops install folder, and game/t6 is a copy of a Black Ops II
-# install folder. The server needs at least one. The server writes in config/ (ZOMBIES_CONFIG_DIR). PUID:PGID owns
+# each title the server hosts: game/t5 is a copy of a Black Ops install folder, game/t6 one of a Black Ops II install
+# folder, and game/t7 one of a Black Ops III install folder, with Steam's dedicated server of that game in
+# game/t7-server (docs/hosting.md). The server needs at least one title. A folder that is to stay where its game is
+# installed gets a line of its own under volumes: - /games/Black Ops III:/game/t7:ro. The server writes in config/
+# (ZOMBIES_CONFIG_DIR). PUID:PGID owns
 # what it writes there, except what the rooms' games write in their home folders (config/game/), which belongs to the
 # games' user, 3075. docker compose exec server console opens the server's console.
 services:

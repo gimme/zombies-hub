@@ -7,7 +7,7 @@ import { expect, test } from '../fixtures';
 import { gameOver, makeRoom, playGame, t6Boards } from '../t6';
 
 test.use({ serverOptions: { t6: true } });
-test.skip(!process.env.ZOMBIES_TEST_T6, 'no Black Ops II game files (game/t6)');
+test.skip(!process.env.ZOMBIES_TEST_T6, 'no Black Ops II game files (ZOMBIES_T6 in .env)');
 
 test("two players play a room's game of Black Ops II to game over", async ({ server, t6 }) => {
   const players = await Promise.all([t6.player('Ann'), t6.player('Bob')]);

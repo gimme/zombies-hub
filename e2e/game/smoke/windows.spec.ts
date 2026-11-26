@@ -8,7 +8,7 @@
 import { type ChildProcess, spawn } from 'node:child_process';
 import { createWriteStream, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { docker, mount, shaderCache } from '../server';
+import { docker, gameMounts, mount, shaderCache } from '../server';
 import { expect, type Server, test } from '../fixtures';
 
 const sleep = (ms: number) => new Promise((done) => setTimeout(done, ms));
@@ -29,7 +29,7 @@ class WindowsClient {
     this.home = join(results, `windows-${n}`);
     const engine = process.platform === 'win32' ? `${server.name}-engine` : join(server.dir, 'config', 'engine');
     this.proc = spawn('docker', ['run', '--rm', '--name', this.name, '--network', 'bridge',
-      ...mount(process.env.ZOMBIES_TEST_GAME!, '/game', true), ...mount(engine, '/engine', true),
+      ...gameMounts(), ...mount(engine, '/engine', true),
       ...mount(results, '/out'), ...shaders,
       'zombies-hub-windows-player', `/out/windows-${n}`, `${address}:3075`, key], { windowsHide: true });
     const log = createWriteStream(`${this.home}.log`);

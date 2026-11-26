@@ -2,7 +2,8 @@ package main
 
 import "slices"
 
-// title is a Call of Duty game that the server hosts: Black Ops (t5.go) or Black Ops II (t6.go). The rooms, the
+// title is a Call of Duty game that the server hosts: Black Ops (t5.go), Black Ops II (t6.go) or Black Ops III
+// (t7.go). The rooms, the
 // page's view and the runner (game.go) deal with a title only through this interface. Hosting another title then
 // takes a new file, and no changes to those. The caller holds l.mu for every method.
 //
@@ -133,7 +134,7 @@ func (l *lobby) versusMap(r *room, of, versus string) string {
 }
 
 // mapTitles is the Zombies maps, in the order the page lists them.
-var mapTitles = slices.Concat(t5MapList, t6MapList)
+var mapTitles = slices.Concat(t5MapList, t6MapList, t7MapList)
 
 func mapByName(name string) (mapEntry, bool) {
 	i := slices.IndexFunc(mapTitles, func(m mapEntry) bool { return m.name == name })

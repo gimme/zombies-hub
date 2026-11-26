@@ -21,6 +21,11 @@
 # drop the packets that belong to no socket, such as the kernel's TCP handshakes and resets, because they match no
 # uid. Without NET_ADMIN, the script prints a warning, and the games run all the same.
 #
+# Before the firewall is up, the script has the server fetch what Black Ops III's dedicated server downloads from the
+# game's publisher as it starts, where the game files have that game and the server has not fetched it yet
+# (zombies-server -t7-fetch, server/t7.go: t7Fetch). That is one run of the game as the games' user, which no player
+# reaches, and the last time that user reaches the internet.
+#
 # With docker run --user, the user is already chosen. The server starts as that user and runs the games as that user
 # too. Wine allows that only for the owner of its prefix, game (--user 3075).
 set -eu
@@ -35,6 +40,12 @@ fi
 mkdir -p /config
 find /config \( ! -user "$uid" -o ! -group "$gid" \) ! -path '/config/game/*' -exec chown -h "$uid:$gid" {} + ||
     echo "entrypoint: can't give all of /config to $uid:$gid" >&2
+export HOME=/home/game USER=game LOGNAME=game
+# the server's user, with the three capabilities
+as_server="setpriv --reuid $uid --regid $gid --clear-groups --inh-caps=-all,+setuid,+setgid,+kill"
+as_server="$as_server --ambient-caps=-all,+setuid,+setgid,+kill"
+$as_server zombies-server -t7-fetch "$@" ||
+    echo "entrypoint: the server plays no Black Ops III until its dedicated server has fetched its files" >&2
 if ! err=$(nft -f - 2>&1 <<EOF
 table inet zombies_games
 flush table inet zombies_games
@@ -54,6 +65,4 @@ EOF
     echo "entrypoint: the games can reach the network, as only NET_ADMIN lets a firewall stop them" \
         "(docker run --cap-add NET_ADMIN): $(echo "$err" | head -n 1)" >&2
 fi
-export HOME=/home/game USER=game LOGNAME=game
-exec setpriv --reuid "$uid" --regid "$gid" --clear-groups \
-    --inh-caps=-all,+setuid,+setgid,+kill --ambient-caps=-all,+setuid,+setgid,+kill zombies-server "$@"
+exec $as_server zombies-server "$@"

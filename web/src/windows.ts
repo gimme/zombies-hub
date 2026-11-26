@@ -3,7 +3,8 @@
 // A Black Ops room's game can be played in the Windows client instead of the page: the player runs the line that
 // their profile shows (playLine). A Black Ops II room's game is always played on the player's PC, in their own copy of
 // Plutonium, which the launcher starts into the room's game. A player can also join by hand, with a line for the
-// game's console (t6Console).
+// game's console (t6Console). A Black Ops III room's game is played on the player's PC too, in their own copy of BOIII,
+// which they join by hand (t7Console): the launcher starts no Black Ops III yet.
 import type { Room } from './api';
 import { canRun } from './engine';
 import { me, offline, page, view } from './lobby';
@@ -34,6 +35,14 @@ export const playLine = (): string =>
  */
 export const t6Console = (room: Room): string =>
   'password ' + room.password + ';connect ' + location.hostname + ':' + (udpPort() || location.port || 3075);
+
+/**
+ * The line that joins a Black Ops III room's game by hand, for the console of the player's game, which BOIII started.
+ * It gives the room's password and connects, as t6Console does. The game's console takes a line as a command when the
+ * line starts with a slash.
+ */
+export const t7Console = (room: Room): string =>
+  '/password ' + room.password + ';connect ' + location.hostname + ':' + (udpPort() || location.port || 3075);
 
 // The launcher (launcher/): a program on the player's PC, which a link of its scheme starts once it is installed.
 // The link names this server and the player, by their key. The launcher asks the server what to play, gets what the

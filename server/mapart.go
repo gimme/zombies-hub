@@ -122,7 +122,8 @@ func pngOf(img image.Image) (mapPicture, error) {
 // The lobby's view of the maps doesn't wait for one either: the descriptions it needs have their own lock (h.locs).
 func (h *web) mapArt(mapName, kind string) (mapPicture, bool) {
 	m, ok := mapByName(mapName)
-	if _, known := mapArtKinds[kind]; !ok || !known || kind == "card" && m.of != t6 {
+	// The server has no pictures of a Black Ops III map (t7.go: t7MapList).
+	if _, known := mapArtKinds[kind]; !ok || !known || kind == "card" && m.of != t6 || m.of == t7 {
 		return mapPicture{}, false
 	}
 	h.art.Lock()

@@ -1,6 +1,6 @@
 # Playing
 
-Open the server's page in Chrome. Make a room, or join one from the list or with its code. The host picks the game, Black Ops or Black Ops II, then a map of it. The others can suggest a map with a click on it. When everyone has pressed Ready, the game starts.
+Open the server's page in Chrome. Make a room, or join one from the list or with its code. The host picks the game, Black Ops, Black Ops II or Black Ops III, then a map of it. The others can suggest a map with a click on it. When everyone has pressed Ready, the game starts.
 
 The page offers only the games the server hosts, and a server of one game has nothing to pick. The list of rooms says each room's game, and each game has its own leaderboards.
 
@@ -46,7 +46,16 @@ If something goes wrong:
 
 To remove the launcher, uninstall Zombies Launcher in Windows' Settings under Apps. It asks whether to delete the game files that it downloaded too. Plutonium stays: to remove it, delete its folder.
 
-### On a Mac
+## Black Ops III
+
+Black Ops III runs on your Windows PC, on [BOIII](https://github.com/Ezz-lol/boiii-free), and you join your room's game by hand. The launcher starts no Black Ops III yet.
+
+- **Game files:** Black Ops III installed from Steam, with the maps you want to play.
+- **BOIII:** download `boiii.exe` from [its releases](https://github.com/Ezz-lol/boiii-free/releases/latest), put it in the game's folder, and start it. It brings itself up to date each time it starts.
+- **Each game:** press Ready in the room. When the room's game is up, the room shows a line: open the console in your game and type it there, or copy it with the button at its end. It gives the room's password and connects to the server.
+- **Same PC:** keep the room's page open on the PC you play on. The server matches your game to your page by address.
+
+## On a Mac
 
 Black Ops II is a Windows game. On a Mac with Apple Silicon (M1 or later), the launcher runs it in Wine, with [plutonium-mac-aio](https://github.com/LuidgiAlt/plutonium-mac-aio). An Intel Mac can't play it. What is said above of the launcher holds on a Mac too, but for this:
 

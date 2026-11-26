@@ -17,7 +17,7 @@ import { createWriteStream } from 'node:fs';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
 import type { Leaderboards, MapBoards, View } from '../../web/src/api';
-import { docker, mount, type Server, shaderCache } from './server';
+import { docker, gameMounts, mount, type Server, shaderCache } from './server';
 
 const image = 'zombies-hub-t6-player';
 
@@ -55,7 +55,7 @@ export class T6Player {
     const [, shaders, address] = await Promise.all([docker(['rm', '-f', container]), shaderCache(image),
       server.address()]);
     const player = new T6Player(name, container, out, ['run', '--rm', '--name', container, '--network', 'bridge',
-      ...mount(process.env.ZOMBIES_TEST_GAME!, '/game', true), ...mount(server.plutonium, '/plutonium', true),
+      ...gameMounts(), ...mount(server.plutonium, '/plutonium', true),
       ...mount(out, '/out'), ...shaders, image, 'play', '/out', address, name]);
     await player.waitFor(new RegExp(`^t6-player: ${name} is in the lobby$`), 60_000);
     return player;

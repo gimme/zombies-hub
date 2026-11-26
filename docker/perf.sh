@@ -15,7 +15,7 @@
 # (docker/player/perf.mjs), as docker/pipelines.sh does. The profiles go to build/perf/<time>.json. The log and a
 # screenshot of each view go next to them.
 #
-# ZOMBIES_GAME_DIR, ZOMBIES_ENGINE_URL, ZOMBIES_ENGINE_FILE  as for docker/server.sh
+# The game files (.env), ZOMBIES_ENGINE_URL, ZOMBIES_ENGINE_FILE  as for docker/server.sh
 set -euo pipefail
 . "$(dirname "$0")/host.sh"
 here=$(abs "$(dirname "$0")")

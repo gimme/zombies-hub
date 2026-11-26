@@ -23,9 +23,13 @@
 # error, a crash or a hang), its players are back in their room. Ctrl+C or docker stop makes the games quit cleanly
 # and then stops the server.
 #
-# ZOMBIES_GAME_DIR       The game files (default game/), with a folder for each title the server hosts: t5 is a copy of
-#                        a Black Ops install folder, and t6 is a copy of a Black Ops II install folder. The server
-#                        needs at least one of them. The folder is mounted read-only, and nothing writes there.
+# The variables are the environment's, or else set in .env at the top of the checkout (docker/host.sh, .env.example).
+#
+# ZOMBIES_T5, ZOMBIES_T6, ZOMBIES_T7, ZOMBIES_T7_SERVER
+#                        The game files: the install folder of each game the server hosts, where it is on this
+#                        machine. T5 is Black Ops, T6 Black Ops II, and T7 Black Ops III, with Steam's dedicated server
+#                        of that game in T7_SERVER. The server needs at least one title. The folders are mounted
+#                        read-only, and nothing writes there.
 # ZOMBIES_ENGINE_URL     Where the server downloads its engine build from (default: the release of bo1-zombies that
 #                        internal/bo1zombies pins).
 # ZOMBIES_ENGINE_FILE    A local engine archive to run instead. The engine's make package makes one.
@@ -48,7 +52,6 @@ set -euo pipefail
 . "$(dirname "$0")/host.sh"
 here=$(abs "$(dirname "$0")")
 root=$(abs "$here/..")
-game=${ZOMBIES_GAME_DIR:-$root/game}
 svhome=${ZOMBIES_SERVER_HOME:-$root/build/server}
 image=${ZOMBIES_SERVER_IMAGE:-zombies-hub-server}
 name=${ZOMBIES_SERVER_NAME:-zombies-hub-server}
@@ -63,8 +66,9 @@ net=${ZOMBIES_NET:-$udp -p 3075:3075/tcp}
 map=zombie_theater
 if [ $# -gt 0 ] && [ "${1#+}" = "$1" ]; then map=$1; shift; fi
 
-[ -d "$game/t5/zone" ] || [ -d "$game/t6/zone" ] ||
-    { echo "no game files in $game: copy a Black Ops install to $game/t5 or a Black Ops II install to $game/t6" >&2
+has_game ||
+    { echo "server: no game files: name the install folder of a game in .env, at the top of the checkout" \
+          "(.env.example is the one to copy)" >&2
       exit 1; }
 # The image is built the first time. Each later run brings it up to date with docker/Dockerfile and server/, without
 # printing the build's progress. That takes seconds when nothing changed, and a minute or so when server/ changed,
@@ -78,16 +82,18 @@ docker build --progress=$progress -f "$here/Dockerfile" --target server -t "$ima
 # The server serves the built page, web/dist. A change to the page shows after docker/web.sh has run again.
 "$here/web.sh"
 mkdir -p "$svhome"
-gamedir=$(for_wine "$game" zombies-hub-game "$image")
+gamefiles=$(game_args zombies-hub-game "$image")
+mapfile -t gamefiles <<<"$gamefiles"
 mapfile -t engine < <(engine_args "$name")
-# In Git Bash the server's copy of Plutonium and the games' home folders go in Docker volumes too. /config is a
-# Windows folder there, and Wine can't run a program from one (host.sh). With Plutonium in /config, a Black Ops II
-# room's game crashed when it started. With its home folder in /config, the game never answered.
+# In Git Bash the server's copies of Plutonium and of BOIII and the games' home folders go in Docker volumes too.
+# /config is a Windows folder there, and Wine can't run a program from one (host.sh). With Plutonium in /config, a
+# Black Ops II room's game crashed when it started. With its home folder in /config, the game never answered.
 pluto=()
 if [ -n "${MSYSTEM:-}" ]; then
-    docker run --rm -u 0 --entrypoint chown -v "$name-plutonium:/plutonium" -v "$name-homes:/config/game" "$image" \
-        "$uid:$gid" /plutonium /config/game
-    pluto=(-v "$name-plutonium:/plutonium" -e ZOMBIES_PLUTONIUM_DIR=/plutonium -v "$name-homes:/config/game")
+    docker run --rm -u 0 --entrypoint chown -v "$name-plutonium:/plutonium" -v "$name-boiii:/boiii" \
+        -v "$name-homes:/config/game" "$image" "$uid:$gid" /plutonium /boiii /config/game
+    pluto=(-v "$name-plutonium:/plutonium" -e ZOMBIES_PLUTONIUM_DIR=/plutonium -v "$name-boiii:/boiii"
+        -e ZOMBIES_BOIII_DIR=/boiii -v "$name-homes:/config/game")
 fi
 
 tty=-i; [ -t 0 ] && [ -t 1 ] && tty=-it
@@ -100,6 +106,6 @@ docker run --rm $tty --name "$name" $net --cap-add NET_ADMIN \
     ${ZOMBIES_CHEATS:+-e ZOMBIES_CHEATS="$ZOMBIES_CHEATS"} \
     -e ZOMBIES_MIN_PLAYERS="${ZOMBIES_MIN_PLAYERS:-1}" \
     ${ZOMBIES_MAX_PLAYERS:+-e ZOMBIES_MAX_PLAYERS="$ZOMBIES_MAX_PLAYERS"} \
-    -v "$gamedir:/game:ro" -v "$(abs "$svhome"):/config" -v "$root/web/dist:/web:ro" \
+    "${gamefiles[@]}" -v "$(abs "$svhome"):/config" -v "$root/web/dist:/web:ro" \
     "${engine[@]}" "${pluto[@]}" \
     "$image" -map "$map" -- "$@"

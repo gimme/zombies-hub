@@ -383,7 +383,8 @@ func TestRoomTitles(t *testing.T) {
 	}
 	for _, c := range []struct{ token, title, mapName, want string }{
 		{bob, t6, "", "Only the host picks the map."},
-		{ann, "t7", "", "There is no game t7."},
+		{ann, "t9", "", "There is no game t9."},
+		{ann, t7, "", "The server doesn't have Black Ops III."},
 		{ann, t6, theater, "Kino der Toten is not a Black Ops II map."},
 		{ann, t6, "zm_classic_prison", "The server doesn't have Mob of the Dead."},
 	} {
@@ -401,7 +402,7 @@ func TestRoomTitles(t *testing.T) {
 
 	// a new room of the game that its maker last picked, which their page remembers: on a map of it, unless they name
 	// a map; a game that the server doesn't host leaves the room on the server's default map
-	for _, c := range []struct{ title, mapName, want string }{{t6, "", town}, {t6, theater, theater}, {"t7", "", theater}} {
+	for _, c := range []struct{ title, mapName, want string }{{t6, "", town}, {t6, theater, theater}, {t7, "", theater}} {
 		args := []string{"title", c.title}
 		if c.mapName != "" {
 			args = append(args, "map", c.mapName)

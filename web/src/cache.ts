@@ -5,6 +5,7 @@
 // asks it to cache what the page loaded before that: the maps' pictures and lists, and the player's picture.
 import type { MapInfo } from './api';
 import { store } from './storage';
+import { hasPictures } from './titles';
 
 if ('serviceWorker' in navigator && self.isSecureContext) {
   navigator.serviceWorker.register('/sw.js')
@@ -32,7 +33,7 @@ export function cacheArt(maps: MapInfo[]): void {
     const urls = [];
     for (const m of maps) {
       const at = '/maps/' + encodeURIComponent(m.name) + '/';
-      urls.push(at + 'preview', at + 'loadscreen');
+      if (hasPictures(m.of)) urls.push(at + 'preview', at + 'loadscreen');
       if (m.of === 't6') urls.push(at + 'card'); // the room's shot of it (maps.ts: mapShot)
       if (m.have) urls.push(at + 'files', at + 'pipelines');
     }

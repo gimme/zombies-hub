@@ -231,6 +231,12 @@ func (g *game) t6() *t6Game {
 	return t
 }
 
+// ownPC reports whether rg is a game that its players play on their own PCs, and join from there: a T6 room's, or a
+// T7 room's (t7.go), which the server relays and keeps the same way.
+func ownPC(rg *roomGame) bool {
+	return rg != nil && rg.g != nil && (rg.g.t6() != nil || rg.g.t7() != nil)
+}
+
 // t6Of returns the T6 engine of rg's game. It returns nil for another title's game, or when there is no game.
 func t6Of(rg *roomGame) *t6Game {
 	if rg == nil || rg.g == nil {
@@ -1200,17 +1206,40 @@ func t6StatusLine(line string) (c t6Client, client, status bool) {
 }
 
 // t6Watch is a T6 game's watch (engine.watch) and also its console. Plutonium's server reads no console on stdin
-// under Wine, so the server talks to the game's remote console. It does so from watchAddr, the address it also
-// watches a T5 game from. t6Watch asks for the game's status every watchEvery and passes the clients it lists to
-// t6Game.status. It sends the game the lines that game.command queues, and prints the game's answers to them. The
-// status also shows whether the game still answers. The game answers while it runs a map, and not while it loads one.
-// When the game has not answered for startTimeout after its start, or for quietTimeout after an answer, t6Watch sends
-// the length of the silence on silent and returns.
+// under Wine, so the server talks to the game's remote console (rconWatch).
 func (g *game) t6Watch(done <-chan struct{}, silent chan<- time.Duration) {
 	t := g.t6()
+	g.rconWatch(rcon{password: t.rcon, send: t.send, status: t.status, parse: t6StatusLine}, done, silent)
+}
+
+// rcon is a game's remote console, as rconWatch uses it: the console of a game that its players join from their own
+// PCs (t6.go, t7.go).
+type rcon struct {
+	password string        // the console's password, which only the server has
+	send     <-chan string // lines for the console (game.command)
+	// status is called with the clients that the game's status lists, each second that the game answers. A client is
+	// listed by the address the game sees it at, which is a seat's address.
+	status func([]t6Client)
+	// parse reads a line of the game's answer to the status command (t6StatusLine).
+	parse func(line string) (c t6Client, client, status bool)
+	// gap is the least time between two packets to the console, for a game that drops one that comes sooner after
+	// the last (t7.go).
+	gap time.Duration
+	// logged is set for a game that also writes each answer to its output, where the server reads it. rconWatch then
+	// prints no answer but that of a status that a console line asked for, which the output leaves out.
+	logged bool
+}
+
+// rconWatch watches a game over its remote console, which is also the game's console. It does so from watchAddr, the
+// address the server also watches a T5 game from. rconWatch asks for the game's status every watchEvery and passes
+// the clients it lists to c.status. It sends the game the lines that game.command queues, and prints the game's
+// answers to them. The status also shows whether the game still answers. The game answers while it runs a map, and not
+// while it loads one. When the game has not answered for startTimeout after its start, or for quietTimeout after an
+// answer, rconWatch sends the length of the silence on silent and returns.
+func (g *game) rconWatch(c rcon, done <-chan struct{}, silent chan<- time.Duration) {
 	conn, err := net.DialUDP("udp4", watchAddr(g.port), &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: g.port})
 	if err != nil {
-		g.logf("no remote console, which a T6 game is run by: %v", err)
+		g.logf("no remote console, which the game is run by: %v", err)
 		silent <- 0
 		return
 	}
@@ -1230,23 +1259,26 @@ func (g *game) t6Watch(done <-chan struct{}, silent chan<- time.Duration) {
 			if err != nil {
 				return
 			}
-			text, ok := bytes.CutPrefix(buf[:n], []byte("\xff\xff\xff\xffprint\n"))
-			if !ok {
+			// "print", then a line break (Plutonium's server) or a space (BOIII's)
+			text, ok := bytes.CutPrefix(buf[:n], []byte("\xff\xff\xff\xffprint"))
+			if !ok || len(text) > 0 && text[0] != '\n' && text[0] != ' ' {
 				continue
 			}
 			var say []string
 			mu.Lock()
 			answered = time.Now()
-			for _, line := range strings.Split(string(text), "\n") {
+			for _, line := range strings.Split(string(text[min(len(text), 1):]), "\n") {
 				line = strings.TrimRight(line, "\r\x00")
-				c, client, status := t6StatusLine(line)
-				if status {
+				cl, client, status := c.parse(line)
+				// The status of a game that runs a map has the heading of its clients. BOIII's server answers
+				// before it runs one too, with no clients to list, and is not up for its players yet.
+				if status && strings.HasPrefix(line, "num score") {
 					listed = true
 				}
 				if client {
-					clients = append(clients, c)
+					clients = append(clients, cl)
 				}
-				if line != "" && (!status || show) {
+				if line != "" && (status && show || !status && !c.logged) {
 					say = append(say, line)
 				}
 			}
@@ -1256,8 +1288,13 @@ func (g *game) t6Watch(done <-chan struct{}, silent chan<- time.Duration) {
 			}
 		}
 	}()
+	var asked time.Time
 	ask := func(line string) {
-		conn.Write(append(append([]byte{}, outOfBand...), "rcon "+t.rcon+" "+line...))
+		if wait := c.gap - time.Since(asked); wait > 0 {
+			time.Sleep(wait)
+		}
+		asked = time.Now()
+		conn.Write(append(append([]byte{}, outOfBand...), "rcon "+c.password+" "+line...))
 	}
 	start := time.Now()
 	tick := time.NewTicker(watchEvery)
@@ -1267,7 +1304,7 @@ func (g *game) t6Watch(done <-chan struct{}, silent chan<- time.Duration) {
 		select {
 		case <-done:
 			return
-		case line := <-t.send:
+		case line := <-c.send:
 			mu.Lock()
 			show = strings.EqualFold(strings.TrimSpace(line), "status")
 			mu.Unlock()
@@ -1279,8 +1316,8 @@ func (g *game) t6Watch(done <-chan struct{}, silent chan<- time.Duration) {
 		now, ok, last := clients, listed, answered
 		clients, listed, show = nil, false, false
 		mu.Unlock()
-		if ok && t.status != nil {
-			t.status(now)
+		if ok && c.status != nil {
+			c.status(now)
 		}
 		since, limit := start, g.startTimeout
 		if !last.IsZero() {
@@ -1584,7 +1621,7 @@ func (l *lobby) t6Seat(ip netip.Addr, verb string) (game, local *net.UDPAddr, na
 	running := ""
 	for _, r := range l.rooms {
 		rg := r.game
-		if t6Of(rg) == nil || rg.ending != "" || rg.up.IsZero() {
+		if !ownPC(rg) || rg.ending != "" || rg.up.IsZero() {
 			continue
 		}
 		running = r.code
@@ -1639,7 +1676,7 @@ func (l *lobby) t6Waits(p *player) (waits bool, whose string) {
 	}
 	for _, r := range l.rooms {
 		rg := r.game
-		if r == p.room || t6Of(rg) == nil || rg.ending != "" {
+		if r == p.room || !ownPC(rg) || rg.ending != "" {
 			continue
 		}
 		for _, s := range rg.seats {
@@ -1677,7 +1714,7 @@ func (l *lobby) t6Turn(local *net.UDPAddr, name string) (turn bool, who string) 
 	at := local.String()
 	for _, r := range l.rooms {
 		rg := r.game
-		if t6Of(rg) == nil {
+		if !ownPC(rg) {
 			continue
 		}
 		i := slices.IndexFunc(rg.seats, func(s *seat) bool { return s.local.String() == at })

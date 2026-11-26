@@ -9,7 +9,7 @@ import { expect, test } from '../fixtures';
 import { gameOver, makeRoom, playGame } from '../t6';
 
 test.use({ serverOptions: { t6: true } });
-test.skip(!process.env.ZOMBIES_TEST_T6, 'no Black Ops II game files (game/t6)');
+test.skip(!process.env.ZOMBIES_TEST_T6, 'no Black Ops II game files (ZOMBIES_T6 in .env)');
 
 test("a room's game of Black Ops II has the room's mods", async ({ server, t6 }) => {
   const mods = ['uniquewallweapons', 'zombiecap=32'];

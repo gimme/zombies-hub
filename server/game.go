@@ -49,6 +49,9 @@ type game struct {
 
 	mu    sync.Mutex
 	stdin *os.File // the running game's console, or nil when it is not running
+	// printed takes a line of the running game's output that came another way than its stdout: a T7 game writes its
+	// console to a file, which its engine reads (t7.go). It is nil when the game is not running.
+	printed func(line string)
 }
 
 // engine is what a game runs. There is one for each title.
@@ -140,11 +143,7 @@ func (g *game) runOnce(ctx context.Context) (*os.ProcessState, error) {
 		outW.Close()
 		return nil, err
 	}
-	cmd := exec.Command(command[0], command[1:]...)
-	if g.uid != 0 {
-		cmd = exec.Command("setpriv", asUser(g.uid, command)...)
-	}
-	cmd.Env = gameEnv(os.Environ())
+	cmd := g.asGame(command...)
 	cmd.Dir = dir
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = in, outW, outW
 	// The game gets its own process group, so that a terminal's Ctrl+C reaches only the server. The server then
@@ -162,13 +161,14 @@ func (g *game) runOnce(ctx context.Context) (*os.ProcessState, error) {
 	if logFile != nil {
 		g.logf("started (log: %s)", logFile.Name())
 	}
+	said := outputTo(g.output, logFile, g.lines, clean)
 	copied := make(chan struct{})
 	go func() {
-		copyOutput(out, g.output, logFile, g.lines, clean)
+		copyOutput(out, said)
 		close(copied)
 	}()
 	g.mu.Lock()
-	g.stdin = inW
+	g.stdin, g.printed = inW, func(line string) { said([]byte(line)) }
 	g.mu.Unlock()
 
 	exited := make(chan error, 1)
@@ -192,7 +192,7 @@ func (g *game) runOnce(ctx context.Context) (*os.ProcessState, error) {
 	watch.Wait() // the watch's address is free for the next game on this port
 
 	g.mu.Lock()
-	g.stdin = nil
+	g.stdin, g.printed = nil, nil
 	g.mu.Unlock()
 	inW.Close()
 	// Read what is left in the pipe. Wine's own processes (services.exe, ...) can hold it open a few seconds longer.
@@ -216,6 +216,17 @@ func (g *game) mkdir(dir string) error {
 		return err
 	}
 	return os.Chmod(dir, 0o770)
+}
+
+// asGame returns command as the game's user runs it: as the user uid (asUser), or as the server's own when the games
+// have no user of their own. It has the server's environment without the server's settings (gameEnv).
+func (g *game) asGame(command ...string) *exec.Cmd {
+	cmd := exec.Command(command[0], command[1:]...)
+	if g.uid != 0 {
+		cmd = exec.Command("setpriv", asUser(g.uid, command)...)
+	}
+	cmd.Env = gameEnv(os.Environ())
+	return cmd
 }
 
 // asUser returns setpriv's arguments to run command as uid, with the server's group and no other group, no
@@ -294,29 +305,41 @@ func (g *game) stop(cmd *exec.Cmd, exited <-chan error) error {
 	}
 }
 
-// copyOutput reads the game's output line by line. It prints each line to w, writes it to the log file with a
-// timestamp, and passes it to lines without its line ending. If clean is set, each line is first replaced by
+// outputTo returns what takes a line of a game's output. It prints the line to w, writes it to the log file with a
+// timestamp, and passes it to lines without its line ending. If clean is set, the line is first replaced by
 // clean(line), and a line that becomes "" is dropped. A T6 game's lines lose their colours this way (t6Line), and a
-// line with only its prompt is dropped.
-func copyOutput(out *os.File, w io.Writer, logFile *os.File, lines func(string), clean func(string) string) {
-	r := bufio.NewReader(out)
-	for {
-		line, err := r.ReadBytes('\n')
+// line with only its prompt is dropped. The lines are taken one at a time, also when they come from two places: the
+// game's stdout (copyOutput) and its engine (game.printed).
+func outputTo(w io.Writer, logFile *os.File, lines func(string), clean func(string) string) func(line []byte) {
+	var mu sync.Mutex
+	return func(line []byte) {
+		mu.Lock()
+		defer mu.Unlock()
 		if clean != nil && len(line) > 0 {
 			line = []byte(clean(strings.TrimRight(string(line), "\r\n")))
 		}
-		if len(line) > 0 {
-			if line[len(line)-1] != '\n' {
-				line = append(line, '\n')
-			}
-			w.Write(line)
-			if logFile != nil {
-				logFile.Write(append([]byte(time.Now().Format("2006-01-02 15:04:05.000 ")), line...))
-			}
-			if lines != nil {
-				lines(strings.TrimRight(string(line), "\r\n"))
-			}
+		if len(line) == 0 {
+			return
 		}
+		if line[len(line)-1] != '\n' {
+			line = append(line, '\n')
+		}
+		w.Write(line)
+		if logFile != nil {
+			logFile.Write(append([]byte(time.Now().Format("2006-01-02 15:04:05.000 ")), line...))
+		}
+		if lines != nil {
+			lines(strings.TrimRight(string(line), "\r\n"))
+		}
+	}
+}
+
+// copyOutput reads the game's output line by line, and passes each line to said (outputTo).
+func copyOutput(out *os.File, said func(line []byte)) {
+	r := bufio.NewReader(out)
+	for {
+		line, err := r.ReadBytes('\n')
+		said(line)
 		if err != nil {
 			return
 		}
