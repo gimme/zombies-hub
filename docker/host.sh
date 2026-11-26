@@ -34,15 +34,16 @@
 #             (zombies-server game-files, server/gamefiles.go): all of Black Ops, Zombies' files of Black Ops II, and
 #             of Black Ops III, 87 GB, the 3 GB that a dedicated server reads, with Steam's server of that game
 #             without its multiplayer maps, 1 GB. What else a folder has, such as a game's other modes, is not copied.
-#             A folder is copied when what the server takes of it has changed since its last copy, the other folders'
-#             staying as they are. Black Ops and Black Ops II, 9 to 12 GB each, take some minutes the first time.
+#             Of a folder, the files are copied that are new or have changed since its last copy, and those that it
+#             no longer has are removed from the copy, the other folders' staying as they are. Black Ops and Black
+#             Ops II, 9 to 12 GB each, take some minutes the first time.
 #
 #             A note of what was copied last of each folder is kept in a volume of its own, <volume>-copied, and not
-#             in the copy. The server lists every file of the game files it serves. A note among them would be in
-#             every map's list of files, and no player's own install has it, so no player could import a map. A
-#             folder's note is deleted before its copy begins, so that a copy that was cut short is made again. A
-#             folder with no copy in the volume (the volume was removed, and the note's volume was left) is copied
-#             whatever its note says.
+#             in the copy: the list of the files, each with its size and time (<folder>.list). The server lists every
+#             file of the game files it serves. A note among them would be in every map's list of files, and no
+#             player's own install has it, so no player could import a map. A folder's note is deleted before its
+#             copy changes, so that a copy that was cut short is made again, whole. A folder with no copy in the
+#             volume (the volume was removed, and the note's volume was left) is copied whole whatever its note says.
 # game_args <volume> <image>
 #             Prints docker run's arguments for those mounts, one per line.
 # send_args   Prints docker run's arguments, one per line, for the game files that the server sends to players'
@@ -137,21 +138,39 @@ if [ -n "${MSYSTEM:-}" ]; then
         docker run --rm -u 0 --entrypoint bash -e FOLDERS="$folders" "${from[@]}" -v "$1:/to" -v "$1-copied:/note" \
             "$2" -c '
             set -o pipefail
+            export LC_ALL=C # one order of the lists, for sort and for comm
             rm -f /note/copied # the note of a copy of every folder at once, as this script made them before
             for f in $FOLDERS; do
                 if [ ! -d "/from/$f" ]; then
-                    rm -rf "/to/$f" "/note/$f"
+                    rm -rf "/to/$f" "/note/$f" "/note/$f.list"
                     continue
                 fi
                 cd "/from/$f" || exit
-                # what the server takes of the folder, and each such file with its size and time, to tell a change by
+                # what the server takes of the folder: each such file with its size and time, to tell a change by
                 zombies-server game-files "$f" . >/tmp/taken || exit
-                copied=$(xargs -0 -r -a /tmp/taken sh -c "find \"\$@\" -maxdepth 0 -printf \"%p %s %T@\\n\"" sh |
-                    sort | md5sum) || exit
-                [ "$copied" = "$(cat "/note/$f" 2>/dev/null)" ] && [ -d "/to/$f" ] && continue
-                echo "copying what the server reads of $f into volume $0 for Wine"
-                rm -f "/note/$f" && rm -rf "/to/$f" && mkdir "/to/$f" &&
-                    tar -c --null -T /tmp/taken | tar -x -C "/to/$f" && echo "$copied" >"/note/$f" || exit
+                xargs -0 -r -a /tmp/taken sh -c "find \"\$@\" -maxdepth 0 -printf \"%s %T@ %p\\n\"" sh |
+                    sort >/tmp/now || exit
+                # The note of a copy that this script made before it kept the list was a sum of the list. A copy
+                # whose sum is still that of the folder needs no copying: it gets the list as its note.
+                if [ -f "/note/$f" ] && [ -d "/to/$f" ] && [ "$(cat "/note/$f")" = "$(sed -E "s/^([0-9]+) ([0-9.]+) (.*)$/\\3 \\1 \\2/" /tmp/now | sort | md5sum)" ]; then
+                    cp /tmp/now "/note/$f.list" || exit
+                fi
+                rm -f "/note/$f"
+                : >/tmp/was
+                if [ -d "/to/$f" ] && [ -s "/note/$f.list" ]; then
+                    cp "/note/$f.list" /tmp/was || exit
+                else
+                    rm -rf "/to/$f" "/note/$f.list"
+                fi
+                cmp -s /tmp/was /tmp/now && continue
+                # the files that are new or have changed, and those that the folder no longer has
+                comm -13 /tmp/was /tmp/now | cut -d" " -f3- >/tmp/copy
+                comm -23 <(cut -d" " -f3- /tmp/was | sort) <(cut -d" " -f3- /tmp/now | sort) >/tmp/gone
+                echo "copying what the server reads of $f into volume $0 for Wine: $(wc -l </tmp/copy) of its $(wc -l </tmp/now) files"
+                rm -f "/note/$f.list" && mkdir -p "/to/$f" &&
+                    (cd "/to/$f" && tr "\\n" "\\0" </tmp/gone | xargs -0 -r rm -f) &&
+                    tr "\\n" "\\0" </tmp/copy | tar -c --null -T - | tar -x -C "/to/$f" &&
+                    cp /tmp/now "/note/$f.list" || exit
             done' "$1" >&2 || return
         echo "$1:/game"
     }
