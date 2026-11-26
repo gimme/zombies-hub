@@ -186,18 +186,18 @@ func TestT6StatusLine(t *testing.T) {
 	const row = "%3d %5d %3d %4s %-32s %-16s %7d %-21s %6d %5d"
 	for _, tc := range []struct {
 		line           string
-		c              t6Client
+		c              pcClient
 		client, status bool
 	}{
 		{line: "map: zm_transit", status: true},
 		{line: "num score bot ping guid                             name             lastmsg address", status: true},
 		{line: "--- ----- --- ---- -------------------------------- ---------------- ------- -------", status: true},
 		{fmt.Sprintf(row, 0, 1500, 0, "32", "9240", "Ann", 0, "127.1.0.1:28960", -1234, 25000),
-			t6Client{0, "Ann", "127.1.0.1:28960", true}, true, true},
+			pcClient{0, "Ann", "127.1.0.1:28960", true}, true, true},
 		{fmt.Sprintf(row, 3, 0, 0, "CNCT", "59567", "Ann B", 50, "127.1.0.7:28960", 4321, 25000),
-			t6Client{3, "Ann B", "127.1.0.7:28960", false}, true, true},
+			pcClient{3, "Ann B", "127.1.0.7:28960", false}, true, true},
 		{fmt.Sprintf(row, 1, 0, 0, "999", "59567", "Cy", 50, "127.1.0.8:28960", 4321, 25000),
-			t6Client{1, "Cy", "127.1.0.8:28960", false}, true, true},
+			pcClient{1, "Cy", "127.1.0.8:28960", false}, true, true},
 		{line: fmt.Sprintf(row, 2, 0, 1, "0", "0", "bot2", 0, "bot", 0, 0), status: true},
 		{line: `"sv_hostname" is: "Room ABCD^7" default: "BlackOpsPublic^7"`},
 		{line: `Unknown command "clientkick"`},
@@ -239,9 +239,9 @@ func TestT6ClientSends(t *testing.T) {
 		"\xff\xff\xff\xff\nrcon secret status":              false,
 		"\xff\xff\xff\xffrcon":                              false,
 		"\xff\xff\xff\xff":                                  false,
-		"\xff\xff\xff\xff" + strings.Repeat("x", maxFromT6): false,
+		"\xff\xff\xff\xff" + strings.Repeat("x", maxFromPC): false,
 	} {
-		if got := t6ClientSends([]byte(packet)); got != want {
+		if got := pcClientSends([]byte(packet)); got != want {
 			t.Errorf("%q: %v", packet, got)
 		}
 	}
@@ -265,7 +265,7 @@ func TestT6Connect(t *testing.T) {
 		"\xff\xff\xff\xff" + `getchallenge 0 "offline" 5369`:                 {"", false},
 		"\x05\x00\x00\x00" + `connect "\name\Ann"`:                           {"", false},
 	} {
-		if name, ok := t6Connect([]byte(packet)); name != want.name || ok != want.ok {
+		if name, ok := pcConnect([]byte(packet)); name != want.name || ok != want.ok {
 			t.Errorf("%q: %q, %v", packet, name, ok)
 		}
 	}
@@ -707,11 +707,11 @@ func TestT6RoomsTakeThePlayersOfOneAddressInTurn(t *testing.T) {
 	}
 }
 
-// A game that doesn't come is waited for only so long (t6Way) by the launcher of a player of another room at its
+// A game that doesn't come is waited for only so long (pcWay) by the launcher of a player of another room at its
 // address. That launcher is then sent its game, and the next game from the address is its player's.
 func TestT6RoomsWaitOnlySoLongForAGameOfOneAddress(t *testing.T) {
 	l, target := t6Lobby(t)
-	l.t6Way = 500 * time.Millisecond
+	l.pcWay = 500 * time.Millisecond
 	h := &web{lobby: l, publicPort: 4000}
 	a := t6RoomUp(t, l, "Ann", "zm_standard_town", "127.0.0.1")
 	b := t6RoomUp(t, l, "Bob", "zm_classic_tomb", "127.0.0.1")

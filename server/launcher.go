@@ -41,7 +41,7 @@ import (
 // (GET /launcher/t6/files/<path>), from where an earlier download stopped. The files are sent at the rate that all the
 // server's downloads share (web.pace). The launcher reports the progress of its download (POST /launcher/files). The
 // player's room shows it on the player, as it shows a browser's download of a T5 map. The game waits for a player
-// whose launcher is still preparing (t6Late, preparing), until the launcher reports that the PC is ready (?ready=1).
+// whose launcher is still preparing (pcLate, preparing), until the launcher reports that the PC is ready (?ready=1).
 //
 // The launcher's calls carry the player's key. Like a call from the player's page, a launcher's call sets the address
 // where the server expects the player's game (player.addr). On a server where players sign in with Discord, the key
@@ -429,7 +429,7 @@ type launcherReport struct {
 	held  int       // how many of the launcher's calls the server holds now (serveLauncherPlay)
 	ready bool      // the PC has what the game needs, as of the last GET /launcher/play; the launcher waits for the game
 	// waits is set while the server keeps the room's game from the launcher, until the game of another player at the
-	// same address has joined another room's game (t6Waits).
+	// same address has joined another room's game (pcWaits).
 	waits bool
 	// old is set when the server refused a call of the player's launcher for its version (launcherFits), until a
 	// launcher of theirs that the server takes calls.
@@ -466,13 +466,13 @@ func (l *lobby) launcherOf(req *http.Request) *player {
 // seat in the game, and p's own game is not in it yet. launcherPlay returns the game from its start, once the
 // server's copy of Plutonium is up to date for it (t6Prepare), and before Plutonium's server is up. The launcher
 // then starts the player's game at once, because it takes time to start. The player's game asks to join for half a
-// minute from then, and the relay lets it in once Plutonium's server is up (t6Seat). The answer says when that is
+// minute from then, and the relay lets it in once Plutonium's server is up (pcSeat). The answer says when that is
 // (Game.Up): a player's game that runs already, from the room's last game, joins only then. The answer has the
 // revision of the server's copy of Plutonium, which the player's copy has to match. The caller sets the port
 // (launcherAnswer). The caller holds l.mu.
 //
 // The launcher is sent the game a little later when another room plays Black Ops II too, and a player of that room
-// is at p's address, whose game is on its way into that room's game (t6Waits). A game that the launcher has been
+// is at p's address, whose game is on its way into that room's game (pcWaits). A game that the launcher has been
 // sent stays sent.
 //
 // A player who joins by hand (setHand) has their own game join from its console. Their launcher is sent no game, as
@@ -500,7 +500,7 @@ func (l *lobby) launcherPlay(p *player) launcherapi.Play {
 	}
 	if play.InGame = s.in; !s.in && !p.byHand {
 		if s.sent.IsZero() {
-			waits, whose := l.t6Waits(p)
+			waits, whose := l.pcWaits(p)
 			if waits && !p.launcher.waits {
 				log.Printf("server: %s's launcher waits to join room %s's game until the game of %s has joined theirs: both are at %s",
 					p.name, r.code, whose, p.addr)
@@ -565,7 +565,7 @@ func (l *lobby) launcherHas(p *player, copied bool, has []string) {
 
 // preparing reports whether p's launcher is running and has not yet reported that p's PC has what the game needs. The
 // launcher is then getting Plutonium or downloading the game files. A T6 game waits for such a player beyond
-// loadTimeout (t6Late). The caller holds l.mu.
+// loadTimeout (pcLate). The caller holds l.mu.
 func (l *lobby) preparing(p *player) bool {
 	return l.launcherOpen(p) && !p.launcher.ready
 }
@@ -642,10 +642,10 @@ func (l *lobby) launcherGone(p *player) {
 // launcherSweep handles a launcher that has had no call open, and made none, for launcherQuiet. The launcher has
 // stopped: it was closed, or its PC is gone. The player's room then no longer shows their download, or what their
 // game folder has. launcherSweep also wakes the call of a launcher that waited for another player's game and no
-// longer does (t6Waits), so that the call answers with the room's game. The caller holds l.mu.
+// longer does (pcWaits), so that the call answers with the room's game. The caller holds l.mu.
 func (l *lobby) launcherSweep(p *player) {
 	if p.launcher.waits {
-		if waits, _ := l.t6Waits(p); !waits {
+		if waits, _ := l.pcWaits(p); !waits {
 			p.launcher.waits = false
 			l.change()
 		}

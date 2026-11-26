@@ -27,10 +27,10 @@ import (
 // the server integrates it as lightly. The game of a room on a T7 map is Steam's dedicated server of the game, the
 // Unranked Dedicated Server, which BOIII loads and runs (internal/boiii). The server starts it like any other game
 // (game.go: as the games' user, on a port that only the server reaches), and sets it up and reads who is in it over
-// its remote console, as it does a T6 game (t6.go: rconWatch). Each player's own PC runs BOIII on their own copy of
+// its remote console, as it does a T6 game (pc.go: rconWatch). Each player's own PC runs BOIII on their own copy of
 // Black Ops III, and their game joins the room's game with the room's password. The server knows a player's game by
-// the address it comes from, relays it to the room's game (relay.go: a T6 route), and keeps the room's game as it
-// keeps a T6 room's: with the code of t6.go (t6Status, t6Said, t6Seat, t6Late).
+// the address it comes from, relays it to the room's game (relay.go: a PC client's route), and keeps the room's game
+// as it keeps a T6 room's: with the code that the two share (pc.go).
 //
 // The game files are two folders (main.go: titleDir). t7 is the game's install folder, of which the server reads the
 // fastfiles of Zombies alone: a dedicated server draws nothing and plays no sound, so it needs none of the game's
@@ -123,8 +123,8 @@ func (t *t7Title) free(*lobby) error {
 // begin makes Steam's dedicated server that is r's game.
 func (t *t7Title) begin(l *lobby, r *room, rg *roomGame) *game {
 	g := t.newGame(r.code, r.mapName, rg.port, len(rg.seats), r.password)
-	g.lines = func(line string) { l.t6Said(r, rg, line) }
-	g.t7().status = func(clients []t6Client) { l.t6Status(r, rg, clients) }
+	g.lines = func(line string) { l.pcSaid(r, rg, line) }
+	g.t7().status = func(clients []pcClient) { l.pcStatus(r, rg, clients) }
 	g.t7().changed = func() {
 		l.mu.Lock()
 		l.change()
@@ -149,7 +149,7 @@ func (*t7Title) drop(l *lobby, r *room, s *seat) {
 	l.relay.end(s.local)
 }
 
-func (*t7Title) late(l *lobby, r *room, rg *roomGame) { l.t6Late(r, rg) }
+func (*t7Title) late(l *lobby, r *room, rg *roomGame) { l.pcLate(r, rg) }
 
 // lacks is false: nothing tells the server what a player's copy of Black Ops III has.
 func (*t7Title) lacks(*lobby, *player) bool { return false }
@@ -161,7 +161,7 @@ func (*t7Title) showRoom(l *lobby, r *room, p *player, rv *roomView) {
 	rv.Up = r.game != nil && !r.game.up.IsZero()
 	// no one can join through a seat in a game that is ending
 	if s := r.seatOf(p); s != nil && r.game.ending == "" && !s.left {
-		rv.T7 = &t6View{Up: !r.game.up.IsZero(), Name: p.name}
+		rv.T7 = &pcView{Up: !r.game.up.IsZero(), Name: p.name}
 		if rv.T7.Up {
 			rv.T7.Password = r.game.g.t7().password
 		}
@@ -295,7 +295,7 @@ type t7Game struct {
 	// server has.
 	password, rcon string
 	// status is called with the clients that the game's status lists, each second that the game answers (rconWatch).
-	status func([]t6Client)
+	status func([]pcClient)
 	send   chan string // lines for its remote console (game.command)
 	// changed, when set, is called once the server's copy of BOIII is up to date for this game (t7Prepare).
 	changed func()
@@ -349,7 +349,7 @@ func (t *t7Game) quit(g *game) bool {
 
 // t7Script is the server's script in a T7 game. BOIII compiles it and loads it with the level's own scripts, from the
 // custom scripts in the game's folder (boiii/custom_scripts/zm). It prints what the server's script in a T6 game
-// prints (t6Script), for the server to read (t6Said):
+// prints (t6Script), for the server to read (pcSaid):
 //
 //	zombies_lobby: stats 0 4350 1200 31 12 1 0 2 0  a player's line of the scoreboard, by their client's slot: all the
 //	                                                points they earned, the points left to spend, their kills,
@@ -669,7 +669,7 @@ func t7Clean() func(string) string {
 //
 // A client's ping is a number once the client is in the game. A client's name may have spaces: the name is what is
 // left between the xuid and the address.
-func t7StatusLine(line string) (c t6Client, client, status bool) {
+func t7StatusLine(line string) (c pcClient, client, status bool) {
 	if t7Status.MatchString(line) {
 		return c, false, true
 	}

@@ -43,27 +43,28 @@ func clientSends(packet []byte) bool {
 	return slices.ContainsFunc(clientCommands, func(c string) bool { return strings.EqualFold(args[0], c) })
 }
 
-// maxFromT6 is the length of the longest packet the relay passes on a T6 client's route: what fits a datagram on
-// Ethernet. A T6 client's packets are Plutonium's, and there is no source code to read their longest length from.
-const maxFromT6 = 1472
+// maxFromPC is the length of the longest packet the relay passes on a PC client's route: what fits a datagram on
+// Ethernet. A PC client's packets are Plutonium's or BOIII's, and there is no source code here to read their longest
+// length from.
+const maxFromPC = 1472
 
-// t6ClientSends reports whether a T6 client may send packet to its game (t6.go). It may send any netchan packet, and
+// pcClientSends reports whether a PC client may send packet to its game (pc.go). It may send any netchan packet, and
 // any out-of-band packet except one for the game's remote console. Only the server uses the remote console, whatever
-// password a packet carries. A T6 client's handshake is Plutonium's own, and the relay has no list of its packets,
-// so the relay passes every packet it has no rule against. t6ClientSends finds the first word the way the game does
-// (t6Word).
-func t6ClientSends(packet []byte) bool {
-	if len(packet) > maxFromT6 {
+// password a packet carries. A PC client's handshake is its program's own, and the relay has no list of its packets,
+// so the relay passes every packet it has no rule against. pcClientSends finds the first word the way the game does
+// (pcWord).
+func pcClientSends(packet []byte) bool {
+	if len(packet) > maxFromPC {
 		return false
 	}
-	word, _, oob := t6Word(packet)
+	word, _, oob := pcWord(packet)
 	return !oob || len(word) > 0 && !bytes.EqualFold(word, []byte("rcon"))
 }
 
-// t6Word returns the first word of an out-of-band packet, and what follows the word, the way a T6 game finds them:
+// pcWord returns the first word of an out-of-band packet, and what follows the word, the way a PC game finds them:
 // the game's tokenizer skips all leading bytes with a value up to that of a space, and the word ends at the next such
 // byte. The game reads the word in any letter case. oob is false for a packet that is not out of band.
-func t6Word(packet []byte) (word, rest []byte, oob bool) {
+func pcWord(packet []byte) (word, rest []byte, oob bool) {
 	text, oob := bytes.CutPrefix(packet, outOfBand)
 	if !oob {
 		return nil, nil, false
@@ -77,12 +78,12 @@ func t6Word(packet []byte) (word, rest []byte, oob bool) {
 	return text[:end], text[end:], true
 }
 
-// t6Connect reports whether a T6 client's packet is its connect, the packet that takes the client a slot in the game
+// pcConnect reports whether a PC client's packet is its connect, the packet that takes the client a slot in the game
 // (t6.go: the order the players join in). name is the name the client plays under, from the packet's userinfo
 // (connect "\protocol\2089\name\Ann\..."), or "" when the userinfo has none. The userinfo is what the packet has in
 // quotes, or else all that follows the word.
-func t6Connect(packet []byte) (name string, ok bool) {
-	word, rest, oob := t6Word(packet)
+func pcConnect(packet []byte) (name string, ok bool) {
+	word, rest, oob := pcWord(packet)
 	if !oob || !bytes.EqualFold(word, []byte("connect")) {
 		return "", false
 	}
@@ -100,11 +101,11 @@ func t6Connect(packet []byte) (name string, ok bool) {
 }
 
 // playerFilter decides which of a player's packets go on to their game. It passes the packets that a client sends
-// (clientSends, or t6ClientSends for a T6 client), and no more of them than a client sends (playerRate). It logs the
+// (clientSends, or pcClientSends for a PC client), and no more of them than a client sends (playerRate). It logs the
 // first packet it drops for each of the two reasons. One goroutine at a time uses it.
 type playerFilter struct {
 	who       string    // the player, for the log
-	t6        bool      // the player's client is a T6 client
+	pc        bool      // the player's client is a PC client
 	allowance float64   // how many packets the player may send now, at most a second's worth
 	last      time.Time // when allowance was last updated
 	odd, fast bool      // whether a drop was logged: of a packet no client sends, of a packet over the rate
@@ -119,7 +120,7 @@ func (f *playerFilter) pass(packet []byte, now time.Time) bool {
 	f.allowance = min(playerRate, f.allowance+now.Sub(f.last).Seconds()*playerRate)
 	f.last = now
 	switch {
-	case f.t6 && !t6ClientSends(packet) || !f.t6 && !clientSends(packet):
+	case f.pc && !pcClientSends(packet) || !f.pc && !clientSends(packet):
 		if !f.odd {
 			log.Printf("relay: %s: dropped a packet no client sends (%d bytes: %.32q), and drops the rest like it",
 				f.who, len(packet), packet)

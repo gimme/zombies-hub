@@ -13,7 +13,7 @@ const setup = 'https://github.com/gimme/zombies-hub/releases/download/launcher/z
 
 /**
  * Joins a room's game as a player's Plutonium does: from the address the player's page calls from (127.0.0.1), to the
- * server's port, which relays it to the room's game (server/t6.go: t6Seat). It asks until the game answers: the game
+ * server's port, which relays it to the room's game (server/pc.go: pcSeat). It asks until the game answers: the game
  * takes the first packets only once it is up.
  */
 async function plutonium(port: number, name: string): Promise<Socket> {

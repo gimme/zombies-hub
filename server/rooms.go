@@ -141,8 +141,8 @@ type lobby struct {
 	mapDesc     func(string) string // returns a map's description in the game's map select, or "" (mapart.go)
 	gamePorts   []int               // the games' ports on 127.0.0.1, one for each game that can run at once
 	loadTimeout time.Duration       // how long a game waits for its players before it is called off
-	joinWait    time.Duration       // how long a T6 player's game waits to join for a player before them (t6Turn)
-	t6Way       time.Duration       // how long a T6 player's game is waited for by another room's at its address (t6Waits)
+	joinWait    time.Duration       // how long a T6 player's game waits to join for a player before them (pcTurn)
+	pcWay       time.Duration       // how long a T6 player's game is waited for by another room's at its address (pcWaits)
 	sweepEvery  time.Duration       // how often sweep checks for players who are gone and games to end
 	countdown   time.Duration       // how long a room's game waits to start once everyone in the room is ready
 	privateFor  time.Duration       // how long a new room is listed as private, so that its maker can make it private
@@ -233,8 +233,8 @@ type player struct {
 	client  time.Time // when their Windows client last asked for their room's game (lobby.windowsSeat)
 	played  time.Time // when their Windows client was last seen playing in their room's game (lobby.away)
 	shown   presence  // the presence their room was last shown (updatePresence)
-	// addr is the address that the player's page or launcher (launcher.go) last called the server from (t6.go:
-	// pageAddr). Their T6 game reaches the relay from the same address.
+	// addr is the address that the player's page or launcher (launcher.go) last called the server from (pc.go:
+	// pageAddr). Their own game, of a PC room's, reaches the relay from the same address.
 	addr  netip.Addr
 	files fileReport // the last report of their page about which game files of a map it has
 	// launcher is how the download of T6's game files by the player's launcher goes, as the launcher last reported
@@ -334,14 +334,14 @@ type roomGame struct {
 	port    int
 	seats   []*seat
 	began   time.Time // when it started
-	up      time.Time // a T6 game: when Plutonium's server first answered; its players join it from then (t6Status)
-	held    time.Time // a T6 game: when it last waited for a player whose launcher was getting their PC ready (t6Late)
+	up      time.Time // a T6 game: when Plutonium's server first answered; its players join it from then (pcStatus)
+	held    time.Time // a T6 game: when it last waited for a player whose launcher was getting their PC ready (pcLate)
 	started bool      // it has begun: everyone is in, or its level reported a round
 	round1  time.Time // when round 1 began, from which its clock counts (roundBegins)
 	// eggSeconds is when the map's easter egg was done, in seconds from round 1, or 0 when it is not done yet. The
 	// whole party gets this one time, however late the level credits one of its players.
 	eggSeconds int64
-	won        int    // a T6 game of Grief: the team that won it, 1 or 2, at game over (t6Said), or 0
+	won        int    // a T6 game of Grief: the team that won it, 1 or 2, at game over (pcSaid), or 0
 	ending     string // why it is being stopped, or "" while it is not
 	vacant     bool   // no one plays it or is on their way into it (checkGame), so the room's host may end it
 	// stats has each player's line of the scoreboard, by their seat's address ("bo1_lobby: stats"). The game reports
@@ -473,7 +473,7 @@ type gameRound struct {
 // first round that it reports: round 1 began then, and everything of the game is timed from that moment. Until then
 // the clock counts from when the game was taken to have begun, which a game that reports no rounds is left with. A
 // T5 game reports its first round as it begins, with everyone in. A T6 game has begun once everyone is in too
-// (t6Status), but its level starts round 1 some seconds after that. A round that is no later than the last one is
+// (pcStatus), but its level starts round 1 some seconds after that. A round that is no later than the last one is
 // not noted again.
 func (rg *roomGame) roundBegins(round int) {
 	now := time.Now()
@@ -538,12 +538,12 @@ type seat struct {
 	in     bool         // the game has them in it
 	left   bool         // they chose to leave it
 	gone   bool         // the game dropped their client: they left, were kicked, or were away for keepCharacter
-	slot   int          // in a T6 game, the slot Plutonium's server has their client in (t6Status), or -1 for none
-	// awaited is when, in a T6 game, a player after them in the room first waited to join for them (t6Awaited).
+	slot   int          // in a T6 game, the slot Plutonium's server has their client in (pcStatus), or -1 for none
+	// awaited is when, in a T6 game, a player after them in the room first waited to join for them (pcAwaited).
 	awaited time.Time
 	// sent is when, in a T6 game, the server first sent the game to their launcher, which has their own game join it
-	// (launcherPlay). knocked is when a game from their address first got the seat (t6Seat). Until then, their game
-	// is on its way (t6Waits).
+	// (launcherPlay). knocked is when a game from their address first got the seat (pcSeat). Until then, their game
+	// is on its way (pcWaits).
 	sent, knocked time.Time
 }
 
@@ -559,7 +559,7 @@ func newLobby(ctx context.Context) *lobby {
 		rooms: map[string]*room{}, reports: map[string]*gameResult{}, unsavedGames: map[string]*gameResult{},
 		titles: []title{&t5Title{}, &t6Title{knocked: map[netip.Addr]time.Time{}}, &t7Title{}},
 		busy:   map[int]bool{}, changed: make(chan struct{}), roomSize: 4, minPlayers: 2,
-		loadTimeout: 5 * time.Minute, joinWait: 30 * time.Second, t6Way: time.Minute,
+		loadTimeout: 5 * time.Minute, joinWait: 30 * time.Second, pcWay: time.Minute,
 		sweepEvery: time.Second, countdown: 4 * time.Second, privateFor: 3 * time.Second}
 }
 
@@ -821,10 +821,10 @@ type roomView struct {
 	CanEnd   bool        `json:"canEnd,omitempty"` // the player, as host, may end its game, which no one plays (endGame)
 	Result   *gameResult `json:"result,omitempty"` // how its last game went, when it ended at game over
 	// T6 is set in a T6 room for a player with a seat in its game. It has what their own game needs to join it
-	// (t6View).
-	T6 *t6View `json:"t6,omitempty"`
+	// (pcView).
+	T6 *pcView `json:"t6,omitempty"`
 	// T7 is the same in a T7 room: what the player's own game needs to join the room's game (t7.go).
-	T7 *t6View `json:"t7,omitempty"`
+	T7 *pcView `json:"t7,omitempty"`
 	// Up is set in a T6 room once Plutonium's server is up. The room's game then waits for its players' games, which
 	// can join it from that moment.
 	Up bool `json:"up,omitempty"`
@@ -832,10 +832,10 @@ type roomView struct {
 	Password string `json:"password,omitempty"`
 }
 
-// t6View is a T6 room's game as shown to a player with a seat in it. Up reports whether Plutonium's server is up.
+// pcView is a T6 room's game as shown to a player with a seat in it. Up reports whether Plutonium's server is up.
 // Password is set once it is up. It is the password the player's game joins with, in the line the page builds for the
 // player (web/src/windows.ts: t6Console). Name is the name the game should know the player by (player.name).
-type t6View struct {
+type pcView struct {
 	Up       bool   `json:"up"`
 	Password string `json:"password,omitempty"`
 	Name     string `json:"name"`
@@ -899,7 +899,7 @@ func (r *room) seatOf(p *player) *seat {
 
 // placeOf returns the place in r of its member p, from 0. While r's game runs, it is the place of p's seat in the
 // game. A T5 game received the places when it started (placesOf) and gives each player the client slot of their
-// place. A T6 game's players join it in the order of their places (t6Turn). p keeps this place when other players
+// place. A T6 game's players join it in the order of their places (pcTurn). p keeps this place when other players
 // leave the room. While r has no game, it is p's position among r's members, which is their place in r's next game.
 func (r *room) placeOf(p *player) int {
 	if r.game != nil {

@@ -188,7 +188,7 @@ func TestT7StatusLine(t *testing.T) {
 	const row = "%3d %5d %4s %16s %-16s %-24s %6d"
 	for _, tc := range []struct {
 		line           string
-		c              t6Client
+		c              pcClient
 		client, status bool
 	}{
 		{line: "---------- Live ----------", status: true},
@@ -200,11 +200,11 @@ func TestT7StatusLine(t *testing.T) {
 		{line: "--- ----- ---- ---------------- ---------------- ------------------------ ------ ", status: true},
 		{line: "Server is not running.", status: true},
 		{fmt.Sprintf(row, 0, 1500, "32", "110000112345678", "Ann", "127.1.0.1:28960", -1234),
-			t6Client{0, "Ann", "127.1.0.1:28960", true}, true, true},
+			pcClient{0, "Ann", "127.1.0.1:28960", true}, true, true},
 		{fmt.Sprintf(row, 3, 0, "CNCT", "1100001aabbccdd", "Ann B", "127.1.0.7:28960", 4321),
-			t6Client{3, "Ann B", "127.1.0.7:28960", false}, true, true},
+			pcClient{3, "Ann B", "127.1.0.7:28960", false}, true, true},
 		{fmt.Sprintf(row, 1, 0, "999", "1100001aabbccdd", "Cy", "127.1.0.8:28960", 4321),
-			t6Client{1, "Cy", "127.1.0.8:28960", false}, true, true},
+			pcClient{1, "Cy", "127.1.0.8:28960", false}, true, true},
 		{line: fmt.Sprintf(row, 2, 0, "0", "bot0", "bot2", "bot", 0)},
 		{line: "zombies_lobby: round 2"},
 		{line: `Unknown command "clientkick"`},

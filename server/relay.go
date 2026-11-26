@@ -38,10 +38,12 @@ import (
 // only the packets that a client sends it (filter.go). Each player's connect names them as the server does (named),
 // whatever name their client sent.
 //
-// A T6 room's game (t6.go) is Plutonium's server, and its players' games are Plutonium's clients, which send no key.
-// A route to a T6 game starts with any out-of-band packet from the address a player's page calls from (lobby.t6Seat).
+// A PC room is one whose game its players play on their own PCs (pc.go): a Black Ops II room, whose game is
+// Plutonium's server, or a Black Ops III room, whose game is Steam's server on BOIII. Its players' games are that
+// program's clients, PC clients here, which send no key. A route to a PC game starts with any out-of-band packet from
+// the address a player's page calls from (lobby.pcSeat).
 // The route's packets go on unchanged, except those for the game's remote console, which the relay drops. The
-// client's connect waits at the relay until it is the client's turn to join (holds): the players join a T6 game in
+// client's connect waits at the relay until it is the client's turn to join (holds): the players join a PC game in
 // the order of their places in the room.
 //
 // A session at /probe belongs to zombies-server probe (probe.go). The relay answers it itself.
@@ -79,9 +81,9 @@ type relay struct {
 	routes map[netip.AddrPort]*route // by the player's address
 	seats  map[string]*seatSession   // the open session of each seat, by the seat's address
 	closed chan struct{}
-	// wake tells sweep that a T6 client whose connect waits for its turn may have it now (wakeUp, letIn).
+	// wake tells sweep that a PC client whose connect waits for its turn may have it now (wakeUp, letIn).
 	wake chan struct{}
-	// asks is how long after a T6 client's connect the client still counts as asking to connect. A client sends its
+	// asks is how long after a PC client's connect the client still counts as asking to connect. A client sends its
 	// connect every 3 seconds until the game answers, so this is two of them and a second.
 	asks time.Duration
 }
@@ -105,14 +107,14 @@ type route struct {
 	game   *net.UDPConn // the connection to the game, from local
 	last   atomic.Int64 // when the player last sent a packet (Unix nanoseconds)
 	taken  atomic.Bool  // the game accepted the player: it sent them more than out-of-band packets
-	t6     bool         // a T6 client's route, to Plutonium's server (t6.go): its packets go on unchanged
+	pc     bool         // a PC client's route, to its room's game (pc.go): its packets go on unchanged
 
-	// A T6 client's connect waits at the relay for the client's turn to join its game (relay.holds). relay.mu guards
+	// A PC client's connect waits at the relay for the client's turn to join its game (relay.holds). relay.mu guards
 	// held, asked and passed.
 	held    []byte     // the connect that waits, or nil
 	asked   time.Time  // when the client last sent a connect, the game not having accepted it yet
 	passed  time.Time  // when the relay first passed a connect of the client's on to the game
-	sending sync.Mutex // held to put a T6 client's packet on toGame, which the relay's reader and letIn both do
+	sending sync.Mutex // held to put a PC client's packet on toGame, which the relay's reader and letIn both do
 
 	toGame, toPlayer *lagLine           // the route's packets each way, after the relay's lag (lag.go)
 	end              context.CancelFunc // stops toGame and toPlayer when the route ends
@@ -370,9 +372,9 @@ func (r *relay) route(packet []byte, from *net.UDPAddr) bool {
 		return false
 	}
 	if rt == nil && !r.knocks(packet) {
-		rt = r.newT6Route(packet, from) // a T6 client's first packet, when its address is a player's; otherwise nil
+		rt = r.newPCRoute(packet, from) // a PC client's first packet, when its address is a player's; otherwise nil
 	}
-	if rt != nil && rt.t6 {
+	if rt != nil && rt.pc {
 		if rt.filter.pass(packet, time.Now()) {
 			rt.last.Store(time.Now().UnixNano())
 			if !oob || !r.holds(rt, packet) {
@@ -410,18 +412,18 @@ func (r *relay) knocks(packet []byte) bool {
 	return len(args) > 4 && strings.EqualFold(args[0], "getchallenge") && r.lobby.knowsKey(args[4])
 }
 
-// newT6Route opens the route for a T6 client at from, which sent packet and has no route. The route goes to the seat,
-// in a T6 room's game, of a player whose page calls from the client's address (lobby.t6Seat). newT6Route returns nil
-// when there is no such seat, or when packet is not one that a T6 client may send (t6ClientSends).
-func (r *relay) newT6Route(packet []byte, from *net.UDPAddr) *route {
-	if !t6ClientSends(packet) {
+// newPCRoute opens the route for a PC client at from, which sent packet and has no route. The route goes to the seat,
+// in a PC room's game, of a player whose page calls from the client's address (lobby.pcSeat). newPCRoute returns nil
+// when there is no such seat, or when packet is not one that a PC client may send (pcClientSends).
+func (r *relay) newPCRoute(packet []byte, from *net.UDPAddr) *route {
+	if !pcClientSends(packet) {
 		return nil
 	}
 	verb := ""
 	if args := oobArgs(packet); len(args) > 0 {
 		verb = args[0]
 	}
-	game, local, name, who, ok := r.lobby.t6Seat(from.AddrPort().Addr().Unmap(), verb)
+	game, local, name, who, ok := r.lobby.pcSeat(from.AddrPort().Addr().Unmap(), verb)
 	if !ok {
 		return nil
 	}
@@ -429,19 +431,19 @@ func (r *relay) newT6Route(packet []byte, from *net.UDPAddr) *route {
 	defer r.mu.Unlock()
 	rt := r.open(from, game, local, name, who)
 	if rt != nil {
-		rt.t6, rt.filter.t6 = true, true
-		log.Printf("relay: %s (%s) asks to join over UDP, from a T6 game", from, who)
+		rt.pc, rt.filter.pc = true, true
+		log.Printf("relay: %s (%s) asks to join over UDP, from a PC game", from, who)
 	}
 	return rt
 }
 
-// holds reports whether a T6 client's packet waits at the relay instead of going on to the game. That is the client's
-// connect, while it is not the client's turn to join (lobby.t6Turn). The relay keeps the last connect that waits and
+// holds reports whether a PC client's packet waits at the relay instead of going on to the game. That is the client's
+// connect, while it is not the client's turn to join (lobby.pcTurn). The relay keeps the last connect that waits and
 // passes it on when the turn comes (letIn), so the client does not wait for the next one it sends. A client sends its
 // connect every 3 seconds until the game answers, and waits far longer than any turn takes (t6.go: the order the
 // players join in). The connect of a client that the game has accepted goes on at once.
 func (r *relay) holds(rt *route, packet []byte) bool {
-	name, connect := t6Connect(packet)
+	name, connect := pcConnect(packet)
 	if !connect || rt.taken.Load() {
 		return false
 	}
@@ -449,7 +451,7 @@ func (r *relay) holds(rt *route, packet []byte) bool {
 	r.mu.Lock()
 	rt.asked = now
 	r.mu.Unlock()
-	turn, who := r.lobby.t6Turn(rt.local, name) // takes the lobby's lock, which is taken before the relay's
+	turn, who := r.lobby.pcTurn(rt.local, name) // takes the lobby's lock, which is taken before the relay's
 	if who == "" {
 		who = rt.who
 	}
@@ -471,7 +473,7 @@ func (r *relay) holds(rt *route, packet []byte) bool {
 	return true
 }
 
-// letIn passes on the connect of each T6 client that waited for its turn to join and has it now (holds). sweep calls
+// letIn passes on the connect of each PC client that waited for its turn to join and has it now (holds). sweep calls
 // it each second, and at once when a player before one of them has joined (wakeUp).
 //
 // A connect whose client has sent no other for asks is dropped, and not passed on. The client has stopped asking:
@@ -488,7 +490,7 @@ func (r *relay) letIn() {
 	r.mu.Unlock()
 	for _, rt := range waiting {
 		r.mu.Lock()
-		name, _ := t6Connect(rt.held)
+		name, _ := pcConnect(rt.held)
 		gone := rt.held != nil && time.Since(rt.asked) >= r.asks
 		if gone {
 			rt.held = nil
@@ -498,7 +500,7 @@ func (r *relay) letIn() {
 			log.Printf("relay: %s (%s) asks to join no more: the connect that waited for their turn is dropped", rt.player, rt.who)
 			continue
 		}
-		turn, who := r.lobby.t6Turn(rt.local, name)
+		turn, who := r.lobby.pcTurn(rt.local, name)
 		if !turn {
 			continue
 		}
@@ -520,7 +522,7 @@ func (r *relay) letIn() {
 	}
 }
 
-// wakeUp has sweep call letIn now: a player has joined a T6 game, and the next one's turn may have come.
+// wakeUp has sweep call letIn now: a player has joined a PC game, and the next one's turn may have come.
 func (r *relay) wakeUp() {
 	select {
 	case r.wake <- struct{}{}:
@@ -528,7 +530,7 @@ func (r *relay) wakeUp() {
 	}
 }
 
-// door reports how the T6 client of the seat at local stands at its game's door. taken: the game has accepted it
+// door reports how the PC client of the seat at local stands at its game's door. taken: the game has accepted it
 // (route.taken). asking: it asks to connect, which is that it sent a connect within asks. coming: it asks, and it
 // waits for its own turn, or the relay passed its connect on within asks, and the game is about to take it. All are
 // false for a seat with no route.
@@ -640,7 +642,7 @@ func (r *relay) routeQuiet(local *net.UDPAddr) (bool, time.Duration) {
 	return true, time.Since(time.Unix(0, rt.last.Load()))
 }
 
-// end ends the route to the seat at local, if the seat has one. It is for a seat whose player left a T6 game for good
+// end ends the route to the seat at local, if the seat has one. It is for a seat whose player left a PC game for good
 // (lobby.leaveGame).
 func (r *relay) end(local *net.UDPAddr) {
 	r.mu.Lock()
@@ -748,7 +750,7 @@ func (r *relay) toWindowsPlayer(rt *route) {
 		if !rt.taken.Load() && !bytes.HasPrefix(buf[:n], outOfBand) {
 			rt.taken.Store(true)
 			log.Printf("relay: %s (%s) joined over UDP, as %s", rt.player, rt.who, rt.local)
-			if rt.t6 {
+			if rt.pc {
 				r.wakeUp() // the next player's turn to join may have come (letIn)
 			}
 		}
@@ -757,7 +759,7 @@ func (r *relay) toWindowsPlayer(rt *route) {
 }
 
 // sweep ends the routes whose players have sent nothing for too long (routeIdle, newRouteIdle). It checks every
-// second until the relay closes. It also lets in the T6 clients whose turn to join has come (letIn): every second,
+// second until the relay closes. It also lets in the PC clients whose turn to join has come (letIn): every second,
 // and whenever it is told that one may have (wakeUp).
 func (r *relay) sweep() {
 	tick := time.NewTicker(time.Second)

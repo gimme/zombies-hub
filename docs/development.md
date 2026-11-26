@@ -14,7 +14,7 @@ A room plays one title: its map's. The page keeps the titles apart. A room's hos
 
 ## Layout
 
-- `server/`: the server. `rooms.go` has the rooms, `game.go` runs a game process, `relay.go` relays players' packets, and `web.go` serves the page and the game files. Each title has a file: `t5.go`, `t6.go`, `t7.go`. `title.go` has what the rest of the server knows of a title, and which map a room goes to when its host picks one. `store.go` is the SQLite database that keeps the players and the games' reports, and has its schema.
+- `server/`: the server. `rooms.go` has the rooms, `game.go` runs a game process, `relay.go` relays players' packets, and `web.go` serves the page and the game files. Each title has a file: `t5.go`, `t6.go`, `t7.go`, and `pc.go` has what the rooms of the last two share. `title.go` has what the rest of the server knows of a title, and which map a room goes to when its host picks one. `store.go` is the SQLite database that keeps the players and the games' reports, and has its schema.
 - `launcher/`: Zombies Launcher, the Windows program that starts a player's Black Ops II. Its releases are on GitHub ([below](#releasing-the-launcher)), and the room's page links to the latest one. `mac.sh` installs the launcher on a Mac and runs it there, in Wine. A release has it as `zombies-launcher-mac.sh`, and the room's page shows a Mac the line that fetches it.
 - `internal/`: Go packages.
   - `bo1zombies/`: downloads and unpacks the Black Ops engine build.
