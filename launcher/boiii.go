@@ -212,6 +212,9 @@ type boiiiGame struct {
 	typed   time.Time
 	stopped bool
 	once    sync.Once // restore runs once
+	// typing is held while a line is typed into the console, so that watch's line and stop's quit don't mix: a line
+	// typed after the quit would take the quit's place before the game read it.
+	typing sync.Mutex
 }
 
 // boiiiTries is how often a line is typed at most: once, and twice more for a game that stayed at its menu.
@@ -268,7 +271,15 @@ func (b *boiiiGame) watch() {
 		}
 		b.mu.Unlock()
 		if due {
-			b.game.join(line)
+			// not once the game is being closed (stop), which may have begun since
+			b.typing.Lock()
+			b.mu.Lock()
+			stopped := b.stopped
+			b.mu.Unlock()
+			if !stopped {
+				b.game.join(line)
+			}
+			b.typing.Unlock()
 		}
 	}
 	b.once.Do(b.restore)
@@ -280,7 +291,11 @@ func (b *boiiiGame) stop() {
 	b.mu.Lock()
 	b.line, b.stopped = "", true
 	b.mu.Unlock()
-	if _, ok := b.probe(b.port); ok && b.game.join("quit") == nil {
+	b.typing.Lock() // after a line that watch is typing now, and watch types none from here on
+	_, ok := b.probe(b.port)
+	quit := ok && b.game.join("quit") == nil
+	b.typing.Unlock()
+	if quit {
 		step := max(b.tick, 10*time.Millisecond) / 10 // 8 seconds in all, for a launcher that looks each second
 		for i := 0; i < 80 && b.game.running(); i++ {
 			time.Sleep(step)
