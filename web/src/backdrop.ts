@@ -35,14 +35,20 @@ let atmosphereWake = (): void => {};
 /**
  * Shows the loading screen of a map as the page's background, and has the atmosphere go over to the atmosphere of
  * that map. The picture fades in once it has loaded. Does nothing for '', or for the map that the background shows
- * already.
+ * already. Without picture, the map is one that the server has no pictures of (titles.ts: hasPictures): the page
+ * asks for none, and the atmosphere is on black.
  */
-export function setBackdrop(name: string): void {
+export function setBackdrop(name: string, picture = true): void {
   if (!name || name === backdropMap) return;
   backdropMap = name;
   atmosphereWake();
   const img = $<HTMLImageElement>('backdropimg');
   img.classList.remove('shown');
+  if (!picture) {
+    img.onload = img.onerror = null;
+    img.removeAttribute('src');
+    return;
+  }
   img.onload = () => img.classList.add('shown');
   img.onerror = () => img.classList.remove('shown');
   img.src = '/maps/' + encodeURIComponent(name) + '/loadscreen';

@@ -111,7 +111,7 @@ export function show(v: View): void {
   // The backdrop is the loading screen of the map of the result that shows, else of the room's. Outside a room it
   // is set once the page to play locally is drawn (below).
   const behind = report ? report.map : result ? result.map : room ? room.map : '';
-  setBackdrop(behind);
+  setBackdrop(behind, hasPictures(mapInfo(behind)));
   // The store says what it has of the map of the view's button. A download of another map stops.
   const buttonMap = windows || (room && ownPC(room.of)) ? '' : room ? room.map : soloMapName(v);
   if (player.store.downloading && player.store.downloading !== buttonMap) stopDownload();
