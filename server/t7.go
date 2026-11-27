@@ -721,6 +721,10 @@ func t7Name(name string) string {
 // game's status lists a client by its own name whatever the game shows it as, so the server tells the game each
 // name once, and again only when it changes.
 //
+// The script takes no name back: a slot whose dvar is empty keeps the name that its client was last given. So the
+// next client in a slot that the game was told a name for is told its player's name too, also when it plays under
+// that name, in case the script gave it the last client's before the server took that one back.
+//
 // Several players can be behind one address, and the server tells their games apart by the names they play under
 // (pcWhose). So a client from such an address is named only once each of those players' games is in the game: by
 // then the seats have the games that the names give them. The caller does not hold l.mu.
@@ -733,16 +737,24 @@ func (l *lobby) t7Names(r *room, rg *roomGame, clients []pcClient) {
 	want := map[int]string{}
 	for _, s := range rg.seats {
 		i := slices.IndexFunc(clients, func(c pcClient) bool { return c.address == s.local.String() })
-		if s.left || !s.in || i < 0 || clients[i].name == t7Name(s.player.name) {
+		if s.left || !s.in || i < 0 {
+			continue
+		}
+		slot, name := clients[i].slot, t7Name(s.player.name)
+		// A client that plays under its player's name is told none, unless the game was told a name for its slot
+		// before. The script may have given this client that name, which was the slot's last client's: it names
+		// whoever is in the slot, each second, and the server takes a name back only a status later. The script
+		// undoes a name only with another one, so the client is told its own.
+		if _, told := rg.names[slot]; clients[i].name == name && !told {
 			continue
 		}
 		if slices.ContainsFunc(rg.seats, func(o *seat) bool { return !o.left && !o.in && o.player.addr == s.player.addr }) {
 			continue
 		}
-		want[clients[i].slot] = t7Name(s.player.name)
-		if rg.names[clients[i].slot] != want[clients[i].slot] {
+		want[slot] = name
+		if clients[i].name != name && rg.names[slot] != name {
 			log.Printf("server: %s's game is in room %s's game as %s: the game shows it as %s", s.player.name, r.code,
-				clients[i].name, want[clients[i].slot])
+				clients[i].name, name)
 		}
 	}
 	slots := slices.Collect(maps.Keys(want))
@@ -756,14 +768,11 @@ func (l *lobby) t7Names(r *room, rg *roomGame, clients []pcClient) {
 		if name, ok := rg.names[slot]; !ok || name != want[slot] {
 			rg.g.command(fmt.Sprintf(`set zombies_name_%d "%s"`, slot, want[slot]))
 		}
-		if want[slot] == "" {
-			delete(rg.names, slot)
-		} else {
-			if rg.names == nil {
-				rg.names = map[int]string{}
-			}
-			rg.names[slot] = want[slot]
+		if rg.names == nil {
+			rg.names = map[int]string{}
 		}
+		// "" once the name is taken back: the slot stays one that the game was told a name for (above)
+		rg.names[slot] = want[slot]
 	}
 }
 

@@ -255,6 +255,67 @@ func TestT7Names(t *testing.T) {
 	}
 }
 
+// The script in a T7 game takes no name back: a slot keeps the name that its client was last given, and the script
+// gives it to whoever is in the slot until the server has taken it back. So the next client in a slot that the game
+// was told a name for is told its player's name, also when it plays under that name, and that name is taken back in
+// turn once the client is gone.
+func TestT7NamesTheNextClientOfASlot(t *testing.T) {
+	eng := newT7Game(nil, "", "zm_factory", 4, "pw")
+	g := &game{engine: eng, stdin: os.Stdin, output: io.Discard}
+	l, r := &lobby{}, &room{code: "ROOM"}
+	seatOf := func(name, addr string, n int) *seat {
+		return &seat{player: &player{name: name, addr: netip.MustParseAddr(addr)},
+			local: &net.UDPAddr{IP: net.IPv4(127, 1, 0, byte(n)), Port: 28960}, slot: -1}
+	}
+	ann, bob := seatOf("Ann", "10.0.0.1", 1), seatOf("Bob", "10.0.0.2", 2)
+	rg := &roomGame{g: g, seats: []*seat{ann, bob}}
+	r.game = rg
+	told := func(clients ...pcClient) []string {
+		t.Helper()
+		l.t7Names(r, rg, clients)
+		var lines []string
+		for {
+			select {
+			case line := <-eng.send:
+				lines = append(lines, line)
+			default:
+				return lines
+			}
+		}
+	}
+	// Ann's game is in slot 2, under another name than hers
+	ann.in = true
+	if lines := told(pcClient{2, "Gimmeh", ann.local.String(), true}); !slices.Equal(lines, []string{`set zombies_name_2 "Ann"`}) {
+		t.Fatalf("the game was told %q", lines)
+	}
+	// Ann's game is gone, and Bob's has its slot by the next status: the script may have named it Ann meanwhile
+	ann.in, ann.left, bob.in = false, true, true
+	mine := pcClient{2, "Bob", bob.local.String(), true}
+	if lines := told(mine); !slices.Equal(lines, []string{`set zombies_name_2 "Bob"`}) {
+		t.Fatalf("the game was told %q of the slot's next client", lines)
+	}
+	if lines := told(mine); len(lines) != 0 {
+		t.Fatalf("the game was told %q again", lines)
+	}
+	// the same after a status with no client in the slot, at which the server takes the name back
+	bob.in = false
+	if lines := told(); !slices.Equal(lines, []string{`set zombies_name_2 ""`}) {
+		t.Fatalf("the game was told %q, with no client in the slot", lines)
+	}
+	if lines := told(); len(lines) != 0 {
+		t.Fatalf("the game was told %q again, with no client in the slot", lines)
+	}
+	bob.in = true
+	if lines := told(mine); !slices.Equal(lines, []string{`set zombies_name_2 "Bob"`}) {
+		t.Fatalf("the game was told %q of a client in a slot that it was told a name for", lines)
+	}
+	// a client in a slot that the game was told no name for keeps its own, untold
+	other := pcClient{3, "Bob", bob.local.String(), true}
+	if lines := told(other); !slices.Equal(lines, []string{`set zombies_name_2 ""`}) {
+		t.Fatalf("the game was told %q, with the client in another slot", lines)
+	}
+}
+
 // The server's script in a T7 game reports each player's GobbleGums: the gums of their pack, and each gum that they
 // chew. The server keeps each as an event of the game, whose kind says whether the gum is a Mega one, once for a
 // player and gum. It makes nothing of a line before round 1, nor of one that the script would not print.

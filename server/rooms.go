@@ -337,7 +337,8 @@ type roomGame struct {
 	cancel context.CancelFunc // stops it
 	port   int
 	seats  []*seat
-	// names are, in a T7 game, the names that the server told the game to show clients under, by slot (t7Names).
+	// names are, in a T7 game, the names that the server told the game to show clients under, by slot (t7Names): ""
+	// for a slot whose name it took back.
 	names   map[int]string
 	began   time.Time // when it started
 	up      time.Time // a T6 game: when Plutonium's server first answered; its players join it from then (pcStatus)
