@@ -44,8 +44,15 @@ export HOME=/home/game USER=game LOGNAME=game
 # the server's user, with the three capabilities
 as_server="setpriv --reuid $uid --regid $gid --clear-groups --inh-caps=-all,+setuid,+setgid,+kill"
 as_server="$as_server --ambient-caps=-all,+setuid,+setgid,+kill"
-$as_server zombies-server -t7-fetch "$@" ||
-    echo "entrypoint: the server plays no Black Ops III until its dedicated server has fetched its files" >&2
+# The fetch is for a run of the server: not for its help, nor for another of its commands (server/main.go), which
+# -t7-fetch before it would make a run of the server.
+case ${1:-} in
+    -h | -help | --help | probe | list-files | console | game-files) ;;
+    *)
+        $as_server zombies-server -t7-fetch "$@" ||
+            echo "entrypoint: the server plays no Black Ops III until its dedicated server has fetched its files" >&2
+        ;;
+esac
 if ! err=$(nft -f - 2>&1 <<EOF
 table inet zombies_games
 flush table inet zombies_games
