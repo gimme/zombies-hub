@@ -78,6 +78,9 @@ const (
 // watchEvery is how often the server checks that a game still answers. Tests lower it.
 var watchEvery = time.Second
 
+// quitEvery is how often the server asks a game to quit again, for as long as the game still runs (stop).
+const quitEvery = 300 * time.Millisecond
+
 // silence is the error of a run that the server killed because the game stopped answering.
 type silence struct{ quiet time.Duration }
 
@@ -285,13 +288,28 @@ func watchAddr(port int) *net.UDPAddr {
 }
 
 // stop asks the game to quit and waits for it. It kills the game if that takes too long.
+//
+// A game that is asked on its console (engine.quit) is asked again every quitEvery until it has quit. The console of
+// a PC game is a packet away, and a T7 game drops a packet for its console that comes too soon after the last
+// (t7.go: watch), so one request can be lost. A game that missed it ran on until the runner's signal, seconds later.
+// A PC game whose end has played out has a second and a half until its level exits (pc.go: pcSaid): it then loaded
+// its map again, with its players in it, who saw the map's loading movie start before the game was gone.
 func (g *game) stop(cmd *exec.Cmd, exited <-chan error) error {
 	g.logf("stopping")
 	if g.engine.quit(g) {
-		select {
-		case err := <-exited:
-			return err
-		case <-time.After(stopGrace / 2):
+		again := time.NewTicker(quitEvery)
+		defer again.Stop()
+		grace := time.After(stopGrace / 2)
+	asking:
+		for {
+			select {
+			case err := <-exited:
+				return err
+			case <-again.C:
+				g.engine.quit(g)
+			case <-grace:
+				break asking
+			}
 		}
 	}
 	cmd.Process.Signal(syscall.SIGINT) // Wine turns it into Ctrl+C, which quits the game like its quit command

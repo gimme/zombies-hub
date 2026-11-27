@@ -278,3 +278,56 @@ func TestGameThatStopsAnsweringIsKilled(t *testing.T) {
 		})
 	}
 }
+
+// lostQuit is an engine whose game misses the first request to quit, as a game does whose console dropped the
+// packet (t7.go: watch). The requests after it reach the game's console.
+type lostQuit struct {
+	*t5Engine
+	asked atomic.Int32
+}
+
+func (e *lostQuit) quit(g *game) bool {
+	if e.asked.Add(1) > 1 {
+		g.command("quit")
+	}
+	return true
+}
+
+// A game that misses the server's request to quit is asked again, and quits by its own command, at once. It is not
+// left to run on until the runner's signal, which comes seconds later: a PC game whose end had played out loaded its
+// map again in that time, with its players in it.
+func TestGameIsAskedToQuitUntilItDoes(t *testing.T) {
+	t.Setenv("FAKE_BO1_GAME", "answer")
+	g := newGame(t, os.Args[0])
+	g.port = freePort(t)
+	e := &lostQuit{t5Engine: g.engine.(*t5Engine)}
+	g.engine = e
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	ended := make(chan string, 1)
+	go func() { ended <- exitReason(g.runOnce(ctx)) }()
+	waitFor(t, "a run", func() bool {
+		logs := g.logs()
+		if len(logs) == 0 {
+			return false
+		}
+		text, _ := os.ReadFile(logs[0])
+		return bytes.Contains(text, []byte("pid ")) && g.running()
+	})
+	began := time.Now()
+	cancel()
+	select {
+	case how := <-ended:
+		if how != "quit" {
+			t.Errorf("the game ended as %q, and did not quit", how)
+		}
+	case <-time.After(2 * stopGrace):
+		t.Fatal("the game still runs")
+	}
+	if took := time.Since(began); took >= stopGrace/2 {
+		t.Errorf("the game quit after %v, as late as the runner's signal", took.Round(time.Millisecond))
+	}
+	if asked := e.asked.Load(); asked < 2 {
+		t.Errorf("the game was asked to quit %d time(s), and missed the first", asked)
+	}
+}
