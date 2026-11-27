@@ -101,12 +101,18 @@ func notePress(home string, l link) {
 // pressedSolo returns what the player's last press of Play local asked to play alone, for the launcher of l: the
 // title's id and the map, as the note has them, or the link's own where there is no note that reads as one.
 func pressedSolo(home string, l link) (of, mapName string) {
+	of, mapName, _ = pressNoted(home, l)
+	return of, mapName
+}
+
+// pressNoted is pressedSolo, and whether a note said it: noted is false where what it returns is the link's own.
+func pressNoted(home string, l link) (of, mapName string, noted bool) {
 	data, err := os.ReadFile(pressNote(home, l))
 	lines := strings.Split(string(data), "\n")
 	if err != nil || len(lines) < 2 || !linkWord.MatchString(lines[0]) || !linkWord.MatchString(lines[1]) {
-		return l.of, l.mapName
+		return l.of, l.mapName, false
 	}
-	return lines[0], lines[1]
+	return lines[0], lines[1], true
 }
 
 // nearby reports whether host is in the PC's own network: every address of its name is a private or link-local

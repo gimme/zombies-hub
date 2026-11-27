@@ -109,11 +109,16 @@ type launcher struct {
 	// That link starts another launcher, which finds this launcher running, signals it, and ends (main). solos gets a
 	// value each time the player asks to play alone, with the lobby's Play local, in the same way.
 	pressed, solos <-chan struct{}
-	// launchNow is set by a run that ended because the player asked to launch their game now, with their room's
-	// Launch game, while the launcher waited for the room's game (play). The next run is then for the game alone, as
-	// after a press of Play local (serve). keepsReady is set for that run: the PC has what the room's game needs, as
-	// the run before it said, and the room's button goes on saying so while this one starts the game.
+	// launchNow is set by a run that ended because the player asked to launch a game now: with their room's Launch
+	// game, while the launcher waited for the room's game (play), or with Play local for the launcher's other title,
+	// while a game of this one ran (stayWith). The next run is then for the game alone, as after a press of Play local
+	// (serve). keepsReady is set for that run: the PC has what the room's game needs, as the run before it said, and
+	// the room's button goes on saying so while this one starts the game.
 	launchNow, keepsReady bool
+	// kept has the games that the launcher left open as it went over to its other title, by the title's id (keep). A
+	// run at a title stays with that title's game again, in place of starting one (takeKept, resume). Only the run
+	// reads and changes it.
+	kept map[string]*openGame
 	// clicked is set for a run that the player started with the room's button: the launcher's first, and each one
 	// after a press. Such a run may ask the player about a copy of the game that lacks the room's map (askMissing). A
 	// run that starts by itself, for the room's next game, asks nothing.
@@ -187,8 +192,12 @@ type launcher struct {
 	// left is the ID of the room's game that the player's game last ran in, once the player's game was closed. The
 	// launcher starts the player's game into that room's game again only when the player asks (pressed).
 	left string
-	// prepared records whether the PC had what the game needs when the launcher last checked.
+	// prepared records whether the PC had what the game of the run's title needs when the launcher last checked. A run
+	// at another title starts without it (play).
 	prepared bool
+	// sayLock has one line at a time written to the run's output (say): a map that is downloaded for a game that runs
+	// writes its lines beside the run's (stayWith).
+	sayLock sync.Mutex
 	// logged is set once a launcher that stays has started its log. Its next runs append to the log.
 	logged bool
 	// key is the public half of the key of the launcher's maker, or nil for a launcher built without one. version is
@@ -306,6 +315,8 @@ func pause(wait bool) {
 }
 
 func (la *launcher) say(format string, args ...any) {
+	la.sayLock.Lock()
+	defer la.sayLock.Unlock()
 	fmt.Fprintf(la.out, format+"\n", args...)
 }
 
@@ -667,8 +678,14 @@ func (la *launcher) play(ctx context.Context, url string, srv *server, solo bool
 	if !offline {
 		srv.hello(ctx)
 	}
-	if again, err := la.renew(ctx, url, files, giveUp); again || err != nil {
-		return err
+	// A launcher that left a game open, as it went over to its other title (keep), does not replace itself now: the
+	// launcher that took its place would know nothing of that game, and would start it a second time. It does once
+	// the server takes this build no more (below).
+	keeps := la.keeping()
+	if !keeps {
+		if again, err := la.renew(ctx, url, files, giveUp); again || err != nil {
+			return err
+		}
 	}
 	if offline {
 		if macOld(la.mac) {
@@ -689,6 +706,11 @@ func (la *launcher) play(ctx context.Context, url string, srv *server, solo bool
 	play, err := srv.current(ctx)
 	switch {
 	case errors.Is(err, errOld): // the server doesn't take this launcher, and there was no later release to take
+		if keeps { // or the launcher looked for none, for the game that it left open
+			if again, err := la.renew(ctx, url, files, giveUp); again || err != nil {
+				return err
+			}
+		}
 		return la.tooOld()
 	case err != nil:
 		return err
@@ -709,8 +731,19 @@ func (la *launcher) play(ctx context.Context, url string, srv *server, solo bool
 	if t == nil {
 		return la.tooOld() // a game that only a later launcher starts
 	}
+	if la.title() != t {
+		// What the PC had ready was for another title's game. Until this run has seen to this title's, a run that
+		// ends tells the server nothing else (idle).
+		la.prepared = false
+	}
 	la.setTitle(t)
 	srv.at(t)
+	// The title's game may be open still, from before the launcher went over to its other title: the run stays with
+	// that game again, and starts none.
+	if k := la.takeKept(t); k != nil {
+		la.say("You are %s on %s.", play.Player, l.host)
+		return la.resume(ctx, srv, l, play, k, solo)
+	}
 	files()
 	la.say("You are %s on %s.", play.Player, l.host)
 	if solo {
@@ -985,8 +1018,77 @@ func (la *launcher) stay(ctx context.Context, srv *server, l link, play *launche
 	if err != nil {
 		return err
 	}
-	return la.stayWith(ctx, srv, l, g, dir, from, to, info(play, la.title()).Plutonium, false)
+	return la.stayWith(ctx, srv, l, g, dir, from, to, info(play, la.title()).Plutonium, staying{})
 }
+
+// The launcher starts two titles, and a player may have a game of each open. The launcher is at one title at a time
+// (title.go), and stays with that title's game (stayWith). When it goes over to the other title, because the player's
+// room plays that one now, or because they asked for it with Play local, it leaves the game that runs open, and keeps
+// what it knows of it (keep). When it comes back to the title, it stays with that game again, in place of starting a
+// second one (takeKept, resume). So a room that goes from one title to the other and back costs its players no game
+// that they had open, and none of what they had set in it.
+
+// openGame is a game that the launcher started, as stayWith knows it: the game, the folder that the run found for
+// it (dir), the folder that it started from (from), and the revision of Plutonium that it started with (rev).
+type openGame struct {
+	g         game
+	dir, from string
+	rev       int
+}
+
+// keep leaves the game k of the title t open, as the launcher goes over to its other title.
+func (la *launcher) keep(t *title, k *openGame) {
+	if la.kept == nil {
+		la.kept = map[string]*openGame{}
+	}
+	la.kept[t.id] = k
+	la.say("")
+	la.say("%s stays open, for when you come back to it.", t.name)
+}
+
+// takeKept returns the game of the title t that the launcher left open (keep), for the run to stay with again, or nil
+// when it left none, or the player has closed it since.
+func (la *launcher) takeKept(t *title) *openGame {
+	k := la.kept[t.id]
+	delete(la.kept, t.id)
+	if k == nil || !k.g.running() {
+		return nil
+	}
+	return k
+}
+
+// keeping reports whether a game that the launcher left open still runs (keep). It forgets those that the player has
+// closed.
+func (la *launcher) keeping() bool {
+	for id, k := range la.kept {
+		if !k.g.running() {
+			delete(la.kept, id)
+		}
+	}
+	return len(la.kept) > 0
+}
+
+// resume stays with the game k of the run's title again, which the launcher left open as it went over to its other
+// title (keep): for the player's room, or with alone, as they asked for the game with Play local. The PC has what the
+// game needs, as the game runs, so the launcher checks nothing, and changes none of the files that the game has open.
+// It says which maps the game's folder has, and that the PC is ready. A map that the player picked with Play local is
+// got beside the game, as when they pick one while it runs (stayWith).
+func (la *launcher) resume(ctx context.Context, srv *server, l link, play *launcherapi.Play, k *openGame, alone bool) error {
+	t := la.title()
+	la.say("")
+	la.say("%s is open already: the launcher stays with it.", t.name)
+	if zones := info(play, t).Zones; len(zones) > 0 {
+		srv.setHas(zonesIn(k.from, zones))
+	}
+	la.prepared = true
+	srv.setReady(true)
+	return la.stayWith(ctx, srv, l, k.g, k.dir, k.from, nil, k.rev, staying{alone: alone, resumed: true, pick: alone})
+}
+
+// staying is how stayWith begins with a game. alone: the game was started, or asked for, with Play local, and for no
+// room's game. resumed: the game runs already (resume), so nothing launches. pick: the map that the player's last
+// press of Play local picked is got for the game at once (getPicked).
+type staying struct{ alone, resumed, pick bool }
 
 // aloneStarts is how long the page's button says that the player's game launches, when it launches for the player
 // alone (alone). No room's game says when it is in.
@@ -1000,10 +1102,13 @@ const launching = "Launching the game"
 // with the PC's Plutonium, and the player's next room's game joins from there. A game of Black Ops III that starts
 // for a room's game has no to either: it joins from its menu too, once the room's game is up (launch).
 //
-// stayWith ends, and closes the game, when the player's room plays another title than the game's: the next run sees
-// to that title, and starts its game (serve).
-func (la *launcher) stayWith(ctx context.Context, srv *server, l link, g game, dir, from string, to *launcherapi.Game, rev int, alone bool) error {
+// stayWith ends when the launcher goes over to its other title: the player's room plays that one now, or they asked
+// for it with Play local. The next run sees to that title's game (serve). A launcher that stays leaves this game
+// open, and stays with it again when it comes back to this title (keep). One that ends with its run closes the game:
+// nothing would know it afterwards.
+func (la *launcher) stayWith(ctx context.Context, srv *server, l link, g game, dir, from string, to *launcherapi.Game, rev int, how staying) error {
 	t := la.title()
+	alone := how.alone
 	la.hide()
 	// The player's game runs from here until it is closed. The room's button shows what the launcher does with it
 	// until the server has it in the room's game: the game launches, or the game that runs joins the room's game. Once
@@ -1012,6 +1117,9 @@ func (la *launcher) stayWith(ctx context.Context, srv *server, l link, g game, d
 	// the game launches for aloneStarts. The player's own game launches, where the room's game starts: the room says
 	// that the room's starts, beside its code, as the player's launches.
 	status, begun := launching, time.Now()
+	if how.resumed {
+		status = "" // the game runs already
+	}
 	show := func(what string) {
 		if what != status {
 			status = what
@@ -1028,12 +1136,59 @@ func (la *launcher) stayWith(ctx context.Context, srv *server, l link, g game, d
 	case <-la.pressed: // drop a press that came before the game was started: it was for that start
 	default:
 	}
+	// A map that the player picks while the game runs is downloaded beside this loop (getPicked), which goes on seeing
+	// to the game and to the room meanwhile: a download takes minutes. picking is closed once the download has ended,
+	// and is nil when there is none. endPick stops the download and waits for it. That is done before the game is
+	// started again, and as stayWith ends: the next run brings the same folder up to date.
+	var picking chan struct{}
+	stopPick := func() {}
+	endPick := func() {
+		if picking != nil {
+			stopPick()
+			<-picking
+			picking = nil
+		}
+	}
+	defer endPick()
+	// pick starts the download of the map that the player picked last. One map is got at a time.
+	pick := func() {
+		if picking != nil {
+			select {
+			case <-picking:
+				picking = nil
+			default:
+			}
+		}
+		if picking == nil {
+			pickCtx, cancel := context.WithCancel(ctx)
+			done := make(chan struct{})
+			picking, stopPick = done, cancel
+			go func(from string) {
+				defer close(done)
+				defer cancel()
+				la.getPicked(pickCtx, srv, l, from)
+			}(from)
+		}
+	}
+	if how.pick {
+		pick()
+	}
+	// other leaves the game as the launcher goes over to its other title. A launcher that stays leaves it open, and
+	// stays with it again later (keep): every launcher that a player's link starts for a server is one (run). One
+	// that ends with its run (link) closes it, as it did before the launcher kept a game.
+	other := func() {
+		if la.stays {
+			la.keep(t, &openGame{g: g, dir: dir, from: from, rev: rev})
+		} else {
+			g.stop()
+		}
+	}
 	asked := false // the player asked to join the room's game again
 	for g.running() && ctx.Err() == nil {
 		play, next, err := srv.latest()
 		ok := err == nil && play != nil
 		if ok && play.Room != "" && titleOf(play.Of) != t {
-			g.stop()
+			other()
 			return nil
 		}
 		if ok && play.InGame {
@@ -1072,8 +1227,21 @@ func (la *launcher) stayWith(ctx context.Context, srv *server, l link, g game, d
 			select {
 			case <-la.pressed:
 				asked = true
-			case <-la.solos: // the player's game runs already: the map that they picked now is got for it
-				la.getPicked(ctx, srv, l, from)
+			case <-la.solos:
+				// The lobby's Play local, or the room's Launch game, while the player's game runs. A press for the
+				// launcher's other title has a launcher that stays go over to that one: the next run starts its game,
+				// or stays with it, as after a press while the launcher waits (play, serve), and this game stays open
+				// (keep). Not while this game is in a room's game, which the launcher sees to, nor without the press's
+				// note of the title that it asks for.
+				if of, _, noted := pressNoted(la.home, l); la.stays && noted && !(ok && play.InGame) {
+					if asks := titleOf(of); asks != nil && asks != t {
+						other()
+						la.clicked, la.launchNow = true, true
+						return nil
+					}
+				}
+				// A press for the game that runs: the map that the player picked now is got for it.
+				pick()
 			case <-next:
 			case <-time.After(la.tick):
 			case <-ctx.Done():
@@ -1081,6 +1249,7 @@ func (la *launcher) stayWith(ctx context.Context, srv *server, l link, g game, d
 			continue
 		}
 		asked = false
+		endPick()
 		g.stop()
 		if g, from, to, err = la.launch(ctx, srv, l, play, dir); err != nil {
 			if la.stays {
@@ -1102,7 +1271,8 @@ func (la *launcher) stayWith(ctx context.Context, srv *server, l link, g game, d
 // getPicked downloads the map that the player's last press of Play local picked (pressedSolo), while their game
 // runs, from the folder from: a map of the run's title that the server sends in a pack of its own, into the launcher's
 // own game files, where they lack it. The game then has the map without starting again. Nothing else of the folder is
-// brought up to date: the game has those files open. A player's own copy is left as it is.
+// brought up to date: the game has those files open. A player's own copy is left as it is. stayWith runs it on a
+// goroutine of its own, and stops it by its context.
 func (la *launcher) getPicked(ctx context.Context, srv *server, l link, from string) {
 	t := la.title()
 	of, mapName := pressedSolo(la.home, l)
@@ -1196,7 +1366,7 @@ func (la *launcher) alone(ctx context.Context, srv *server, l link, play *launch
 	}
 	la.prepared = true
 	srv.setReady(true)
-	return la.stayWith(ctx, srv, l, g, dir, from, nil, rev, true)
+	return la.stayWith(ctx, srv, l, g, dir, from, nil, rev, staying{alone: true})
 }
 
 // launchBoiii starts the player's Black Ops III for the room's game, play.Game, from the game files in dir, or the

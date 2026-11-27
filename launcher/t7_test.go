@@ -162,8 +162,9 @@ func TestBoiiiName(t *testing.T) {
 
 // In a Black Ops III room, the launcher gets BOIII's program for a PC without it, and starts it in the folder of the
 // player's own copy, at its menu, under the name that the room's game knows the player by. It types the line that
-// joins the room's game into the game's console once the room's game is up, and for the room's next game. It closes
-// the game when the room plays another title.
+// joins the room's game into the game's console once the room's game is up, and for the room's next game. This
+// launcher ends with its run, so it closes the game when the room plays another title: one that stays leaves it open
+// (TestRoomOfTheOtherTitleKeepsTheGameOpen).
 func TestBoiiiRoom(t *testing.T) {
 	l := newFakeServer(t)
 	gameOf := func(id string, up bool) *launcherapi.Game {
@@ -233,7 +234,8 @@ func TestBoiiiRoom(t *testing.T) {
 	if tl.game(1) != nil {
 		t.Fatalf("the launcher started the game again for the room's next game\n%s", tl.out)
 	}
-	// the room goes to a map of Black Ops II: this game is closed, with its console's quit, and the name put back
+	// the room goes to a map of Black Ops II: this game is closed, with its console's quit, and the name put back,
+	// by a launcher that ends here
 	set(func(play *launcherapi.Play) { play.Of, play.Needs, play.Game = launcherapi.T6, "", nil })
 	select {
 	case <-done:
@@ -467,5 +469,293 @@ func TestBoiiiAlone(t *testing.T) {
 	}
 	if !slices.Equal(got, []string{"zone/zm_factory.ff"}) {
 		t.Errorf("downloaded for the map: %q", got)
+	}
+}
+
+// What the launcher says of the PC is of one title's game. A launcher that had the PC ready for Black Ops II, and
+// then fails to get it ready for Black Ops III as its player's room goes over to that game, does not tell the server
+// that the PC is ready for it.
+func TestReadyIsOfOneTitle(t *testing.T) {
+	l := newFakeServer(t)
+	l.play = launcherapi.Play{Player: "Ann", Room: "ABCD", Plutonium: 1}
+	tl := newT7Launcher(t, "")
+	ownCopy(t, tl.testLauncher)
+	tl.steam = func() bool { return false } // no Black Ops III starts on this PC
+	tl.stays = true
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan int, 1)
+	go func() { done <- tl.run(ctx, []string{l.link()}) }()
+	said := func() (ofs []string, ready []bool, reports []launcherapi.Report) {
+		l.mu.Lock()
+		defer l.mu.Unlock()
+		return slices.Clone(l.ofs), slices.Clone(l.ready), slices.Clone(l.reports)
+	}
+	eventually(t, "the launcher got the PC ready for Black Ops II", func() bool {
+		_, ready, _ := said()
+		return len(ready) > 0 && ready[len(ready)-1]
+	})
+	l.mu.Lock()
+	l.play = t7Play(l, "zone/zm_factory.ff", nil)
+	l.mu.Unlock()
+	eventually(t, "the launcher failed at Black Ops III", func() bool {
+		_, _, reports := said()
+		return slices.ContainsFunc(reports, func(r launcherapi.Report) bool { return strings.Contains(r.Failed, "Steam") })
+	})
+	time.Sleep(200 * time.Millisecond) // the calls that the launcher makes as it waits, after the try that failed
+	ofs, ready, _ := said()
+	if !slices.Contains(ofs, launcherapi.T7) {
+		t.Fatalf("the launcher never said that it is at Black Ops III: %q", ofs)
+	}
+	for i, of := range ofs {
+		if of == launcherapi.T7 && ready[i] {
+			t.Fatalf("the launcher said that the PC is ready for Black Ops III, which it never was: call %d of %q, %v", i, ofs, ready)
+		}
+	}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the launcher did not end as it was quit")
+	}
+}
+
+// A press of Play local for the launcher's other game, while the player's game runs, starts the other one and leaves
+// the first open. The launcher stays with a game that is open again when the player asks for it, and starts no
+// second one of it.
+func TestPlayLocalOfTheOtherGame(t *testing.T) {
+	l := newFakeServer(t)
+	l.play = launcherapi.Play{Player: "Ann", Titles: map[string]launcherapi.Title{launcherapi.T7: {Zones: t7Zones}}}
+	tl := newT7Launcher(t, "")
+	t6dir := ownCopy(t, tl.testLauncher)
+	t7dir := t7Copy(t, filepath.Join(t.TempDir(), "Black Ops III"), "zm_factory")
+	tl.copies = func(of *title) []string {
+		if of == titleT7 {
+			return []string{t7dir}
+		}
+		return []string{t6dir}
+	}
+	tl.stays = true
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan int, 1)
+	go func() { done <- tl.run(ctx, []string{l.link() + "&solo=1&name=Ann&of=t7"}) }()
+	starts := func() []started {
+		tl.mu.Lock()
+		defer tl.mu.Unlock()
+		return slices.Clone(tl.started)
+	}
+	eventually(t, "Black Ops III started", func() bool { return len(starts()) == 1 })
+	if got := starts()[0]; filepath.Base(got.exe) != boiii.Exe || got.dir != t7dir {
+		t.Fatalf("the first game started as %+v", got)
+	}
+	// a press with no note of what it asks for closes nothing
+	tl.solo <- struct{}{}
+	time.Sleep(50 * time.Millisecond)
+	if len(starts()) != 1 || !tl.game(0).running() {
+		t.Fatalf("a press that named no game: %d games started, the first runs: %v", len(starts()), tl.game(0).running())
+	}
+	// the press of Play local for Black Ops II, which leaves its note first (main)
+	first, _ := parseLink(l.link() + "&solo=1&name=Ann&of=t7")
+	other, err := parseLink(l.link() + "&solo=1&name=Ann")
+	if err != nil {
+		t.Fatal(err)
+	}
+	notePress(tl.home, other)
+	if first.id() != other.id() {
+		t.Fatalf("the two links are of two launchers: %q, %q", first.id(), other.id())
+	}
+	tl.solo <- struct{}{}
+	eventually(t, "Black Ops II started beside it", func() bool { return len(starts()) == 2 })
+	if got := starts()[1]; !strings.HasSuffix(got.line, ` -lan +name "Ann"`) {
+		t.Errorf("the second game started with %q", got.line)
+	}
+	// at reports whether the launcher last told the server that it is at the title of, with its game running. It
+	// names Black Ops II by no word.
+	at := func(of string) bool {
+		l.mu.Lock()
+		defer l.mu.Unlock()
+		n := len(l.ofs)
+		return n > 0 && l.ofs[n-1] == of && l.games[n-1]
+	}
+	eventually(t, "the launcher is at Black Ops II, whose game runs", func() bool { return tl.title() == titleT6 && at("") })
+	if g := tl.game(0); !g.running() || g.stopped.Load() || len(g.typed()) != 0 {
+		t.Fatalf("Black Ops III, as the player asked for the other game: runs %v, stopped %v, told %q", g.running(),
+			g.stopped.Load(), g.typed())
+	}
+	// Play local for Black Ops III again: the launcher stays with the game that is open, and starts none
+	notePress(tl.home, first)
+	tl.solo <- struct{}{}
+	eventually(t, "the launcher is at Black Ops III again, whose game runs", func() bool {
+		return tl.title() == titleT7 && at(launcherapi.T7)
+	})
+	time.Sleep(50 * time.Millisecond)
+	if len(starts()) != 2 || !tl.game(0).running() || !tl.game(1).running() || tl.game(1).stopped.Load() {
+		t.Fatalf("with both games open: %d started, Black Ops III runs %v, Black Ops II runs %v", len(starts()),
+			tl.game(0).running(), tl.game(1).running())
+	}
+	if !strings.Contains(tl.out.String(), "Black Ops III is open already") {
+		t.Errorf("what the launcher said:\n%s", tl.out)
+	}
+	// the player closes Black Ops III, and asks for Black Ops II, which is open still
+	tl.game(0).open.Store(false)
+	eventually(t, "the server heard that Black Ops III was closed", func() bool {
+		l.mu.Lock()
+		defer l.mu.Unlock()
+		return !l.games[len(l.games)-1]
+	})
+	notePress(tl.home, other)
+	tl.solo <- struct{}{}
+	eventually(t, "the launcher is at Black Ops II again, whose game runs", func() bool { return tl.title() == titleT6 && at("") })
+	// and Black Ops III once more, which is closed: it starts
+	notePress(tl.home, first)
+	tl.solo <- struct{}{}
+	eventually(t, "Black Ops III started again", func() bool { return len(starts()) == 3 })
+	if got := starts()[2]; filepath.Base(got.exe) != boiii.Exe {
+		t.Errorf("the third game started as %+v", got)
+	}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the launcher did not end as it was quit")
+	}
+}
+
+// A map that the player picks in Play local while their game runs is downloaded beside the game, which runs on: the
+// launcher starts nothing again, and ends when it is quit, with the download behind it.
+func TestBoiiiGetsAPickedMapBesideTheGame(t *testing.T) {
+	l := newFakeServer(t)
+	l.t7 = map[string]string{"BlackOps3.exe": "the game", "zone/zm_common.ff": "what every map loads",
+		"zone/zm_factory.ff": "The Giant", "zone/zm_tomb.ff": "Origins", "zone/zm_tomb.xpak": "Origins' pictures"}
+	l.packs = map[string]string{"zone/zm_factory.ff": "zm_factory", "zone/zm_tomb.ff": "zm_tomb", "zone/zm_tomb.xpak": "zm_tomb"}
+	l.play = launcherapi.Play{Player: "Ann", Titles: map[string]launcherapi.Title{
+		launcherapi.T7: {Zones: t7Zones, Downloads: true}}}
+	tl := newT7Launcher(t, "\n")
+	tl.stays = true
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan int, 1)
+	go func() { done <- tl.run(ctx, []string{l.link() + "&solo=1&name=Ann&of=t7&map=zm_tomb"}) }()
+	eventually(t, "Black Ops III started", func() bool { return tl.game(0) != nil })
+	dir := filepath.Join(tl.home, "t7")
+	if isFile(filepath.Join(dir, "zone", "zm_factory.ff")) {
+		t.Fatal("the folder has a map that the player did not pick")
+	}
+	other, err := parseLink(l.link() + "&solo=1&name=Ann&of=t7&map=zm_factory")
+	if err != nil {
+		t.Fatal(err)
+	}
+	notePress(tl.home, other)
+	tl.solo <- struct{}{}
+	eventually(t, "the map that the player picked was downloaded", func() bool {
+		return isFile(filepath.Join(dir, "zone", "zm_factory.ff"))
+	})
+	if !tl.game(0).running() || tl.game(1) != nil {
+		t.Errorf("the game that ran: runs %v, and another started: %v", tl.game(0).running(), tl.game(1) != nil)
+	}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the launcher did not end as it was quit")
+	}
+	if read(t, filepath.Join(dir, "zone", "zm_factory.ff")) != "The Giant" {
+		t.Error("the map that was downloaded is not the server's")
+	}
+}
+
+// A room that goes over to the launcher's other title costs its players no game that they have open. The launcher
+// leaves the game of the first title open, sees to the other title's, and stays with the first again when the room
+// comes back to it: the game joins the room's next game from where it is.
+func TestRoomOfTheOtherTitleKeepsTheGameOpen(t *testing.T) {
+	l := newFakeServer(t)
+	gameOf := func(id string) *launcherapi.Game {
+		return &launcherapi.Game{ID: id, Port: l.port(), Password: "pw", Name: "Ann", Up: true}
+	}
+	l.play = t7Play(l, "zone/zm_factory.ff", gameOf("first"))
+	tl := newT7Launcher(t, "")
+	t6dir := ownCopy(t, tl.testLauncher)
+	t7dir := t7Copy(t, filepath.Join(t.TempDir(), "Black Ops III"), "zm_factory")
+	tl.copies = func(of *title) []string {
+		if of == titleT7 {
+			return []string{t7dir}
+		}
+		return []string{t6dir}
+	}
+	tl.stays = true
+	set := func(change func(play *launcherapi.Play)) {
+		l.mu.Lock()
+		change(&l.play)
+		l.mu.Unlock()
+	}
+	starts := func() []started {
+		tl.mu.Lock()
+		defer tl.mu.Unlock()
+		return slices.Clone(tl.started)
+	}
+	// at reports whether the launcher last told the server that it is at the title of, and whether its game runs.
+	at := func(of string, runs bool) bool {
+		l.mu.Lock()
+		defer l.mu.Unlock()
+		n := len(l.ofs)
+		return n > 0 && l.ofs[n-1] == of && l.games[n-1] == runs
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan int, 1)
+	go func() { done <- tl.run(ctx, []string{l.link()}) }()
+	join := `password pw;connect 127.0.0.1:` + strconv.Itoa(l.port())
+	eventually(t, "Black Ops III started, and joined the room's game", func() bool {
+		return tl.game(0) != nil && slices.Equal(tl.game(0).typed(), []string{join})
+	})
+	tl.at.Store("zm_factory")
+	set(func(play *launcherapi.Play) { play.InGame, play.Game = true, nil })
+	time.Sleep(50 * time.Millisecond)
+	tl.at.Store(boiiiMenu)
+	// game over, and the room's host picks a map of Black Ops II
+	set(func(play *launcherapi.Play) {
+		play.InGame, play.Of, play.Needs, play.Plutonium = false, launcherapi.T6, "", 1
+		play.Titles[launcherapi.T6] = launcherapi.Title{Plutonium: 1}
+	})
+	eventually(t, "the launcher is at Black Ops II, with the PC ready and no game of it", func() bool {
+		l.mu.Lock()
+		defer l.mu.Unlock()
+		n := len(l.ofs)
+		return n > 0 && l.ofs[n-1] == "" && l.ready[n-1] && !l.games[n-1]
+	})
+	if g := tl.game(0); !g.running() || g.stopped.Load() || !slices.Equal(g.typed(), []string{join}) {
+		t.Fatalf("Black Ops III, as the room plays the other title: runs %v, stopped %v, told %q", g.running(),
+			g.stopped.Load(), g.typed())
+	}
+	// the room's game of Black Ops II, which the launcher starts the player's game for
+	set(func(play *launcherapi.Play) { play.Game = gameOf("second") })
+	eventually(t, "Black Ops II started for the room's game", func() bool { return len(starts()) == 2 && at("", true) })
+	set(func(play *launcherapi.Play) { play.InGame, play.Game = true, nil })
+	time.Sleep(50 * time.Millisecond)
+	// game over, and the room is back at Black Ops III: the launcher stays with the game that is open
+	set(func(play *launcherapi.Play) {
+		play.InGame, play.Of, play.Needs = false, launcherapi.T7, "zone/zm_factory.ff"
+	})
+	eventually(t, "the launcher is at Black Ops III again, whose game runs", func() bool { return at(launcherapi.T7, true) })
+	if got := starts(); len(got) != 2 || !tl.game(1).running() || tl.game(1).stopped.Load() {
+		t.Fatalf("back at Black Ops III: %d games started, Black Ops II runs %v", len(got), tl.game(1).running())
+	}
+	l.mu.Lock()
+	n := len(l.ofs)
+	ready, has := l.ready[n-1], l.has[n-1]
+	l.mu.Unlock()
+	if !ready || has != "zone/zm_factory.ff" {
+		t.Errorf("what the launcher said of the PC, back at Black Ops III: ready %v, has %q", ready, has)
+	}
+	// the room's next game, which the game that is open joins
+	set(func(play *launcherapi.Play) { play.Game = gameOf("third") })
+	eventually(t, "Black Ops III joined the room's next game", func() bool {
+		return slices.Equal(tl.game(0).typed(), []string{join, join})
+	})
+	if len(starts()) != 2 {
+		t.Errorf("%d games started\n%s", len(starts()), tl.out)
+	}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the launcher did not end as it was quit")
 	}
 }
