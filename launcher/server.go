@@ -56,10 +56,11 @@ type server struct {
 	failed string
 	setup  bool
 	// has is which of the server's zones the game folder has that the player's game starts from, with commas between
-	// them (launcherapi.Title: Zones). copied is set once the launcher knows the folder. Each call that asks what to
-	// play then sends has (setHas).
+	// them (launcherapi.Title: Zones). copied is set once the launcher knows the folder, and own when the folder is the
+	// player's own copy of the game. Each call that asks what to play then sends has, and own with it (setHas).
 	copied bool
 	has    string
+	own    bool
 	// of is the id of the title that the launcher is at, which ready and has are of (at). Each call that asks what to
 	// play sends it, when it is another than Black Ops II: a server from before the launcher started any other title
 	// takes no such word.
@@ -159,13 +160,16 @@ func (s *server) ask(ctx context.Context, seen string) (*launcherapi.Play, error
 		q.Set("game", "1")
 	}
 	s.mu.Lock()
-	copied, has, of := s.copied, s.has, s.of
+	copied, has, own, of := s.copied, s.has, s.own, s.of
 	s.mu.Unlock()
 	if of != "" && of != launcherapi.T6 {
 		q.Set("of", of)
 	}
 	if copied {
 		q.Set("has", has)
+		if own {
+			q.Set("own", "1")
+		}
 	}
 	if seen != "" {
 		q.Set("seen", seen)
@@ -362,7 +366,7 @@ func (s *server) at(t *title) {
 	s.mu.Lock()
 	changed := s.of != t.id && !(s.of == "" && t == titleT6)
 	if changed {
-		s.copied, s.has = false, ""
+		s.copied, s.has, s.own = false, "", false
 	}
 	s.of = t.id
 	s.mu.Unlock()
@@ -377,13 +381,14 @@ func (s *server) at(t *title) {
 	}
 }
 
-// setHas records which of the server's zones the game folder has that the player's game starts from, and tells the
-// server at once, as setReady does. The room then says whether the player's copy of the game has its map.
-func (s *server) setHas(zones []string) {
+// setHas records which of the server's zones the game folder has that the player's game starts from, and whether the
+// folder is the player's own copy of the game (own), and tells the server at once, as setReady does. The room then
+// says whether the player's copy of the game has its map, and the lobby's Play local which maps the folder has.
+func (s *server) setHas(zones []string, own bool) {
 	has := strings.Join(zones, ",")
 	s.mu.Lock()
-	same := s.copied && s.has == has
-	s.copied, s.has = true, has
+	same := s.copied && s.has == has && s.own == own
+	s.copied, s.has, s.own = true, has, own
 	renew := s.renew
 	s.mu.Unlock()
 	if !same && renew != nil {

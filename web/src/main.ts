@@ -88,7 +88,7 @@ import { reload } from './server';
 import { hello } from './session';
 import { bo1Settings } from './settings';
 import { openHome, showKept } from './show';
-import { openSolo, soloGets, soloLaunchMap, soloLaunches } from './solo';
+import { openSolo, soloConnects, soloGets, soloLaunches } from './solo';
 import { soundsInit } from './sounds';
 import { store } from './storage';
 import { openLauncher } from './windows';
@@ -258,7 +258,8 @@ function startLobbyPage(): void {
   const playButton = $<HTMLButtonElement>('playalone');
   playButton.onclick = () => {
     if (isOff(playButton)) return;
-    if (soloLaunches) openLauncher(true, soloLaunches, soloLaunchMap); // a game that the player's own PC plays
+    // a game that the player's own PC plays: the launcher gets the PC ready for it first (Connect), or launches it
+    if (soloLaunches) openLauncher(!soloConnects, soloLaunches);
     else if (soloGets) getMap(view ? soloMapName(view) : '', soloGets);
     else playAlone();
   };

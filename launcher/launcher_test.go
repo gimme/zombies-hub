@@ -48,6 +48,7 @@ type fakeServer struct {
 	reports  []launcherapi.Report
 	ready    []bool   // what each call for what to play said of the PC: it has what the game needs
 	has      []string // which zones each such call said the game folder has; "-" for a call that said nothing of it
+	owns     []bool   // whether each such call said that the game folder is the player's own copy
 	versions []string // the launcher's version, as each call sent it
 	refuse   int      // the status that every call gets instead of its answer, where it is not 0
 }
@@ -129,6 +130,7 @@ func (l *fakeServer) serve(w http.ResponseWriter, r *http.Request) {
 		l.ready = append(l.ready, r.URL.Query().Get("ready") == "1")
 		l.ofs = append(l.ofs, r.URL.Query().Get("of"))
 		l.games = append(l.games, r.URL.Query().Get("game") == "1")
+		l.owns = append(l.owns, r.URL.Query().Get("own") == "1")
 		if has, ok := r.URL.Query()["has"]; ok {
 			l.has = append(l.has, has[0])
 		} else {

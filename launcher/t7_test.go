@@ -86,8 +86,8 @@ func t7Play(l *fakeServer, needs string, game *launcherapi.Game) launcherapi.Pla
 		Titles: map[string]launcherapi.Title{launcherapi.T7: {Zones: t7Zones}}}
 }
 
-// A link names the title to play alone, and the map of it that the player picked. A launcher that runs is told both
-// of the player's next press in a note.
+// A link names a title, and a map of it: to play alone, or to have the PC made ready for. A launcher that runs is
+// told both of the player's next press in a note, and the presses of the two kinds of link each have their own.
 func TestLinkOf(t *testing.T) {
 	l, err := parseLink("zombies-launcher://host/play?solo=1&name=Ann&of=t7&map=zm_tomb&key=0123456789abcdef")
 	if err != nil || l.of != "t7" || l.mapName != "zm_tomb" || !l.solo {
@@ -103,16 +103,34 @@ func TestLinkOf(t *testing.T) {
 	}
 	home := t.TempDir()
 	first, _ := parseLink("zombies-launcher://host/play?key=0123456789abcdef")
-	if of, mapName := pressedSolo(home, first); of != "" || mapName != "" {
-		t.Errorf("with no note: %q, %q", of, mapName)
+	if of, mapName, noted := pressed(home, first, true); of != "" || mapName != "" || noted {
+		t.Errorf("with no note: %q, %q, %v", of, mapName, noted)
 	}
 	notePress(home, l)
-	if of, mapName := pressedSolo(home, first); of != "t7" || mapName != "zm_tomb" {
-		t.Errorf("the note of a press: %q, %q", of, mapName)
+	if of, mapName, noted := pressed(home, first, true); of != "t7" || mapName != "zm_tomb" || !noted {
+		t.Errorf("the note of a press: %q, %q, %v", of, mapName, noted)
 	}
-	os.WriteFile(pressNote(home, first), []byte("t7\n../x\n"), 0o644)
-	if of, mapName := pressedSolo(home, first); of != "" || mapName != "" {
-		t.Errorf("a note that is none: %q, %q", of, mapName)
+	// the other kind of link: one that has the PC made ready, as the lobby's Play local asks for a title, and a map of it
+	ready, err := parseLink("zombies-launcher://host/play?key=0123456789abcdef&of=t7&map=zm_factory")
+	if err != nil || ready.of != "t7" || ready.mapName != "zm_factory" || ready.solo || ready.id() != first.id() {
+		t.Fatalf("a link that asks for Black Ops III, with a map: %+v, %v", ready, err)
+	}
+	if of, mapName, noted := pressed(home, first, false); of != "" || mapName != "" || noted {
+		t.Errorf("of the presses that launch nothing, with a note of the other kind alone: %q, %q, %v", of, mapName, noted)
+	}
+	if of, mapName, noted := pressed(home, ready, false); of != "t7" || mapName != "zm_factory" || noted {
+		t.Errorf("with no note, the link's own: %q, %q, %v", of, mapName, noted)
+	}
+	notePress(home, ready)
+	if of, mapName, noted := pressed(home, first, false); of != "t7" || mapName != "zm_factory" || !noted {
+		t.Errorf("the note of a press that launches nothing: %q, %q, %v", of, mapName, noted)
+	}
+	if of, mapName, _ := pressed(home, first, true); of != "t7" || mapName != "zm_tomb" {
+		t.Errorf("the note of the press that launched, after a press that did not: %q, %q", of, mapName)
+	}
+	os.WriteFile(pressNote(home, first, true), []byte("t7\n../x\n"), 0o644)
+	if of, mapName, noted := pressed(home, first, true); of != "" || mapName != "" || noted {
+		t.Errorf("a note that is none: %q, %q, %v", of, mapName, noted)
 	}
 }
 
@@ -442,12 +460,10 @@ func TestBoiiiAlone(t *testing.T) {
 	if tl.title() != titleT7 {
 		t.Errorf("the run was at %s", tl.title().name)
 	}
-	// while the game runs, the next map that the player picks is downloaded for it, and nothing starts again
+	// while the game runs, the next map that the player asks for is downloaded for it, and nothing starts again
 	first, _ := parseLink(link)
-	other, _ := parseLink(l.link() + "&solo=1&name=Ann&of=t7&map=zm_factory")
-	notePress(tl.home, other)
 	l.calls()
-	tl.getPicked(context.Background(), newServer(first, tl.client), first, dir)
+	tl.getPicked(context.Background(), newServer(first, tl.client), dir, "zm_factory")
 	if isFile(filepath.Join(dir, "zone", "zm_factory.ff")) {
 		t.Error("a launcher that has no answer of the server downloaded a map")
 	}
@@ -457,7 +473,7 @@ func TestBoiiiAlone(t *testing.T) {
 	if _, err := srv.current(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	tl.getPicked(context.Background(), srv, first, dir)
+	tl.getPicked(context.Background(), srv, dir, "zm_factory")
 	if read(t, filepath.Join(dir, "zone", "zm_factory.ff")) != "The Giant" || len(tl.started) != 1 {
 		t.Errorf("the map that the player picked while the game ran: started %+v\n%s", tl.started, tl.out)
 	}
@@ -469,6 +485,151 @@ func TestBoiiiAlone(t *testing.T) {
 	}
 	if !slices.Equal(got, []string{"zone/zm_factory.ff"}) {
 		t.Errorf("downloaded for the map: %q", got)
+	}
+}
+
+// The lobby's Play local has the PC made ready for a title, for a player who is in no room. For Black Ops III, a PC
+// without the game downloads what every map needs, which has the map that the game comes with, and starts nothing. A
+// map that the player then asks for by its name is downloaded alone, and still nothing starts. The launcher says that
+// the folder is none of the player's own.
+func TestBoiiiReadyWithNoRoom(t *testing.T) {
+	l := newFakeServer(t)
+	l.t7 = map[string]string{"BlackOps3.exe": "the game", "zone/zm_common.ff": "what every map loads",
+		"zone/zm_zod.ff": "Shadows of Evil", "zone/zm_factory.ff": "The Giant", "zone/zm_tomb.ff": "Origins",
+		"zone/zm_tomb.xpak": "Origins' pictures"}
+	// Shadows of Evil is of no pack of its own (server/gamefiles.go: t7OwnMaps)
+	l.packs = map[string]string{"zone/zm_factory.ff": "zm_factory", "zone/zm_tomb.ff": "zm_tomb", "zone/zm_tomb.xpak": "zm_tomb"}
+	l.play = launcherapi.Play{Player: "Ann", Titles: map[string]launcherapi.Title{launcherapi.T7: {
+		Zones: []string{"zone/zm_factory.ff", "zone/zm_tomb.ff", "zone/zm_zod.ff"}, Downloads: true}}}
+	tl := newT7Launcher(t, "\n")
+	tl.stays = true
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan int, 1)
+	go func() { done <- tl.run(ctx, []string{l.link() + "&of=t7"}) }()
+	// said is what the launcher last told the server: the title it is at, that the PC is ready, and of the folder
+	said := func() (of string, ready bool, has string, own bool) {
+		l.mu.Lock()
+		defer l.mu.Unlock()
+		if n := len(l.ofs); n > 0 {
+			return l.ofs[n-1], l.ready[n-1], l.has[n-1], l.owns[n-1]
+		}
+		return "", false, "", false
+	}
+	eventually(t, "the PC is ready for Black Ops III, with the map that the game comes with", func() bool {
+		of, ready, has, _ := said()
+		return of == launcherapi.T7 && ready && has == "zone/zm_zod.ff"
+	})
+	dir := filepath.Join(tl.home, "t7")
+	if _, _, _, own := said(); own || isFile(filepath.Join(dir, "zone", "zm_factory.ff")) || isFile(filepath.Join(dir, "zone", "zm_tomb.ff")) {
+		t.Errorf("the launcher's own folder: said to be the player's own %v, or it has a map that no one asked for\n%s", own, tl.out)
+	}
+	// the map that the player asks for in the page: the press's note names it
+	ask, err := parseLink(l.link() + "&of=t7&map=zm_tomb")
+	if err != nil {
+		t.Fatal(err)
+	}
+	notePress(tl.home, ask)
+	l.calls()
+	tl.press()
+	eventually(t, "the map that the player asked for was downloaded", func() bool {
+		_, ready, has, _ := said()
+		return ready && has == "zone/zm_tomb.ff,zone/zm_zod.ff"
+	})
+	var got []string
+	for _, call := range l.calls() {
+		if path, ok := strings.CutPrefix(call, "GET /launcher/t7/files/"); ok {
+			got = append(got, path)
+		}
+	}
+	if !slices.Equal(got, []string{"zone/zm_tomb.xpak", "zone/zm_tomb.ff"}) {
+		t.Errorf("downloaded for the map: %q\n%s", got, tl.out)
+	}
+	if tl.game(0) != nil {
+		t.Errorf("a launcher that was asked to get the PC ready started a game\n%s", tl.out)
+	}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the launcher did not end as it was quit")
+	}
+}
+
+// A PC with the player's own copy of Black Ops III: the launcher says that the folder is theirs, and downloads no map
+// into it, whatever the page asked for.
+func TestBoiiiOwnCopyWithNoRoom(t *testing.T) {
+	l := newFakeServer(t)
+	l.t7 = map[string]string{"BlackOps3.exe": "the game", "zone/zm_common.ff": "what every map loads",
+		"zone/zm_factory.ff": "The Giant", "zone/zm_tomb.ff": "Origins"}
+	l.packs = map[string]string{"zone/zm_factory.ff": "zm_factory", "zone/zm_tomb.ff": "zm_tomb"}
+	l.play = launcherapi.Play{Player: "Ann", Titles: map[string]launcherapi.Title{
+		launcherapi.T7: {Zones: t7Zones, Downloads: true}}}
+	tl := newT7Launcher(t, "")
+	own := t7Copy(t, filepath.Join(t.TempDir(), "Black Ops III"), "zm_factory")
+	tl.copies = func(*title) []string { return []string{own} }
+	tl.stays = true
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan int, 1)
+	go func() { done <- tl.run(ctx, []string{l.link() + "&of=t7&map=zm_tomb"}) }()
+	eventually(t, "the PC is ready for Black Ops III, from the player's own copy", func() bool {
+		l.mu.Lock()
+		defer l.mu.Unlock()
+		n := len(l.ofs)
+		return n > 0 && l.ofs[n-1] == launcherapi.T7 && l.ready[n-1] && l.has[n-1] == "zone/zm_factory.ff" && l.owns[n-1]
+	})
+	if tl.game(0) != nil || isFile(filepath.Join(own, "zone", "zm_tomb.ff")) || isFile(filepath.Join(tl.home, "t7", "BlackOps3.exe")) {
+		t.Errorf("on a PC with the player's own copy, the launcher started a game, or downloaded game files\n%s", tl.out)
+	}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the launcher did not end as it was quit")
+	}
+}
+
+// Play local asks for the launcher's other title, and not to launch it, while the player's game runs: the launcher
+// goes over to that title and gets the PC ready for it. It starts nothing, and leaves the game that runs open.
+func TestPlayLocalAsksForTheOtherGame(t *testing.T) {
+	l := newFakeServer(t)
+	l.play = launcherapi.Play{Player: "Ann", Titles: map[string]launcherapi.Title{launcherapi.T7: {Zones: t7Zones}}}
+	tl := newT7Launcher(t, "")
+	t6dir := ownCopy(t, tl.testLauncher)
+	t7dir := t7Copy(t, filepath.Join(t.TempDir(), "Black Ops III"), "zm_factory")
+	tl.copies = func(of *title) []string {
+		if of == titleT7 {
+			return []string{t7dir}
+		}
+		return []string{t6dir}
+	}
+	tl.stays = true
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan int, 1)
+	go func() { done <- tl.run(ctx, []string{l.link() + "&solo=1&name=Ann&of=t7"}) }()
+	eventually(t, "Black Ops III started", func() bool { return tl.game(0) != nil })
+	// the press that asks for Black Ops II, which a link names by no word
+	other, err := parseLink(l.link())
+	if err != nil {
+		t.Fatal(err)
+	}
+	notePress(tl.home, other)
+	tl.press()
+	eventually(t, "the PC is ready for Black Ops II, with no game of it", func() bool {
+		l.mu.Lock()
+		n := len(l.ofs)
+		said := n > 0 && l.ofs[n-1] == "" && l.ready[n-1] && !l.games[n-1]
+		l.mu.Unlock()
+		return said && tl.title() == titleT6
+	})
+	if g := tl.game(0); tl.game(1) != nil || !g.running() || g.stopped.Load() {
+		t.Errorf("as the player asked for the other game: a second game started %v; Black Ops III runs %v, stopped %v\n%s",
+			tl.game(1) != nil, g.running(), g.stopped.Load(), tl.out)
+	}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the launcher did not end as it was quit")
 	}
 }
 
@@ -620,8 +781,8 @@ func TestPlayLocalOfTheOtherGame(t *testing.T) {
 	}
 }
 
-// A map that the player picks in Play local while their game runs is downloaded beside the game, which runs on: the
-// launcher starts nothing again, and ends when it is quit, with the download behind it.
+// A map that the player asks for in Play local while their game runs is downloaded beside the game, which runs on:
+// the launcher starts nothing again, and ends when it is quit, with the download behind it.
 func TestBoiiiGetsAPickedMapBesideTheGame(t *testing.T) {
 	l := newFakeServer(t)
 	l.t7 = map[string]string{"BlackOps3.exe": "the game", "zone/zm_common.ff": "what every map loads",
@@ -639,13 +800,14 @@ func TestBoiiiGetsAPickedMapBesideTheGame(t *testing.T) {
 	if isFile(filepath.Join(dir, "zone", "zm_factory.ff")) {
 		t.Fatal("the folder has a map that the player did not pick")
 	}
-	other, err := parseLink(l.link() + "&solo=1&name=Ann&of=t7&map=zm_factory")
+	// the page asks for the map with a link that launches nothing, whose note names it
+	other, err := parseLink(l.link() + "&of=t7&map=zm_factory")
 	if err != nil {
 		t.Fatal(err)
 	}
 	notePress(tl.home, other)
-	tl.solo <- struct{}{}
-	eventually(t, "the map that the player picked was downloaded", func() bool {
+	tl.press()
+	eventually(t, "the map that the player asked for was downloaded", func() bool {
 		return isFile(filepath.Join(dir, "zone", "zm_factory.ff"))
 	})
 	if !tl.game(0).running() || tl.game(1) != nil {

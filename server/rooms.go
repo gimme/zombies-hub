@@ -817,10 +817,12 @@ type youView struct {
 	LauncherGot         float64 `json:"launcherGot,omitempty"`
 	// LauncherOf is the title that their launcher is at (launcherAt), while it runs. LauncherMaps are the maps of that
 	// title that the game folder of their PC has, once the launcher has said (launcherMaps): LauncherFolder is set
-	// then, also for a folder that has none. The lobby's Play local shows them.
+	// then, also for a folder that has none. LauncherOwn is set when that folder is their own copy of the game, into
+	// which the launcher downloads nothing (launcherReport.own). The lobby's Play local shows them.
 	LauncherOf     string   `json:"launcherOf,omitempty"`
 	LauncherFolder bool     `json:"launcherFolder,omitempty"`
 	LauncherMaps   []string `json:"launcherMaps,omitempty"`
+	LauncherOwn    bool     `json:"launcherOwn,omitempty"`
 }
 
 // roomItem is a room in the list. A room that is private, or less than privateFor old, is listed as private and
@@ -962,6 +964,7 @@ func (l *lobby) view(p *player) view {
 	if l.launcherOpen(p) {
 		v.You.LauncherOf = p.launcher.of
 		v.You.LauncherMaps, v.You.LauncherFolder = l.launcherMaps(p)
+		v.You.LauncherOwn = v.You.LauncherFolder && p.launcher.own
 	}
 	if v.Pictures == nil {
 		v.Pictures = []pictureView{} // none yet

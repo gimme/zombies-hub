@@ -2,9 +2,9 @@
 //
 // The background is the loading screen of one map (setBackdrop). The server sends the picture from the game files
 // (server/mapart.go: GET /maps/<map>/loadscreen). In the lobby, the map is that of the result that shows, else that
-// of the room, else the map that the player picked to play locally (show.ts: show): Black Ops', or Black Ops III's
-// while the page to play locally shows that game. A page that plays a map alone shows that map (main.ts: startPage). A new picture fades in once it has loaded. Without a picture, the atmosphere
-// is on black: the server has no game files, or the page is not served by a lobby.
+// of the room, else the map of Black Ops that the player picked to play locally (show.ts: show). A page that plays a
+// map alone shows that map (main.ts: startPage). A new picture fades in once it has loaded. Without a picture, the
+// atmosphere is on black: the server has no game files, or the page is not served by a lobby.
 //
 // The atmosphere goes over the picture (atmosphereStart), and each map has its own (atmospheres). It is smoke that
 // rises and curls, or fog that lies low, lit from under in the colour of the map. With it comes what suits the map:

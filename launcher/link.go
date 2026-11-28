@@ -15,9 +15,10 @@ import (
 )
 
 // link has what a link on the server's page names (launcherapi): the server, and the player's key on that server. A
-// link of the page's Play local asks to play alone (solo), under the player's name: the title of (Black Ops II when
-// the link names none), and the map of it that the player picked, if any. Such a link has no key when the
-// page has no server: it was the browser's copy of the page. The launcher then calls no server.
+// link that launches a game asks to play alone (solo), under the player's name: the title of (Black Ops II when the
+// link names none), and a map of it to have first, if any. Such a link has no key when the page has no server: it was
+// the browser's copy of the page. The launcher then calls no server. Any other link has the PC made ready: for the
+// game of the player's room, or, while they are in no room, for the title of, with the map that it names.
 type link struct {
 	base    string // the address of the server's page: https://host[:port], or http:// for a server on plain HTTP
 	host    string // the server's host name, where the room's games are reached too
@@ -25,8 +26,8 @@ type link struct {
 	key     string
 	solo    bool
 	name    string
-	of      string // the id of the title to play alone, or ""
-	mapName string // the map of it that the player picked, or ""
+	of      string // the id of the title that the link asks for, or ""
+	mapName string // the map of it that the launcher is to get, or ""
 }
 
 // offline reports whether the link has no server for the launcher to call: a link to play alone, from a page that
@@ -85,31 +86,37 @@ func parseLink(s string) (link, error) {
 	return l, nil
 }
 
-// A player has one launcher on a server (single). When they press the lobby's Play local while it runs, the launcher
+// A player has one launcher on a server (single). When they press a button of the page while it runs, the launcher
 // that the press's link starts only signals the one that runs (press), and a signal carries nothing. So it first
-// leaves a note of what the link asks to play alone, the title and the map, in the launcher's folder, for the
-// launcher that runs to read as the signal reaches it (pressedSolo).
+// leaves a note of what the link asks for, the title and the map, in the launcher's folder, for the launcher that
+// runs to read as the signal reaches it (pressed). The presses of the two kinds of link (link.solo) each have a
+// note: a press of one kind says nothing of what the last press of the other asked for.
 
-// pressNote is the file of the note for the launcher of a link's player on its server.
-func pressNote(home string, l link) string { return filepath.Join(home, "press-"+l.id()+".txt") }
+// pressNote is the file of the note for the launcher of a link's player on its server: of their last press that
+// asked to play alone (solo), or of their last press of the other kind.
+func pressNote(home string, l link, solo bool) string {
+	if solo {
+		return filepath.Join(home, "press-"+l.id()+".txt")
+	}
+	return filepath.Join(home, "press-"+l.id()+"-ready.txt")
+}
 
-// notePress leaves the note of what the link l asks to play alone.
+// notePress leaves the note of what the link l asks for.
 func notePress(home string, l link) {
-	os.WriteFile(pressNote(home, l), []byte(l.of+"\n"+l.mapName+"\n"), 0o644)
+	os.WriteFile(pressNote(home, l, l.solo), []byte(l.of+"\n"+l.mapName+"\n"), 0o644)
 }
 
-// pressedSolo returns what the player's last press of Play local asked to play alone, for the launcher of l: the
-// title's id and the map, as the note has them, or the link's own where there is no note that reads as one.
-func pressedSolo(home string, l link) (of, mapName string) {
-	of, mapName, _ = pressNoted(home, l)
-	return of, mapName
-}
-
-// pressNoted is pressedSolo, and whether a note said it: noted is false where what it returns is the link's own.
-func pressNoted(home string, l link) (of, mapName string, noted bool) {
-	data, err := os.ReadFile(pressNote(home, l))
+// pressed returns what the player's last press asked for, for the launcher of l: of their presses that asked to play
+// alone (solo), or of the others. It is the title's id and the map, as the note has them. noted is false where there
+// is no note that reads as one: what pressed returns is then the link's own, where l is of that kind, and nothing
+// otherwise.
+func pressed(home string, l link, solo bool) (of, mapName string, noted bool) {
+	data, err := os.ReadFile(pressNote(home, l, solo))
 	lines := strings.Split(string(data), "\n")
 	if err != nil || len(lines) < 2 || !linkWord.MatchString(lines[0]) || !linkWord.MatchString(lines[1]) {
+		if l.solo != solo {
+			return "", "", false
+		}
 		return l.of, l.mapName, false
 	}
 	return lines[0], lines[1], true

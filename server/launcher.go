@@ -42,8 +42,9 @@ import (
 // files (-download-rate, sending), the launcher downloads them from the server. It fetches their list
 // (GET /launcher/<title>/files), which has the hash of each file's contents, and then each file
 // (GET /launcher/<title>/files/<path>), from where an earlier download stopped. Black Ops III's list is in packs, one
-// for each map and one that every map needs (gameSends), and a launcher downloads the packs of the maps that its
-// player plays. The files are sent at the rate that all the
+// for each map and one that every map needs, which has the map that the game comes with (gameSends), and a launcher
+// downloads the packs of the maps that its player plays, or asks for in the lobby's Play local. The files are sent at
+// the rate that all the
 // server's downloads share (web.pace). The launcher reports the progress of its download (POST /launcher/files). The
 // player's room shows it on the player, as it shows a browser's download of a T5 map. The game waits for a player
 // whose launcher is still preparing (pcLate, preparing), until the launcher reports that the PC is ready (?ready=1).
@@ -380,11 +381,12 @@ func (h *web) serveLauncherPlay(w http.ResponseWriter, r *http.Request, of strin
 	seen, ready := r.URL.Query().Get("seen"), r.URL.Query().Get("ready") == "1"
 	game := r.URL.Query().Get("game") == "1"
 	// has is there once the launcher knows the game folder that the player's game starts from, even when the folder
-	// has none of the zones
+	// has none of the zones. own says that the folder is the player's own copy of the game.
 	has, copied := r.URL.Query()["has"]
 	if copied {
 		has = strings.FieldsFunc(has[0], func(c rune) bool { return c == ',' })
 	}
+	own := copied && r.URL.Query().Get("own") == "1"
 	limit := time.NewTimer(launcherHold)
 	defer limit.Stop()
 	l.mu.Lock()
@@ -401,7 +403,7 @@ func (h *web) serveLauncherPlay(w http.ResponseWriter, r *http.Request, of strin
 		p.launcher.game = game
 		l.change()
 	}
-	l.launcherHas(p, copied, has)
+	l.launcherHas(p, copied, has, own)
 	play := h.launcherAnswer(l.launcherPlay(p))
 	gone, unknown := false, false
 	if seen != "" && seen == play.Version {
@@ -538,9 +540,12 @@ type launcherReport struct {
 	// (launcherQuit), until that call ends, or a launcher of theirs calls again.
 	quit bool
 	// copied is set once the launcher has said which of the maps' zones the player's game folder has (launcherHas),
-	// and has are those zones. A room on a map in another zone shows the player as missing the map (pcLacks).
+	// and has are those zones. A room on a map in another zone shows the player as missing the map (pcLacks). own is
+	// set when the folder is the player's own copy of the game, which the launcher only reads: it downloads a map
+	// only into a folder of game files that it downloaded itself.
 	copied bool
 	has    []string
+	own    bool
 }
 
 // launcherQuiet is how long a launcher may have no call open, and make none, before the server considers it stopped.
@@ -685,7 +690,7 @@ func (l *lobby) launcherAt(p *player, of string) {
 		return
 	}
 	if p.launcher.of != "" {
-		p.launcher.ready, p.launcher.copied, p.launcher.has = false, false, nil
+		p.launcher.ready, p.launcher.copied, p.launcher.has, p.launcher.own = false, false, nil, false
 	}
 	p.launcher.of = of
 	l.change()
@@ -758,14 +763,15 @@ func (l *lobby) launcherCalled(p *player, play, ready bool) {
 	}
 }
 
-// launcherHas records which of the maps' zones p's launcher says the player's game folder has (launcherPlay: Zones).
-// copied is false while the launcher has not found the folder yet. A ready player whose folder now lacks the zone of
-// their room's map is no longer ready, as when a page removes a map's files (setFiles). The caller holds l.mu.
-func (l *lobby) launcherHas(p *player, copied bool, has []string) {
-	if copied == p.launcher.copied && slices.Equal(has, p.launcher.has) {
+// launcherHas records which of the maps' zones p's launcher says the player's game folder has (launcherPlay: Zones),
+// and whether the folder is the player's own copy of the game (own). copied is false while the launcher has not found
+// the folder yet. A ready player whose folder now lacks the zone of their room's map is no longer ready, as when a
+// page removes a map's files (setFiles). The caller holds l.mu.
+func (l *lobby) launcherHas(p *player, copied bool, has []string, own bool) {
+	if copied == p.launcher.copied && slices.Equal(has, p.launcher.has) && own == p.launcher.own {
 		return
 	}
-	p.launcher.copied, p.launcher.has = copied, has
+	p.launcher.copied, p.launcher.has, p.launcher.own = copied, has, own
 	if p.room != nil && p.ready && l.missing(p) {
 		p.ready = false
 		l.checkReady(p.room)
@@ -854,7 +860,7 @@ func (l *lobby) launcherQuit(p *player) {
 func (l *lobby) launcherGone(p *player) {
 	p.launcher.seen, p.launcher.ready, p.launcher.Failed, p.launcher.Doing = time.Time{}, false, "", ""
 	p.launcher.copied, p.launcher.has, p.launcher.quit, p.launcher.of = false, nil, false, ""
-	p.launcher.game = false
+	p.launcher.game, p.launcher.own = false, false
 	l.change()
 }
 

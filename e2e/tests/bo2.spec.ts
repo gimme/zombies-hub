@@ -274,14 +274,16 @@ test("Play local starts Black Ops II on the player's PC, and says what the launc
   // where to get the launcher, as in a room
   await expect(ann.locator('#pcget')).toHaveText('First time? Install Zombies Launcher.');
   await expect(ann.locator('#pcsetup')).toHaveAttribute('href', setup);
-  // the button, which starts no launcher on this PC
-  await expect(ann.locator('#playalone')).toHaveText('Launch game');
+  // The button connects the launcher first, as a room's does, while the page knows nothing of the game on this PC.
+  // It starts no launcher here.
+  await expect(ann.locator('#playalone')).toHaveText('Connect');
   await ann.locator('#playalone').click();
   await expect(ann.locator('#playalone')).toHaveText('Connecting...');
   await expect(ann.locator('#pcget')).toHaveText('Nothing happened? Install Zombies Launcher.');
-  await expect(ann.locator('#playalone')).toHaveText('Launch game');
+  await expect(ann.locator('#playalone')).toHaveText('Connect');
 
-  // calls of Ann's launcher, by her key: the button says what it does, and the box where to get it goes
+  // calls of Ann's launcher, by her key: the button says what it does, and the box where to get it goes. Once the
+  // launcher has the PC ready, the button launches the game.
   await expect(ann.locator('#playbat')).toHaveText(/ [0-9a-f]{16}$/);
   const key = ((await ann.locator('#playbat').textContent()) || '').split(' ').pop();
   const headers = { Authorization: 'Key ' + key, 'Zombies-Launcher-Version': '1' };
@@ -307,12 +309,14 @@ test("Play local starts Black Ops II on the player's PC, and says what the launc
   await expect(ann.locator('#playalone')).toHaveText('Try again');
   expect((await launcher('/launcher/files', {})).status).toBe(200);
   await expect(ann.locator('#solonote')).toBeHidden();
+  // the launcher stops: the browser keeps that it had the game ready on this PC, and the button launches the game still
   expect((await launcher('/launcher/stopped')).status).toBe(200);
   await expect(ann.locator('#playalone')).toHaveText('Launch game');
   // the browser keeps the pick, which is the game of the rooms too: the room she makes next is of Black Ops II, and a
   // pick for a room is Play local's
   await ann.reload();
   await expect(ann.locator('#solotitle')).toHaveText('Black Ops II');
+  await expect(ann.locator('#playalone')).toHaveText('Launch game');
   await ann.locator('#soloback').click();
   await ann.locator('#make').click();
   await expect(ann.locator('#mapkicker')).toHaveText('Black Ops II');

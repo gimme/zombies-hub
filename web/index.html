@@ -161,7 +161,7 @@
                     <h1 class="display" id="solotitle"></h1><p id="solodesc"></p>
                     <!-- for Black Ops II: how to get to Plutonium's online servers, which Launch game does not,
                          with Plutonium's own launcher. The steps fold out under its line (src/solo.ts:
-                         showSoloOwn). For Black Ops III: what the launcher downloads (showSoloPC) -->
+                         showSoloOwn) -->
                     <div id="soloown" class="hidden">
                       <button type="button" class="fold" id="soloownopen" aria-expanded="false"
                         aria-controls="soloownsteps">
@@ -172,10 +172,12 @@
                       </button>
                       <ol id="soloownsteps" class="hidden"></ol>
                     </div>
-                    <p id="solofiles" class="hidden"></p>
                   </div>
                 </div>
               </div>
+              <!-- Black Ops' maps, of which the player picks the one to play. For a game of the player's own PC
+                   that the server sends a map at a time, that game's maps instead, of which none is picked: a click
+                   downloads one that the PC lacks (src/solo.ts: showSoloMaps) -->
               <div class="mapgrid" id="solomaps" role="radiogroup" aria-label="The map to play locally"></div>
             </section>
           </div>

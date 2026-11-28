@@ -30,7 +30,7 @@ import { resultToShow, showResult } from './result';
 import { showRoom, showRoomButton, showRoomMaps, showPC } from './room';
 import { showRooms } from './rooms';
 import { loadedServer } from './server';
-import { closeSolo, openSolo, showSolo, soloFollowUrl, soloLaunchMap, soloOpen } from './solo';
+import { closeSolo, openSolo, showSolo, soloFollowUrl, soloOpen } from './solo';
 import { menuSound, roomSounds } from './sounds';
 import { store } from './storage';
 import { hasPictures, ownPC } from './titles';
@@ -119,11 +119,9 @@ export function show(v: View): void {
   if (!room) {
     showRooms(v);
     showSolo(v);
-    // Outside a room, the backdrop is the loading screen of the map that the player picked to play locally: Black
-    // Ops' (soloMapName), or, while the page to play locally shows a game of the player's own PC that has them pick
-    // a map, that map, where the server has its pictures.
-    const local = soloOpen && !boardsOpen && hasPictures(mapInfo(soloLaunchMap)) ? soloLaunchMap : '';
-    if (!behind) setBackdrop(local || soloMapName(v));
+    // Outside a room, the backdrop is the loading screen of the map that the player picked to play locally
+    // (soloMapName). That is a map of Black Ops: a game of the player's own PC has them pick none in the page.
+    if (!behind) setBackdrop(soloMapName(v));
     for (const id of ['make', 'joincode', 'code']) $<HTMLButtonElement | HTMLInputElement>(id).disabled = offline;
     // The room is gone while the engine still loads or plays its game, because the lobby started again. The page
     // leaves the game.

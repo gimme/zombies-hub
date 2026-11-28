@@ -41,8 +41,8 @@ func TestT6Takes(t *testing.T) {
 }
 
 // Of a Black Ops III install, a player's game needs Zombies' files and what every mode has, in packs: a map's files in
-// the map's own, and the rest in the one that every map needs. The other modes' files, and what BOIII and a player
-// left in the folder, are not sent.
+// the map's own, and the rest in the one that every map needs, with the files of the map that the game comes with.
+// The other modes' files, and what BOIII and a player left in the folder, are not sent.
 func TestT7Sends(t *testing.T) {
 	for rel, pack := range map[string]string{
 		"BlackOps3.exe": "", "steam_api64.dll": "", "d3dcompiler_46.dll": "", "localization.txt": "", "codlogo.bmp": "",
@@ -57,7 +57,10 @@ func TestT7Sends(t *testing.T) {
 		"zone/en_zm_factory.ff": "zm_factory", "zone/fr_zm_factory_patch.ff": "zm_factory",
 		"zone/snd/all/zm_factory.all.sabs": "zm_factory", "zone/snd/en/zm_factory_patch.en.sabl": "zm_factory",
 		"zone/snd/all/zm_tomb.all.p.sabs": "zm_tomb", "video/zm_tomb_loadingmovie.mkv": "zm_tomb",
-		"video/zm_factory_load_factoryloadingmovie.mkv": "zm_factory", "Zone/ZM_Zod.ff": "zm_zod",
+		"video/zm_factory_load_factoryloadingmovie.mkv": "zm_factory",
+		// Shadows of Evil, which the game comes with
+		"Zone/ZM_Zod.ff": "", "zone/zm_zod.xpak": "", "zone/en_zm_zod_patch.ff": "", "zone/snd/all/zm_zod.all.sabs": "",
+		"video/zm_zod_load_zodloadingmovie.mkv": "",
 	} {
 		if got, sends := t7Sends(rel); !sends || got != pack {
 			t.Errorf("%s: sent %v, in pack %q, want pack %q", rel, sends, got, pack)

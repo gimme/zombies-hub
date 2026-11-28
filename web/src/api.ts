@@ -130,11 +130,13 @@ export interface You {
   launcherGot?: number;
   /**
    * The game that their launcher is at, by its title's id, while it runs; and, once the launcher has found the game's
-   * folder on their PC (launcherFolder), the maps of that game that the folder has. Play local shows them.
+   * folder on their PC (launcherFolder), the maps of that game that the folder has. launcherOwn: the folder is their
+   * own copy of the game, into which the launcher downloads nothing. Play local shows them (windows.ts: onPC).
    */
   launcherOf?: string;
   launcherFolder?: boolean;
   launcherMaps?: string[];
+  launcherOwn?: boolean;
 }
 
 /** A room in the list of rooms (server/rooms.go: roomItem). A room listed as private has no code. */

@@ -6,7 +6,9 @@
 // game's console (t6Console). A Black Ops III room's game is played on the player's PC too, on BOIII, which the
 // launcher starts and joins to the room's game as well, and which a player can join by hand too (t7Console).
 import type { Room, View } from './api';
+import type { MainButton } from './controls';
 import { canRun } from './engine';
+import { launcherLink } from './link';
 import { me, offline, page, view } from './lobby';
 import { params } from './params';
 import { served } from './server';
@@ -156,6 +158,58 @@ export function launcherStep(doing: string): string {
   return stepShown;
 }
 
+/**
+ * What a view's main button says while the player's launcher is at something, and the button so does nothing: the
+ * launcher starts after a click (launcherOpening), downloads, or is at a step that it names (launcherStep). A room's
+ * button and Play local's both go by it (room.ts: showRoomButton, solo.ts: showSoloPC). It is null when the launcher
+ * leaves the button to its view: no launcher runs and none starts, the launcher's last try failed, or the launcher
+ * has the PC ready.
+ *
+ * With launches, the button is also the one that launches the game, as Play local's is: it then says the launcher's
+ * step while the PC is ready too, which is the game that launches. A room has a button of its own for that
+ * (room.ts: showLaunch), and its main button is the room's again once the PC is ready.
+ */
+export function launcherSays(v: View, launches: boolean): MainButton | null {
+  const you = v.you;
+  const says = (label: string): MainButton => ({ label, disabled: true });
+  if (you.launcherFailed) return null;
+  // A page that can't reach its server hears nothing of the launcher: its button says that the game starts.
+  if (!you.launcher) return launcherOpening ? says(offline ? 'Starting...' : 'Connecting...') : null;
+  if (you.launcherDownloading) return says(`Downloading · ${Math.floor((you.launcherGot || 0) * 100)}%`);
+  const doing = launcherStep(you.launcherDoing || '');
+  if (!you.launcherReady) return says((doing || 'Connecting') + '...');
+  return launches && doing ? says(doing + '...') : null;
+}
+
+/**
+ * What the page knows of a game of the player's own PC, on this PC: that the launcher found the game there, whether
+ * the folder is the player's own copy of it (own), which the launcher downloads nothing into, and the maps that the
+ * folder has, or null where the launcher has not said. It is what the player's launcher says while it runs and is at
+ * that game. The launcher stops saying it a while after the player's last room, so the browser's storage keeps what
+ * it said last, and the page goes by that meanwhile: it is what the PC most likely has still. null: no launcher of
+ * the player's has had the game ready in this browser.
+ */
+export interface OnPC { own: boolean; maps: string[] | null }
+
+export function onPC(v: View, of: string): OnPC | null {
+  const you = v.you;
+  const key = 'zombies-pc-' + of;
+  if (you.launcher && you.launcherOf === of && (you.launcherFolder || you.launcherReady)) {
+    const now: OnPC = { own: !!you.launcherOwn, maps: you.launcherFolder ? you.launcherMaps || [] : null };
+    const text = JSON.stringify(now);
+    if (store.get(key) !== text) store.set(key, text);
+    return now;
+  }
+  try {
+    const kept = JSON.parse(store.get(key) || 'null') as OnPC | null;
+    if (!kept || typeof kept !== 'object') return null;
+    const maps = Array.isArray(kept.maps) ? kept.maps.filter((m) => typeof m === 'string') : null;
+    return { own: kept.own === true, maps };
+  } catch {
+    return null; // what the storage has is none of this page's
+  }
+}
+
 // How long a click waits for a sign of the launcher, where the browser asked nothing. A launcher that starts tells
 // the server so at once, before it looks for a later release of itself (internal/launcherapi: POST
 // /launcher/started), which a program that Windows starts does in well under a second. A launcher of a release
@@ -176,22 +230,20 @@ let stopWatching = (): void => {};
  * can follow the click. Where nothing followed it at all, the room then shows the line that installs the launcher
  * (launcherMissed).
  *
- * With solo, the link asks the launcher to start a game for the player alone (solo.ts), under their name: the game
- * of, and the map of it that they picked, where the page has them pick one. A
+ * With solo, the link asks the launcher to start a game for the player alone, under their name: the game of, with
+ * the map of it that the link names, which the launcher gets first where its game files lack it (a room's Launch
+ * game names the room's). A
  * page that can't reach its server sends no key: the launcher then calls no server, and plays from what the PC has
  * (internal/launcherapi). The server can't tell such a page of the launcher, so its button says that the game starts
  * for a while, and the page takes nothing for a sign that the PC has no launcher.
+ *
+ * Without solo, the launcher gets the PC ready and starts nothing. A room's button names no game: the launcher goes
+ * by the player's room. Play local, which a player in no room is at, names the game of, and with map, a map of it
+ * for the launcher to download (solo.ts).
  */
 export function openLauncher(solo = false, of = '', map = ''): void {
-  // The name is encoded down to letters, digits and %: the script that runs the launcher on a Mac takes no other
-  // characters of a link (launcher/mac.sh: cmd_link).
-  const name = encodeURIComponent((view && view.you.name) || me.name || '')
-    .replace(/[!'()*~]/g, (c) => '%' + c.charCodeAt(0).toString(16).toUpperCase());
-  // Black Ops II is named by no word: a launcher from before it started another game knows none
-  const game = (of && of !== 't6' ? '&of=' + encodeURIComponent(of) : '') + (map ? '&map=' + encodeURIComponent(map) : '');
-  const link = 'zombies-launcher://' + location.host + '/play?' + (solo
-    ? 'solo=1&name=' + name + game + (offline ? '' : '&key=' + (me.key || ''))
-    : 'key=' + (me.key || '')) + (location.protocol === 'https:' ? '' : '&tls=0');
+  const link = launcherLink({ host: location.host, tls: location.protocol === 'https:',
+    key: solo && offline ? '' : me.key || '', solo, name: (view && view.you.name) || me.name || '', of, map });
   stopWatching();
   if (offline) {
     launcherOpening = true;

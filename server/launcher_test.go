@@ -725,9 +725,20 @@ func TestLauncherTitles(t *testing.T) {
 		t.Errorf("the room of a player whose launcher is at another title: %+v, %+v", v.Room.Members[0], v.You)
 	}
 	asked("/launcher/play?of=t7&ready=1&has=zone/zm_factory.ff,zone/zm_tomb.ff", fits)
-	if v := l.viewOf(a); v.Room.Members[0].Missing || !v.You.LauncherReady || len(v.You.LauncherMaps) != 2 || v.You.LauncherGame {
+	if v := l.viewOf(a); v.Room.Members[0].Missing || !v.You.LauncherReady || len(v.You.LauncherMaps) != 2 ||
+		v.You.LauncherGame || v.You.LauncherOwn {
 		t.Errorf("the room of a player whose copy has its map: %+v, %+v", v.Room.Members[0], v.You)
 	}
+	// the launcher says whose the folder is: the player's own copy of the game, or game files that it downloaded
+	asked("/launcher/play?of=t7&ready=1&own=1&has=zone/zm_factory.ff,zone/zm_tomb.ff", fits)
+	if v := l.viewOf(a); !v.You.LauncherOwn || len(v.You.LauncherMaps) != 2 {
+		t.Errorf("the view of a player whose launcher starts their own copy: %+v", v.You)
+	}
+	asked("/launcher/play?of=t7&ready=1&own=1", fits) // of no folder
+	if v := l.viewOf(a); v.You.LauncherOwn || v.You.LauncherFolder {
+		t.Errorf("the view of a player whose launcher has said nothing of the folder: %+v", v.You)
+	}
+	asked("/launcher/play?of=t7&ready=1&has=zone/zm_factory.ff,zone/zm_tomb.ff", fits)
 	// the launcher says that it started the player's game, which runs: of the room's title, and of another, and that
 	// the game is closed
 	asked("/launcher/play?of=t7&ready=1&game=1&has=zone/zm_factory.ff,zone/zm_tomb.ff", fits)
@@ -744,12 +755,13 @@ func TestLauncherTitles(t *testing.T) {
 	}
 }
 
-// The server sends Black Ops III's game files in packs: one for each map, and one that every map needs. The page has
-// their sizes once the server has listed the files. A server whose folder has only what a server reads sends none.
+// The server sends Black Ops III's game files in packs: one for each map, and one that every map needs, which has the
+// map that the game comes with too. The page has their sizes once the server has listed the files. A server whose
+// folder has only what a server reads sends none.
 func TestLauncherPacks(t *testing.T) {
 	l := testLobby(t)
-	l.maps = func() []string { return []string{"zm_factory", "zm_tomb"} }
-	dir, _ := t7GameFiles(t, "zm_factory", "zm_tomb")
+	l.maps = func() []string { return []string{"zm_zod", "zm_factory", "zm_tomb"} }
+	dir, _ := t7GameFiles(t, "zm_zod", "zm_factory", "zm_tomb")
 	for _, name := range []string{"boiii.exe", "boiii_players/properties.json", "zone/mp_common.ff", "CrashUploader.exe"} {
 		writeTestFile(t, filepath.Join(dir, filepath.FromSlash(name)))
 	}
@@ -773,8 +785,9 @@ func TestLauncherPacks(t *testing.T) {
 		packs[f.Pack] = append(packs[f.Pack], f.Path)
 	}
 	want := map[string][]string{
-		"": {"BlackOps3.exe", "zone/base.xpak", "zone/core_common.ff", "zone/en_zm_common.ff", "zone/snd/all/zm_common.all.sabs",
-			"zone/zm_common.fd", "zone/zm_common.ff", "zone/zm_levelcommon.ff", "zone/zm_levelcommon.xpak", "zone/zm_patch.ff"},
+		"": {"BlackOps3.exe", "zone/base.xpak", "zone/core_common.ff", "zone/en_zm_common.ff", "zone/en_zm_zod.ff",
+			"zone/snd/all/zm_common.all.sabs", "zone/zm_common.fd", "zone/zm_common.ff", "zone/zm_levelcommon.ff",
+			"zone/zm_levelcommon.xpak", "zone/zm_patch.ff", "zone/zm_zod.ff", "zone/zm_zod.xpak", "zone/zm_zod_patch.ff"},
 		"zm_factory": {"zone/en_zm_factory.ff", "zone/zm_factory.ff", "zone/zm_factory.xpak", "zone/zm_factory_patch.ff"},
 		"zm_tomb":    {"zone/en_zm_tomb.ff", "zone/zm_tomb.ff", "zone/zm_tomb.xpak", "zone/zm_tomb_patch.ff"},
 	}
@@ -786,7 +799,8 @@ func TestLauncherPacks(t *testing.T) {
 	if rsp.StatusCode != http.StatusOK || body != "zm_tomb.xpak" {
 		t.Errorf("a file of a pack: %s, %q", rsp.Status, body)
 	}
-	// the page has the size of what every map needs on the title, and each map's own on the map
+	// the page has the size of what every map needs on the title, and each map's own on the map: none on the map that
+	// the game comes with
 	v := l.viewOf(key.Token)
 	title := v.Titles[slices.IndexFunc(v.Titles, func(t titleView) bool { return t.ID == t7 })]
 	var shared int64
@@ -797,7 +811,8 @@ func TestLauncherPacks(t *testing.T) {
 		t.Errorf("the title, to the page: %+v, where every map needs %d bytes", title, shared)
 	}
 	for _, m := range v.Maps {
-		if m.Name == "zm_tomb" && m.Bytes != int64(len("en_zm_tomb.ffzm_tomb.ffzm_tomb.xpakzm_tomb_patch.ff")) {
+		if m.Name == "zm_tomb" && m.Bytes != int64(len("en_zm_tomb.ffzm_tomb.ffzm_tomb.xpakzm_tomb_patch.ff")) ||
+			m.Name == "zm_zod" && m.Bytes != 0 {
 			t.Errorf("the map, to the page: %+v", m)
 		}
 	}

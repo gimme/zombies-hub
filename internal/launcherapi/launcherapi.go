@@ -2,13 +2,19 @@
 // send each other, over the server's HTTP port. The server's side is server/launcher.go. A link on the room's page
 // starts the launcher:
 //
-//	zombies-launcher://<host>[:<port>]/play?key=<key>[&tls=0]
+//	zombies-launcher://<host>[:<port>]/play?key=<key>[&of=<title>][&map=<map>][&tls=0]
 //	zombies-launcher://<host>[:<port>]/play?solo=1&name=<name>[&of=<title>][&map=<map>][&key=<key>][&tls=0]
 //
-// The second is the lobby's Play local: the launcher starts a game at its menu, for the player to play alone under
-// their name, and joins no room's game. The game is the title of (T6 when the link names none), and map is the map of
-// it that the player picked in the page: where the server sends game files a map at a time, the launcher gets that
-// map's before it starts the game. Its key is there when the page could reach its server, and the
+// The first has the launcher get the player's PC ready for a game, and start none until a room's game does: the game
+// of the title of the player's room, on the room's map. A room's button opens it, and names neither. While the player
+// is in no room, the lobby's Play local opens it, and the PC is made ready for the title of (T6 when the link names
+// none): where the server sends that title's game files a map at a time, the launcher gets the map that the link
+// names, which is how Play local downloads a map.
+//
+// The second launches a game: Play local's Launch game, and a room's. The launcher starts the game at its menu, for
+// the player to play alone under their name, and joins no room's game. The game is the title of (T6 when the link
+// names none), and map is a map of it that the launcher gets first, where the server sends game files a map at a
+// time: the room's map, from a room. Its key is there when the page could reach its server, and the
 // launcher then calls the server as for a room, which shows how far the launcher is. Without it the launcher calls
 // no server: the page was the browser's copy, and the PC plays from what it has. An older launcher takes the link for
 // the first, and updates itself before it asks the server anything, so the release it takes plays alone.
@@ -28,15 +34,18 @@
 //	                                the server takes it from a launcher of any version. The player's room then shows
 //	                                at once that the launcher starts, where its next call may come only after the
 //	                                launcher has updated itself
-//	GET  /launcher/play[?of=<title>][&ready=1][&game=1][&has=<zones>][&seen=<version>]
+//	GET  /launcher/play[?of=<title>][&ready=1][&game=1][&has=<zones>][&own=1][&seen=<version>]
 //	                                Play: what the player's PC is to play now. of is the title that the launcher is
 //	                                at, which ready and has are of: the title of the player's room, or the one that
-//	                                the player plays alone. A launcher that sends none is at T6. The launcher sends
-//	                                ready=1 once the PC has what that title's game needs (Plutonium or BOIII, and
-//	                                the game files) and it waits for the room's game. Once it knows the game folder
-//	                                that the player's game starts from, it sends has: those of the title's Zones
-//	                                that the folder has, with commas between them. A room on a map in another zone
-//	                                then shows that the player's copy lacks the map. It sends game=1 while the
+//	                                the player asked for while in none. A launcher that sends none is at T6. The
+//	                                launcher sends ready=1 once the PC has what that title's game needs (Plutonium or
+//	                                BOIII, and the game files) and it waits for the room's game. Once it knows the
+//	                                game folder that the player's game starts from, it sends has: those of the
+//	                                title's Zones that the folder has, with commas between them. A room on a map in
+//	                                another zone then shows that the player's copy lacks the map. With has, own=1
+//	                                says that the folder is the player's own copy of the game, which the launcher
+//	                                only reads: it downloads a map only into game files that it downloaded itself,
+//	                                and the page offers a map's download only for those. It sends game=1 while the
 //	                                player's game runs, which it started: the player's room offers to launch the
 //	                                game, at its menu, only while it doesn't. With seen, the version of the
 //	                                answer the launcher has (Play.Version), the server holds the call until its

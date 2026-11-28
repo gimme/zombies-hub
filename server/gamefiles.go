@@ -38,8 +38,8 @@ var gameTakes = map[string]func(rel string) bool{
 // launcher downloads the packs of the maps that its player plays.
 //
 //   - t6, Black Ops II: what the server takes of it, all in one pack. Its maps share most of their files.
-//   - t7, Black Ops III: Zombies' files, a pack for each map (t7Sends). That is far more than its server reads: the
-//     pictures and the sounds, which a server has no use for.
+//   - t7, Black Ops III: Zombies' files, a pack for each map that the game does not come with (t7Sends). That is far
+//     more than its server reads: the pictures and the sounds, which a server has no use for.
 var gameSends = map[string]func(rel string) (pack string, sends bool){
 	t6: func(rel string) (string, bool) { return "", t6Takes(rel) },
 	t7: t7Sends,
@@ -94,7 +94,9 @@ func t6Takes(rel string) bool {
 //
 // A file of a map is named after the map: zm_factory.ff, zm_factory_patch.ff, en_zm_factory.xpak,
 // zm_factory.all.sabs, zm_factory_load_factoryloadingmovie.mkv. It is of the map's pack. What every map loads is not
-// named after one (zm_common, zm_levelcommon, zm_patch), and is of the pack that every map needs.
+// named after one (zm_common, zm_levelcommon, zm_patch), and is of the pack that every map needs. So are the files of
+// a map that the game itself comes with (t7OwnMaps): a PC that downloads the game then has a map to play, before its
+// player gets another.
 var (
 	t7Programs = map[string]bool{"blackops3.exe": true, "steam_api64.dll": true, "d3dcompiler_46.dll": true}
 	t7Language = regexp.MustCompile(`^[a-z]{2}_`)
@@ -102,8 +104,12 @@ var (
 	t7MapOf    = regexp.MustCompile(`^zm_[a-z0-9]+`)
 )
 
+// t7OwnMaps are the maps that Black Ops III itself comes with: Shadows of Evil. Each other map is of a map pack that
+// is bought apart from the game.
+var t7OwnMaps = []string{"zm_zod"}
+
 // t7Sends reports whether a player's game needs the file at rel of a Black Ops III install to play Zombies, and the
-// pack it is of: its map's, or "" (gameSends).
+// pack it is of: its map's, or "" (gameSends), as it is for a map that the game comes with (t7OwnMaps).
 func t7Sends(rel string) (pack string, sends bool) {
 	rel = strings.ToLower(rel)
 	dir, name := path.Split(rel)
@@ -128,7 +134,8 @@ func t7Sends(rel string) (pack string, sends bool) {
 	if !sends {
 		return "", false
 	}
-	if of := t7MapOf.FindString(name); slices.ContainsFunc(t7MapList, func(m mapEntry) bool { return m.name == of }) {
+	of := t7MapOf.FindString(name)
+	if slices.ContainsFunc(t7MapList, func(m mapEntry) bool { return m.name == of }) && !slices.Contains(t7OwnMaps, of) {
 		pack = of
 	}
 	return pack, true

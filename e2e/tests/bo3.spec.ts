@@ -12,10 +12,19 @@ async function launcherOf(server: { url: string }, page: Page, version = '4') {
   await expect(page.locator('#playbat')).toHaveText(/ [0-9a-f]{16}$/);
   const key = ((await page.locator('#playbat').textContent()) || '').split(' ').pop();
   const headers = { Authorization: 'Key ' + key, 'Zombies-Launcher-Version': version };
+  const post = async (path: string, body?: object) =>
+    (await fetch(server.url + path, { method: 'POST', headers, body: body && JSON.stringify(body) })).status;
   return {
-    /** Asks what to play, at Black Ops III, with the PC ready and the game folder having the zones. */
-    has: async (zones: string) =>
-      (await fetch(server.url + '/launcher/play?of=t7&ready=1&has=' + encodeURIComponent(zones), { headers })).status,
+    /**
+     * Asks what to play, at Black Ops III, with the PC ready and the game folder having the zones: the folder of the
+     * game files that the launcher downloaded, or with own, the player's own copy of the game.
+     */
+    has: async (zones: string, own = false) => (await fetch(server.url + '/launcher/play?of=t7&ready=1' +
+      (own ? '&own=1' : '') + '&has=' + encodeURIComponent(zones), { headers })).status,
+    /** Reports how the launcher is doing: its download, or nothing. */
+    says: (report: object) => post('/launcher/files', report),
+    /** Says that the launcher ends, as its player quit it. */
+    stops: () => post('/launcher/stopped'),
     /** As has, from a launcher whose game runs, which it started. */
     runs: async (zones: string) =>
       (await fetch(server.url + '/launcher/play?of=t7&ready=1&game=1&has=' + encodeURIComponent(zones), { headers })).status,
@@ -83,43 +92,76 @@ test('a Black Ops III room opens the launcher, says where to get it, and how to 
   await expect(ann.locator('#launchgame')).toBeHidden();
 });
 
-test("Play local has Black Ops III's maps, with what the PC has of them and what it would download", async ({ server, player }) => {
+test("Play local has Black Ops III's maps: none is picked, and a click downloads one that the PC lacks", async ({ server, player }) => {
   const ann = await player('Ann');
   await ann.locator('#soloopen').click();
   await ann.locator('#solotitles').getByRole('radio', { name: 'Black Ops III', exact: true }).click();
   await expect(ann.locator('#solotitle')).toHaveText('Black Ops III');
-  await expect(ann.locator('#solodesc')).toHaveText('Launches the game on this PC through BOIII, at its menu. No account needed.');
+  await expect(ann.locator('#solodesc')).toHaveText(
+    "Launches the game on this PC through BOIII. Steam must be installed, but doesn't need to be running. No account needed.");
   await expect(ann.locator('#soloown')).toBeHidden(); // Plutonium's online servers are Black Ops II's
-  // what a PC without the game gets from the server, once the server has listed the game's files
-  await expect(ann.locator('#solofiles')).toHaveText(
-    'A PC without the game gets it from this server: 3 MB for every map, and then the maps you pick.');
-  // the game's maps: the first that the server has is picked, and none says what the PC has before a launcher did
+  // The page knows nothing of the game on this PC: its button connects the launcher, as a room's does. The game's
+  // maps are tiles, of which none is picked and none says anything, but for a map that the server lacks.
   const maps = ann.locator('#solomaps');
-  await expect(maps.getByRole('radio', { name: 'The Giant', exact: true })).toHaveAttribute('aria-checked', 'true');
-  await expect(maps.getByRole('radio', { name: 'Shadows of Evil' })).toBeDisabled(); // a map that the server lacks
+  const tile = (name: string) => maps.locator('.maptile', { hasText: name });
+  await expect(maps).toHaveAttribute('role', 'group');
+  await expect(maps.getByRole('radio')).toHaveCount(0);
+  await expect(maps.getByRole('button')).toHaveCount(0);
   await expect(maps.locator('.size')).toHaveCount(0);
-  await expect(ann.locator('#playalone')).toHaveText('Launch game');
+  await expect(tile('The Giant')).not.toHaveClass(/off/);
+  await expect(tile('Shadows of Evil')).toHaveClass(/off/);
+  await expect(ann.locator('#playalone')).toHaveText('Connect');
+  await ann.locator('#playalone').click(); // which starts no launcher on this PC
+  await expect(ann.locator('#playalone')).toHaveText('Connecting...');
+  await expect(ann.locator('#pcget')).toHaveText('Nothing happened? Install Zombies Launcher.');
+  await expect(ann.locator('#playalone')).toHaveText('Connect');
 
-  // her launcher, at this game, with The Giant in the folder that the game starts from
+  // Her launcher, at this game, with The Giant in the folder of the game files that it downloaded. The button now
+  // launches the game. The Giant says nothing more, and Origins, which the folder lacks, is a button with its size.
   const launcher = await launcherOf(server, ann);
   expect(await launcher.has('zone/zm_factory.ff')).toBe(200);
-  await expect(maps.getByRole('radio', { name: /^The Giant/ }).locator('.size')).toHaveText('Installed');
-  await expect(maps.getByRole('radio', { name: /^Origins/ }).locator('.size')).toHaveText('2 MB');
   await expect(ann.locator('#playalone')).toHaveText('Launch game');
-  // a map that the folder lacks: the button downloads it
-  await maps.getByRole('radio', { name: /^Origins/ }).click();
-  await expect(maps.getByRole('radio', { name: /^Origins/ })).toHaveAttribute('aria-checked', 'true');
-  await expect(ann.locator('#playalone')).toHaveText('Download · 2 MB');
+  await expect(tile('The Giant').locator('.size')).toHaveCount(0);
+  const origins = maps.getByRole('button', { name: /^Origins/ });
+  await expect(origins.locator('.size')).toHaveText('2 MB');
+  await expect(origins).toHaveAttribute('title', 'Download Origins · 2 MB');
+  await expect(maps.getByRole('button')).toHaveCount(1);
+  // a click on it has the launcher download the map: the main button says how far that is, and the map's is off
+  await origins.click();
+  expect(await launcher.says({ running: true, got: 1, need: 4 })).toBe(200);
+  await expect(ann.locator('#playalone')).toHaveText('Downloading · 25%');
+  await expect(origins).toHaveAttribute('aria-disabled', 'true');
+  expect(await launcher.says({})).toBe(200);
   expect(await launcher.has('zone/zm_factory.ff,zone/zm_tomb.ff')).toBe(200);
-  await expect(maps.getByRole('radio', { name: /^Origins/ }).locator('.size')).toHaveText('Installed');
+  await expect(maps.getByRole('button')).toHaveCount(0);
+  await expect(tile('Origins').locator('.size')).toHaveCount(0);
   await expect(ann.locator('#playalone')).toHaveText('Launch game');
-  // the pick is kept, and is this game's alone
+
+  // The player's own copy of the game, which the launcher only reads: a map that it lacks is not installed, and no
+  // click downloads it.
+  expect(await launcher.has('zone/zm_factory.ff', true)).toBe(200);
+  await expect(tile('Origins').locator('.size')).toHaveText('Not installed');
+  await expect(tile('Origins')).toHaveClass(/lacks/);
+  await expect(maps.getByRole('button')).toHaveCount(0);
+  expect(await launcher.has('zone/zm_factory.ff')).toBe(200);
+  await expect(maps.getByRole('button', { name: /^Origins/ })).toBeVisible();
+
+  // The launcher stops, and the page goes by what it said last, which the browser keeps: also when the page loads
+  // again. The button launches the game, with no launcher to connect first.
+  expect(await launcher.stops()).toBe(200);
+  await expect(ann.locator('#playalone')).toHaveText('Launch game');
+  await expect(maps.getByRole('button', { name: /^Origins/ }).locator('.size')).toHaveText('2 MB');
   await ann.reload();
   await expect(ann.locator('#solotitle')).toHaveText('Black Ops III');
-  await expect(maps.getByRole('radio', { name: /^Origins/ })).toHaveAttribute('aria-checked', 'true');
+  await expect(ann.locator('#playalone')).toHaveText('Launch game');
+  await expect(maps.getByRole('button', { name: /^Origins/ }).locator('.size')).toHaveText('2 MB');
+  await expect(tile('The Giant').locator('.size')).toHaveCount(0);
+  // Black Ops' maps, in the same place, are the ones to pick from
   await ann.locator('#solotitles').getByRole('radio', { name: 'Black Ops', exact: true }).click();
   await expect(ann.locator('#solokicker')).toHaveText('Map');
-  await expect(ann.locator('#solofiles')).toBeHidden();
+  await expect(maps).toHaveAttribute('role', 'radiogroup');
+  await expect(maps.getByRole('radio', { name: 'Kino der Toten', exact: true })).toHaveAttribute('aria-checked', 'true');
+  await expect(maps.locator('.maptile')).toHaveCount(0);
 });
 
 test("a Black Ops III map has its picture in the game's map select, and its loading screen behind the page", async ({ player }) => {
@@ -156,18 +198,16 @@ test("a Black Ops III map has its picture in the game's map select, and its load
   await expect(shot.locator('img')).toHaveAttribute('src', '/maps/zm_tomb/preview');
   await expect.poll(() => backdrop.evaluate(picture)).toBe('16x9 blue');
 
-  // Outside a room the backdrop is Black Ops' map to play locally. While Play local shows Black Ops III, it is the
-  // map picked there.
+  // Outside a room the backdrop is Black Ops' map to play locally: also while Play local shows Black Ops III, of
+  // which no map is picked there. That game's maps have their pictures in its grid.
   await ann.locator('#leave').click();
   await expect(backdrop).toHaveAttribute('src', '/maps/zombie_theater/loadscreen');
   await ann.locator('#soloopen').click();
   await ann.locator('#solotitles').getByRole('radio', { name: 'Black Ops III', exact: true }).click();
-  await expect(backdrop).toHaveAttribute('src', '/maps/zm_factory/loadscreen');
-  await ann.locator('#solomaps').getByRole('radio', { name: 'Origins' }).click();
-  await expect.poll(() => backdrop.evaluate(picture)).toBe('16x9 blue');
-  await ann.locator('#solotitles').getByRole('radio', { name: 'Black Ops', exact: true }).click();
+  await expect(ann.locator('#solotitle')).toHaveText('Black Ops III');
+  const tile = ann.locator('#solomaps .maptile', { hasText: 'Origins' });
+  await expect.poll(() => tile.locator('img').evaluate(picture)).toBe('640x270 red');
   await expect(backdrop).toHaveAttribute('src', '/maps/zombie_theater/loadscreen');
-  await ann.locator('#solotitles').getByRole('radio', { name: 'Black Ops III', exact: true }).click();
   await ann.locator('#soloback').click();
   await expect(backdrop).toHaveAttribute('src', '/maps/zombie_theater/loadscreen');
 });

@@ -7,20 +7,23 @@
 // pick of the map is kept in the browser's storage (maps.ts: soloMapName). The view has the button that opens Black
 // Ops' options menu too, under Play (main.ts: settingsInit).
 //
-// For Black Ops II and III, the button opens the launcher with a link to play alone (windows.ts: openLauncher), and
-// then says what the launcher does, as a room's button does: the launcher gets what the PC lacks, then starts the game
-// (launcher/main.go: alone). A page that can't reach its server opens the launcher with no key, and the launcher then
-// plays from what the PC has. Where the server hosts more than one game, the view has a switch between them. It shows
-// the game that the player last picked, there or for a room, which the browser keeps (maps.ts: lastTitle). Under
-// Black Ops II the view also says how to get to Plutonium's online servers, with Plutonium's own launcher
-// (showSoloOwn). Under Black Ops III it has that game's maps, for the player to pick the one that the launcher is to
-// have ready: the server sends that game a map at a time (showSoloMaps).
+// For Black Ops II and III, the view is a room's without the room. Its button opens the launcher
+// (windows.ts: openLauncher), and says what the launcher does, as a room's button does (launcherSays). It is Connect
+// while the page knows nothing of the game on this PC: the launcher then gets what the PC lacks, and starts nothing.
+// From then on it is Launch game, where a room's is Ready: the launcher starts the game at its menu (launcher/main.go:
+// alone). What the launcher said of the PC is kept in the browser, so the button is Launch game on the player's next
+// visit too (onPC). A page that can't reach its server opens the launcher with no key, and the launcher then plays
+// from what the PC has. Where the server hosts more than one game, the view has a switch between them. It shows the
+// game that the player last picked, there or for a room, which the browser keeps (maps.ts: lastTitle). Under Black
+// Ops II the view also says how to get to Plutonium's online servers, with Plutonium's own launcher (showSoloOwn).
+// Where the server sends a game a map at a time, as it does Black Ops III, the view has that game's maps: those that
+// the PC lacks, each of which a click downloads (showSoloMaps). No map is picked there: the game starts at its menu.
 //
 // The view shows with ?local=1 in the URL, which a reload keeps. The lobby's "Go", under Play local, opens it, as a
 // step that the browser's Back goes back from, and "Back to the lobby" closes it.
-import type { MapInfo, View } from './api';
+import type { View } from './api';
 import { type MainButton, setButton } from './controls';
-import { $, el } from './dom';
+import { $, el, isOff } from './dom';
 import { canRun, started } from './engine';
 import { knowMap, type MapButton, mapButton, showNote } from './files';
 import { endNote, forgetLastEnd, lastEnd } from './game';
@@ -35,18 +38,18 @@ import { bo1Settings } from './settings';
 import { menuSound } from './sounds';
 import { store } from './storage';
 import { bytesText, CLIENTS, mapsOf, ownPC, titleName } from './titles';
-import { launcherOpening, launcherSeen, launcherStarts, launcherStep, onMac } from './windows';
+import { launcherSays, launcherSeen, launcherStarts, onMac, type OnPC, onPC, openLauncher } from './windows';
 
 /** How the view's button gets the map, while the store lacks it: 'download' or 'import' (files.ts: mapButton). */
 export let soloGets = '';
 
 /**
- * The game that the view's button opens the launcher for, to play it alone on the player's own PC, by its title's id
- * (main.ts), or '' while the view shows Black Ops, which the page plays. soloLaunchMap is the map of that game that
- * the player picked in the view, where it has them pick one, or ''.
+ * The game that the view's button opens the launcher for, on the player's own PC, by its title's id (main.ts), or ''
+ * while the view shows Black Ops, which the page plays. soloConnects: the button has the launcher get the PC ready,
+ * and launches nothing, as the page knows nothing yet of that game on this PC (showSoloPC).
  */
 export let soloLaunches = '';
-export let soloLaunchMap = '';
+export let soloConnects = false;
 
 /**
  * Whether the page offers a game of the players' own PCs to play locally: the server hosts it, and the launcher
@@ -75,14 +78,17 @@ export function showSolo(v: View): void {
   showSoloTitle(v, offered, of);
   const pc = ownPC(of);
   $('soloimg').classList.toggle('hidden', pc);
-  $('solomaps').classList.toggle('hidden', of === 't6');
   $('solokicker').textContent = pc ? 'Game' : 'Map';
   $('soloown').classList.toggle('hidden', of !== 't6');
-  $('solofiles').classList.toggle('hidden', !pc);
   $('solo').dataset.of = of; // a game of the player's own PC has a card as tall as its words (page.css)
   soloLaunches = pc ? of : '';
-  soloLaunchMap = '';
+  soloConnects = false;
   if (pc) return showSoloPC(v, of);
+  // Black Ops' maps, of which the player picks the one to play
+  const grid = $('solomaps');
+  grid.classList.remove('hidden');
+  grid.setAttribute('role', 'radiogroup');
+  grid.setAttribute('aria-label', 'The map to play locally');
   showInstall(v, false);
   const picked = soloMapName(v);
   const map = mapInfo(picked);
@@ -147,16 +153,19 @@ function showSoloTitle(v: View, offered: string[], of: string): void {
 
 /**
  * Draws a game of the player's own PC in the page to play locally, Black Ops II or III: what it is, and its button,
- * which opens the launcher. The button
- * then says what the launcher does, from what the server says of it, as a room's does (room.ts: showRoomButton). The
- * launcher says that the game launches for a while after it launched it, and then nothing: the button is Launch game
- * again. A
- * page that can't reach its server hears nothing of the launcher: its button says that the game starts for a moment
- * after the click. What installs the launcher shows here as in a room (room.ts: showInstall), and under Black Ops II,
- * how to get to Plutonium's online servers instead (showSoloOwn).
+ * which opens the launcher.
  *
- * Black Ops III has its maps under it (showSoloMaps): the server sends that game a map at a time, so the player picks
- * the map that the launcher is to have ready. The button is Download where the launcher's game files lack it.
+ * The button goes by what the page knows of the game on this PC (windows.ts: onPC). While it knows nothing, the
+ * button is Connect, as a room's is: the launcher gets the PC ready for the game, and asks where the game is, or
+ * whether to download it, where it finds none. Once the launcher has had the game ready, in this visit or an earlier
+ * one, the button is Launch game: the launcher starts the game at its menu. Meanwhile the button says what the
+ * launcher does, from what the server says of it, as a room's does (windows.ts: launcherSays), and Try again after a
+ * try that failed, with what it failed at under it. A page that can't reach its server hears nothing of the
+ * launcher: its button is Launch game, and says that the game starts for a moment after the click.
+ *
+ * What installs the launcher shows here as in a room (room.ts: showInstall), and under Black Ops II, how to get to
+ * Plutonium's online servers instead (showSoloOwn). A game that the server sends a map at a time has its maps under
+ * it (showSoloMaps).
  */
 function showSoloPC(v: View, of: string): void {
   const title = v.titles.find((t) => t.id === of);
@@ -166,37 +175,22 @@ function showSoloPC(v: View, of: string): void {
   if (desc.dataset.of !== of) {
     desc.dataset.of = of;
     desc.replaceChildren(`Launches the game on this ${onMac ? 'Mac' : 'PC'} through `, site(CLIENTS[of]),
-      of === 't6' ? ', in LAN mode. Offline, and no account needed.' : ', at its menu. No account needed.');
+      of === 't6' ? ', in LAN mode. Offline, and no account needed.'
+        // BOIII starts no game on a PC without Steam (launcher/boiii.go: errNoSteam)
+        : ". Steam must be installed, but doesn't need to be running. No account needed.");
     desc.scrollTop = 0;
   }
   desc.classList.remove('hidden');
-  // What a PC without the game gets from the server, once the server has listed the game's files.
-  const sends = !!title && !!title.downloads;
-  const maps = mapsOf(v.maps, of);
-  const byMap = maps.some((m) => m.bytes);
-  $('solofiles').textContent = !sends || !title.bytes ? ''
-    : `A ${onMac ? 'Mac' : 'PC'} without the game gets it from this server: ${bytesText(title.bytes)}`
-      + (byMap ? ' for every map, and then the maps you pick.' : '.');
   if (v.you.launcher) launcherSeen();
-  let lacks = 0; // the size of the picked map, where the launcher's game files are known to lack it
-  if (of !== 't6') {
-    const picked = showSoloMaps(v, of, maps, sends);
-    soloLaunchMap = picked;
-    const there = v.you.launcherOf === of && !!v.you.launcherFolder;
-    const map = maps.find((m) => m.name === picked);
-    if (sends && there && map && map.bytes && !(v.you.launcherMaps || []).includes(picked)) lacks = map.bytes;
-  }
-  const doing = launcherStep(v.you.launcherDoing || '');
-  let m: MainButton = { label: lacks ? 'Download · ' + bytesText(lacks) : 'Launch game' };
-  if (v.you.launcherFailed) m = { label: 'Try again' };
-  else if (!v.you.launcher) {
-    if (launcherOpening) m = { label: offline ? 'Starting...' : 'Connecting...', disabled: true };
-  } else if (v.you.launcherDownloading) {
-    m = { label: `Downloading · ${Math.floor((v.you.launcherGot || 0) * 100)}%`, disabled: true };
-  } else if (doing) m = { label: doing + '...', disabled: true };
-  else if (!v.you.launcherReady) m = { label: 'Connecting...', disabled: true };
-  setButton($('playalone'), m, true);
+  // The card says no size of the game's files: the launcher says it, where it asks before it downloads them
+  // (launcher/files.go: askFiles).
+  const pc = onPC(v, of);
+  const says = launcherSays(v, true);
+  soloConnects = !pc && !offline;
+  const does: MainButton = { label: v.you.launcherFailed ? 'Try again' : soloConnects ? 'Connect' : 'Launch game' };
+  setButton($('playalone'), says || does, true);
   soloGets = '';
+  showSoloMaps(v, of, pc, !says);
   // The launcher has no window, so the page says what it failed at.
   const note = $('solonote');
   note.textContent = v.you.launcherFailed || '';
@@ -208,36 +202,67 @@ function showSoloPC(v: View, of: string): void {
 }
 
 /**
- * Draws the maps of a game of the player's own PC in the page to play locally, and returns the one that is picked:
- * the player's last pick of that game's, which the browser's storage keeps, or the first that the server has. Once
- * the launcher has found the game's folder on the PC, each map says whether the folder has it: Installed, or what the
- * launcher would download for it, where the server sends the game's files (sends).
+ * Draws the maps of a game of the player's own PC in the page to play locally, where the server sends that game's
+ * files a map at a time, as it does Black Ops III's: each map then has a download of its own. A game that it sends
+ * whole, or not at all, has no maps here.
+ *
+ * No map is picked: the game starts at its own menu, where the player picks one. A map is a tile, which says
+ * nothing more while the PC has the map, or while the page does not know what the PC has (pc). A map that the PC
+ * lacks says so under its name:
+ *
+ *   - its size, where the launcher downloads it: into the game files that the launcher downloaded, and none other.
+ *     The tile is then a button, which has the launcher download the map and launch nothing (openLauncher). It is off
+ *     while the launcher is at something else (free): the main button says what.
+ *   - "Not installed" otherwise: in the player's own copy of the game, which the launcher only reads, and for a map
+ *     of no pack of its own, which comes with what every map needs.
+ *
+ * A map that the server lacks is greyed out. The tiles are made again only when what they say changes, so that one
+ * keeps the focus.
  */
-function showSoloMaps(v: View, of: string, maps: MapInfo[], sends: boolean): string {
-  const have = maps.filter((m) => m.have);
-  const kept = store.get('zombies-solo-map-' + of);
-  const picked = have.some((m) => m.name === kept) ? kept : have[0]?.name || '';
+function showSoloMaps(v: View, of: string, pc: OnPC | null, free: boolean): void {
+  const title = v.titles.find((t) => t.id === of);
+  const maps = mapsOf(v.maps, of);
   const grid = $('solomaps');
-  showMaps(grid, maps, picked, (name) => {
-    if (name === picked) return;
-    store.set('zombies-solo-map-' + of, name);
-    page.redraw();
-  }, false);
-  const there = v.you.launcherOf === of && !!v.you.launcherFolder;
-  maps.forEach((m, i) => {
-    const b = grid.children[i];
-    const says = !there || !m.have ? ''
-      : (v.you.launcherMaps || []).includes(m.name) ? 'Installed' : sends && m.bytes ? bytesText(m.bytes) : 'Not installed';
-    let size = b.querySelector('.size');
-    if (!says) return size?.remove();
-    if (!size) {
-      size = el('span', 'size');
-      b.append(size);
-    }
-    size.textContent = says;
-    size.classList.toggle('there', says === 'Installed');
+  const shows = !!title && !!title.downloads && maps.some((m) => m.bytes);
+  grid.classList.toggle('hidden', !shows);
+  if (!shows) return;
+  const name = (title && title.name) || TITLES[of];
+  grid.classList.remove('locked');
+  grid.setAttribute('role', 'group');
+  grid.setAttribute('aria-label', `The maps of ${name} on this ${onMac ? 'Mac' : 'PC'}`);
+  // what each map's tile is: off (the server lacks the map), get (a click downloads it), lacks, or '' (nothing to say)
+  const tiles = maps.map((m) => {
+    if (!m.have) return { kind: 'off', says: '' };
+    if (!pc || !pc.maps || pc.maps.includes(m.name)) return { kind: '', says: '' };
+    return !pc.own && m.bytes ? { kind: 'get', says: bytesText(m.bytes) } : { kind: 'lacks', says: 'Not installed' };
   });
-  return picked;
+  const key = 'pc ' + JSON.stringify(maps.map((m, i) => [m.name, tiles[i].kind, tiles[i].says]));
+  if (grid.dataset.key !== key) {
+    grid.dataset.key = key;
+    grid.textContent = '';
+    maps.forEach((m, i) => {
+      const { kind, says } = tiles[i];
+      const tile = kind === 'get' ? el('button', 'get') : el('div', ('maptile ' + kind).trim());
+      const pic = el('span', 'pic');
+      const img = mapPicture(el('img'), m.name);
+      img.alt = ''; // the tile's text says the map
+      pic.append(img);
+      tile.append(pic, m.title);
+      if (says) tile.append(el('span', 'size', says));
+      tile.title = kind === 'off' ? m.title + ': not available'
+        : kind === 'get' ? `Download ${m.title} · ${says}` : m.title;
+      if (tile instanceof HTMLButtonElement) {
+        tile.type = 'button';
+        // A tile that is off takes a click too, and does nothing, as the view's main button (controls.ts: setButton).
+        tile.onclick = () => !isOff(tile) && openLauncher(false, of, m.name);
+      }
+      grid.append(tile);
+    });
+  }
+  for (const b of grid.querySelectorAll('button')) {
+    if (free) b.removeAttribute('aria-disabled');
+    else b.setAttribute('aria-disabled', 'true');
+  }
 }
 
 // How to get to Plutonium's online servers, which the view says under Black Ops II (showSoloOwn). The launcher

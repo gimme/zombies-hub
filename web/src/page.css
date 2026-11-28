@@ -261,20 +261,40 @@ ul.rooms { gap: 12px; }
   scrollbar-width: thin; scrollbar-color: rgba(255, 255, 255, 0.24) transparent; }
 .mapgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 10px;
   padding-top: 22px; border-top: 1px solid rgba(255, 255, 255, 0.08); }
-.mapgrid button { position: relative; height: auto; display: flex; flex-direction: column; gap: 6px; padding: 4px 4px 8px;
-  border: 2px solid transparent; background: var(--row); color: #cfc8bd; font: 600 12px/1.25 var(--text); }
+.mapgrid button, .mapgrid .maptile { position: relative; height: auto; display: flex; flex-direction: column; gap: 6px;
+  padding: 4px 4px 8px; border: 2px solid transparent; background: var(--row); color: #cfc8bd;
+  font: 600 12px/1.25 var(--text); }
 /* who suggests the map, over its picture from its top right corner, in rows where they are many */
 .mapgrid .marks { position: absolute; top: 10px; right: 10px; max-width: calc(100% - 20px); display: flex;
   flex-wrap: wrap; justify-content: flex-end; gap: 10px; }
 .mapgrid .marks .avatar { width: 24px; height: 24px; font: 700 12px var(--text);
   box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.6); }
-.mapgrid button img { display: block; width: 100%; aspect-ratio: 4 / 3; border-radius: 7px; object-fit: cover;
+.mapgrid img { display: block; width: 100%; aspect-ratio: 4 / 3; border-radius: 7px; object-fit: cover;
   background: rgba(255, 255, 255, 0.06); }
-.mapgrid button img[data-of=t6] { aspect-ratio: 480 / 222; }
-.mapgrid button img[data-of=t7] { aspect-ratio: 64 / 27; }
-/* in Play local, under a map of a game of the player's own PC: whether the PC has it, or what it would download */
+.mapgrid img[data-of=t6] { aspect-ratio: 480 / 222; }
+.mapgrid img[data-of=t7] { aspect-ratio: 64 / 27; }
+/* In Play local, the maps of a game of the player's own PC, of which none is picked: the game starts at its own menu
+   (showSoloMaps). A map is a tile, and no button, with nothing more to it while the PC has the map. A map that the PC
+   lacks has its picture dimmed, and a line under its name: that it is not installed, or its size, where a click
+   downloads it. That tile is a button, with a mark of a download before its size, and the same mark over its picture
+   while the pointer or the focus is on it. A tile whose button is off, while the launcher is at something else, has
+   the look of the others still, and no mark over its picture. */
+.mapgrid .maptile { border-radius: 10px; text-align: center; }
+.mapgrid .maptile.off { background: rgba(255, 255, 255, 0.02); color: #7f796f; }
+.mapgrid .maptile.off img { filter: grayscale(1) brightness(0.45); }
+.mapgrid .pic { position: relative; display: block; }
+.mapgrid .lacks img, .mapgrid .get img { filter: brightness(0.55) saturate(0.6); }
 .mapgrid .size { font-size: 12px; font-weight: 400; color: var(--muted); }
-.mapgrid .size.there { color: var(--fg); }
+.mapgrid button.get { --get: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23fff' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 4v11m-4.5-4.5L12 15l4.5-4.5M5 19.5h14'/%3E%3C/svg%3E"); }
+.mapgrid button.get[aria-disabled=true] { background: var(--row); border-color: transparent; color: #cfc8bd; }
+.mapgrid button.get .size::before { content: ''; display: inline-block; width: 12px; height: 12px; margin-right: 4px;
+  vertical-align: -2px; background: var(--get) center / contain no-repeat; opacity: 0.75; }
+.mapgrid button.get .pic::after { content: ''; position: absolute; inset: 0; border-radius: 7px;
+  background: rgba(0, 0, 0, 0.35) var(--get) center / 30px no-repeat; opacity: 0; transition: opacity 0.12s; }
+.mapgrid button.get:not([aria-disabled=true]):is(:hover, :focus-visible) { color: var(--fg); }
+.mapgrid button.get:not([aria-disabled=true]):is(:hover, :focus-visible) .size { color: var(--fg); }
+.mapgrid button.get:not([aria-disabled=true]):is(:hover, :focus-visible) .pic::after { opacity: 1; }
+@media (prefers-reduced-motion: reduce) { .mapgrid button.get .pic::after { transition: none; } }
 .mapgrid button[aria-checked=true] { border-color: var(--accent-hi); background: rgba(200, 16, 46, 0.14); color: var(--fg); }
 .mapgrid button[aria-checked=true]:hover:not(:disabled) { border-color: var(--accent-over); }
 .mapgrid button:disabled { background: rgba(255, 255, 255, 0.02); color: #7f796f; }
@@ -309,9 +329,6 @@ button.fold[aria-expanded=true] svg { transform: rotate(90deg); }
 #soloown ol { padding-left: 1.4em; display: flex; flex-direction: column; gap: 4px; }
 /* its links, and the one in the game's words over it, are the page's white, as the launcher's are (#pcinstall) */
 #soloown a, #solodesc a { color: var(--fg); }
-/* under the words of a game of the player's own PC: what a PC without the game downloads from the server */
-#solofiles { flex: none; margin: 6px 0 0; font-size: 14px; line-height: 1.45; color: var(--muted); }
-#solofiles:empty { display: none; }
 .options .tabs { display: flex; gap: 4px; padding: 6px 6px 0; border-bottom: 1px solid rgba(255, 255, 255, 0.08); }
 .tab { height: 44px; padding: 0 18px; border: none; border-radius: 0; border-bottom: 2px solid transparent;
   background: none; display: flex; align-items: center; gap: 8px; }

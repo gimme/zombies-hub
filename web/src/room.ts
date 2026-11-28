@@ -42,7 +42,7 @@ import { bo1Settings } from './settings';
 import { store } from './storage';
 import { CLIENTS, mapsOf, ownPC, titleName, versusesOf, versusOf } from './titles';
 import {
-  launcherDownloads, launcherHere, launcherMacLine, launcherMissed, launcherOpening, launcherSeen,
+  launcherDownloads, launcherHere, launcherMacLine, launcherMissed, launcherSays, launcherSeen,
   launcherSetup, launcherStarts, launcherStep, onMac, onWindows, openLauncher, t6Console, t7Console,
 } from './windows';
 
@@ -204,7 +204,8 @@ export function showRoomButton(v: View, room: Room): void {
     m.primary = !!m.gets || (!!m.ready && !v.you.ready);
     // In a room of a game of the players' own PCs, once the server has said where the launcher is, the button opens
     // the launcher first. The launcher then gets what the PC lacks for the game, and the button says how far that
-    // is. After that the button is Ready. Not for a player who joins by hand, with that checkbox checked.
+    // is, as Play local's does (windows.ts: launcherSays). After that the button is Ready. Not for a player who joins
+    // by hand, with that checkbox checked.
     //
     // A copy of the game without the pack of the room's map lacks the map (server/launcher.go: pcLacks). The player
     // is then not ready until the host picks another map. Where the server sends the game's files, the button is
@@ -212,17 +213,11 @@ export function showRoomButton(v: View, room: Room): void {
     // whether to download the server's game files and use them in place of the player's own copy.
     if (pc && launcherStarts(room.of) && !v.you.ready && !handOn()) {
       const mine = room.members.find((x) => x.id === me.id);
-      if (v.you.launcherFailed) m = { label: 'Try again', does: 'launch', primary: true };
-      else if (!v.you.launcher) {
-        // From the click until the launcher shows itself, the button says what it goes on saying once the launcher
-        // has (windows.ts: launcherOpening).
-        m = launcherOpening ? { label: 'Connecting...', disabled: true }
-          : { label: 'Connect', does: 'launch', primary: true };
-      } else if (!v.you.launcherReady) {
-        // The button says the launcher's step once the launcher has been at it for a moment (windows.ts: launcherStep).
-        m = { label: mine && mine.downloading ? `Downloading · ${Math.floor((mine.got || 0) * 100)}%`
-          : (launcherStep(v.you.launcherDoing || '') || 'Connecting') + '...', disabled: true };
-      } else if (mine && mine.missing) {
+      const says = launcherSays(v, false);
+      if (says) m = says;
+      else if (v.you.launcherFailed) m = { label: 'Try again', does: 'launch', primary: true };
+      else if (!v.you.launcher) m = { label: 'Connect', does: 'launch', primary: true };
+      else if (mine && mine.missing) {
         const sends = launcherDownloads(v, room.of);
         lacks = `Your ${game} doesn't have this map` + (sends
           ? '. The launcher can download the game files from the server instead.'
@@ -694,7 +689,7 @@ export function roomInit(): void {
   };
   $('endgame').onclick = () => act('end');
   // The launcher starts the game of the room's title, at its menu. Black Ops III is sent a map at a time, so the
-  // launcher is told the room's map, to get it first where its game files lack it, as from Play local (solo.ts).
+  // launcher is told the room's map, to get it first where its game files lack it.
   $('launchgame').onclick = () => {
     if (isOff($<HTMLButtonElement>('launchgame')) || !view || !view.room) return;
     openLauncher(true, view.room.of || 't6', view.room.of === 't7' ? view.room.map : '');
