@@ -390,6 +390,7 @@ func (t *t7Game) quit(g *game) bool {
 // custom scripts in the game's folder (boiii/custom_scripts/zm). It prints what the server's script in a T6 game
 // prints (t6Script), for the server to read (pcSaid):
 //
+//	zombies_lobby: level                            the level's scripts run: the game has started
 //	zombies_lobby: stats 0 4350 1200 31 12 1 0 2 0  a player's line of the scoreboard, by their client's slot: all the
 //	                                                points they earned, the points left to spend, their kills,
 //	                                                headshots, downs, revives and doors bought, and 0 for no team. It
@@ -468,6 +469,7 @@ function __init__()
 
 function init()
 {
+	println("zombies_lobby: level");
 	level thread rounds();
 	level thread gums();
 	level thread egg();

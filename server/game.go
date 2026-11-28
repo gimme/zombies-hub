@@ -16,6 +16,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 )
@@ -46,6 +47,10 @@ type game struct {
 	// The server kills the game when it has not answered for startTimeout after its start, or for quietTimeout after
 	// an answer. 0 disables either.
 	startTimeout, quietTimeout time.Duration
+	// leveled is when the game's level last began to run, as the server's script in a PC game says (pcSaid), in
+	// nanoseconds since 1970, or 0 before it has. A game that runs a level answers its console: one that never has
+	// by deafTimeout after is stopped then, and not as late as startTimeout (rconWatch).
+	leveled atomic.Int64
 
 	mu    sync.Mutex
 	stdin *os.File // the running game's console, or nil when it is not running
@@ -112,6 +117,7 @@ func (g *game) command(line string) {
 // runOnce runs the game until it ends or ctx is done. When ctx is done, it stops the game, which tells its players.
 // It returns how the game ended.
 func (g *game) runOnce(ctx context.Context) (*os.ProcessState, error) {
+	g.leveled.Store(0)
 	// The home folder belongs to the game's port, and an earlier game used it. It is emptied so that nothing the
 	// earlier game saved carries over (players/config.cfg has the recommended settings it picked and what was set on
 	// its console), and so that the engine's logs in main/ don't grow from game to game. What a game writes stays

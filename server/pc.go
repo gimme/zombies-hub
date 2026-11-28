@@ -39,6 +39,11 @@ type pcClient struct {
 	in      bool
 }
 
+// deafTimeout is how long a PC game whose level runs has to answer its remote console for the first time, before the
+// server takes it for deaf to it and stops it (rconWatch). A game that answers does so within a second of its level's
+// start. Tests lower it.
+var deafTimeout = 30 * time.Second
+
 // rcon is a game's remote console, as rconWatch uses it: the console of a game that its players join from their own
 // PCs (t6.go, t7.go).
 type rcon struct {
@@ -63,6 +68,13 @@ type rcon struct {
 // answers to them. The status also shows whether the game still answers. The game answers while it runs a map, and not
 // while it loads one. When the game has not answered for startTimeout after its start, or for quietTimeout after an
 // answer, rconWatch sends the length of the silence on silent and returns.
+//
+// startTimeout is long, because a start takes as long as the host's disk and its Wine take, and a game that is slow
+// to start is not at fault. A game whose level runs has started, though, and answers within the second: the server's
+// script in it says when that is (game.leveled). One that has never answered by deafTimeout after that is deaf to its
+// console, however well it runs otherwise, and no player's game gets into it, because the server lets players in
+// only from its first status. rconWatch reports that silence then, and the room's players are back in their room
+// within the minute, where startTimeout would keep them for five.
 func (g *game) rconWatch(c rcon, done <-chan struct{}, silent chan<- time.Duration) {
 	conn, err := net.DialUDP("udp4", watchAddr(g.port), &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: g.port})
 	if err != nil {
@@ -147,8 +159,11 @@ func (g *game) rconWatch(c rcon, done <-chan struct{}, silent chan<- time.Durati
 			c.status(now)
 		}
 		since, limit := start, g.startTimeout
-		if !last.IsZero() {
+		if leveled := g.leveled.Load(); !last.IsZero() {
 			since, limit = last, g.quietTimeout
+		} else if leveled != 0 && limit > deafTimeout {
+			// The game runs a level and has never answered: it has had the time that any start takes.
+			since, limit = time.Unix(0, leveled), deafTimeout
 		}
 		if quiet := time.Since(since); limit > 0 && quiet >= limit {
 			silent <- quiet
@@ -277,6 +292,11 @@ func (l *lobby) pcSaid(r *room, rg *roomGame, line string) {
 		return
 	}
 	verb, arg, _ := strings.Cut(said, " ")
+	if ours && verb == "level" {
+		// the level's scripts run: the game has started, and answers its console from here on (rconWatch)
+		rg.g.leveled.Store(time.Now().UnixNano())
+		return
+	}
 	if ours && verb == "stats" {
 		// a player's line of the scoreboard, printed before "round" and "over". No page shows it yet.
 		if fields := strings.Fields(arg); len(fields) > 0 {

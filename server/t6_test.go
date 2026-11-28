@@ -38,7 +38,8 @@ import (
 // got jugg" what the client has from earlier games, as the script says it with the client's slot after it, and its
 // "over" game over, on round 7, with its end played out a moment later ("over 4 2"
 // is game over on round 4, and team 2 won); its "rotate" is the server rotating its map with no word of the script's.
-// Any other packet comes back as it is.
+// Any other packet comes back as it is. With FAKE_T6_DEAF in its environment it answers nothing on its remote
+// console, as a game that is deaf to it.
 func fakeT6(port string) {
 	say := func(text string) {
 		fmt.Printf("\x1b[38;2;255;255;255m\x1b[2K\x1b[38;2;243;111;26mPlutonium r1 > \x1b[38;2;255;255;255m%s\n", text)
@@ -57,7 +58,9 @@ func fakeT6(port string) {
 	}
 	say("args: " + strings.Join(os.Args[1:], " "))
 	say("map_rotate...")
+	say("zombies_lobby: level")                                                      // the server's script, as the level starts
 	fmt.Println("\x1b[38;2;255;255;255m\x1b[2K\x1b[38;2;243;111;26mPlutonium r1 > ") // its prompt alone
+	deaf := os.Getenv("FAKE_T6_DEAF") != ""                                          // it answers nothing on its remote console
 	var clients []string                                                             // each slot's address, "" for a free one
 	names := map[string]string{}
 	buf := make([]byte, 2048)
@@ -69,6 +72,9 @@ func fakeT6(port string) {
 		text, oob := strings.CutPrefix(string(buf[:n]), "\xff\xff\xff\xff")
 		reply := func(text string) { conn.WriteTo([]byte("\xff\xff\xff\xff"+text), from) }
 		if rest, ok := strings.CutPrefix(text, "rcon "); oob && ok {
+			if deaf {
+				continue
+			}
 			word, line, _ := strings.Cut(rest, " ")
 			if word != password {
 				say("Bad rcon from " + from.String())
@@ -1521,5 +1527,31 @@ func TestGameOverText(t *testing.T) {
 		if got := gameOverText(&tc.res); got != tc.want {
 			t.Errorf("%+v: %q, want %q", tc.res, got, tc.want)
 		}
+	}
+}
+
+// A PC game whose level runs answers its remote console, within the second. One that never does is deaf to it, and no
+// player's game gets into it, because the server lets players in only from the game's first status. The server stops
+// such a game soon after its level began, and its players are back in their room: it does not wait for as long as a
+// start may take.
+func TestGameDeafToItsConsoleIsStoppedSoon(t *testing.T) {
+	was := deafTimeout
+	deafTimeout = 500 * time.Millisecond
+	t.Cleanup(func() { deafTimeout = was })
+	t.Setenv("FAKE_T6_DEAF", "1")
+	l, _ := t6Lobby(t) // its games have a minute to start
+	a := l.hello("", "Ann").Token
+	if err := do(l, a, "create", "map", "zm_standard_town"); err != "" {
+		t.Fatal(err)
+	}
+	pagesOpen(l, a)
+	readyAll(l, a)
+	waitView(t, l, a, "the game started", func(v view) bool { return v.Room.State != "open" })
+	started := time.Now()
+	v := waitView(t, l, a, "the room open again", func(v view) bool { return v.Room.State == "open" })
+	// the room says of it what it says of any game that the server had to stop
+	if took := time.Since(started); took > 8*time.Second || v.Room.Note != "The game crashed." || v.Room.Up {
+		t.Errorf("a game deaf to its console: stopped after %v, and the room says %q, up %v", took.Round(time.Millisecond),
+			v.Room.Note, v.Room.Up)
 	}
 }

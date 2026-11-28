@@ -403,6 +403,8 @@ var t6Own = []string{"main", "players", "demos", "gamesettings", "scripts", "lob
 // (storage/t6/scripts/zm), together with the level's own scripts. As far as a script can, it prints what the engine
 // prints in a T5 game ("bo1_lobby: ...", t5.go: gameLine), for the server to read (pcSaid):
 //
+//	zombies_lobby: level                            the level's scripts run: the game has started. It is printed each
+//	                                                time the level starts, which it also does again before round 1.
 //	zombies_lobby: stats 0 4350 1200 31 12 1 0 2 1  a player's line of the scoreboard, by their client's slot: all the
 //	                                                points they earned, the points left to spend, their kills,
 //	                                                headshots, downs, revives and doors bought, and their team in
@@ -534,6 +536,7 @@ main()
 
 init()
 {
+	printf( "zombies_lobby: level" );
 	level thread lobby_rounds();
 	level thread lobby_egg();
 	level thread lobby_help();
