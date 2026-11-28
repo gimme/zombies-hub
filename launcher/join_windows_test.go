@@ -19,10 +19,14 @@ import (
 // player's game's console does (process.join). The program here is Windows' Command Prompt, which reads its console
 // as the game does. The typing is done by the test program run again, for TestJoinHelper alone, without a console:
 // a program can attach to another's console only without one of its own, as a launcher that a link starts is.
+//
+// The Command Prompt's console is hidden, where the launcher shows the game's (startConsole): a line is typed into a
+// console that shows and into one that doesn't in the same way, and no window comes up on the desktop of whoever
+// runs the tests.
 func TestJoinTypesIntoTheConsole(t *testing.T) {
 	dir := t.TempDir()
 	shell := filepath.Join(os.Getenv("SystemRoot"), "System32", "cmd.exe")
-	g, err := startProgram(shell, `"`+shell+`" /q /k`, dir)
+	g, err := startConsole(shell, `"`+shell+`" /q /k`, dir, true)
 	if err != nil {
 		t.Fatal(err)
 	}

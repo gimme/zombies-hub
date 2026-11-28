@@ -144,6 +144,15 @@ func steamCopies(t *title) []string {
 // (process.join), and Windows would let no other program attach to the console to type one. The returned game
 // follows the program and any program it starts in turn, through a Windows job that has them all.
 func startProgram(exe, commandLine, dir string) (game, error) {
+	return startConsole(exe, commandLine, dir, false)
+}
+
+// startConsole is startProgram, with the program's console window hidden when hidden is set. The launcher shows the
+// console of every program it starts. A test hides the console of the program it starts (join_windows_test.go),
+// which would otherwise flash up on the desktop of whoever runs the tests. Where Windows Terminal is the default
+// terminal, that window at times stayed there too, with an error in it, when the test stopped the program before
+// the Terminal had it. A hidden console shows nowhere, in the Terminal either.
+func startConsole(exe, commandLine, dir string, hidden bool) (game, error) {
 	exeName, err := windows.UTF16PtrFromString(exe)
 	if err != nil {
 		return nil, err
@@ -158,6 +167,10 @@ func startProgram(exe, commandLine, dir string) (game, error) {
 	}
 	si := &windows.StartupInfo{}
 	si.Cb = uint32(unsafe.Sizeof(*si))
+	if hidden {
+		si.Flags = windows.STARTF_USESHOWWINDOW
+		si.ShowWindow = windows.SW_HIDE
+	}
 	var pi windows.ProcessInformation
 	if err := windows.CreateProcess(exeName, line, nil, nil, false,
 		windows.CREATE_NEW_CONSOLE|windows.CREATE_NEW_PROCESS_GROUP, nil, in, si, &pi); err != nil {
