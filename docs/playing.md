@@ -1,6 +1,8 @@
 # Playing
 
-Open the server's page in Chrome. Make a room, or join one from the list or with its code. The host picks the game, Black Ops, Black Ops II or Black Ops III, then a map of it. The others can suggest a map with a click on it. When everyone has pressed Ready, the game starts.
+Open the server's page in Chrome. Black Ops II and Black Ops III also play from Firefox, and from a browser built on Chrome's, such as Edge: those games run on your own computer, and the page only shows the room and starts the launcher.
+
+Make a room, or join one from the list or with its code. The host picks the game, Black Ops, Black Ops II or Black Ops III, then a map of it. The others can suggest a map with a click on it. When everyone has pressed Ready, the game starts.
 
 The page offers only the games the server hosts, and a server of one game has nothing to pick. The list of rooms says each room's game, and each game has its own leaderboards.
 
@@ -70,7 +72,7 @@ Black Ops II is a Windows game. On a Mac with Apple Silicon (M1 or later), the l
 
 - **First time:** install the launcher with the line under the room's button: paste it into Terminal. The ? by the line says what it does. It installs the launcher, in `Library/Application Support/Zombies Launcher` of your home folder, and what the game runs on: plutonium-mac-aio, in the folder `plutonium-mac-aio` of your home folder, with its Wine and Plutonium. A Mac that has plutonium-mac-aio there already keeps its own. That takes a few minutes, most of it downloads, and ends with "Zombies Launcher successfully installed." From then on the room's Connect button starts the launcher. The line fetches a script from GitHub, and you need the script for nothing more. A click on the line selects it. The room has no button that copies it, because a content blocker would warn of one.
 - **Game files:** the Mac needs the files of the Windows game. Where the host has turned on downloads, choose Download when the launcher asks. Otherwise copy the game's folder from a Windows PC to the Mac, and run the script's `folder <the folder>` command in Terminal (below).
-- **What macOS asks:** Chrome asks whether to open Zombies Launcher. When the server is on your own network, macOS asks whether Zombies Launcher may find devices on local networks: allow it, or the launcher can't reach the server. As the game starts, macOS asks whether it may use the microphone, which is for the game's voice chat and not required.
+- **What macOS asks:** the browser asks whether to open Zombies Launcher. When the server is on your own network, macOS asks whether Zombies Launcher may find devices on local networks: allow it, or the launcher can't reach the server. As the game starts, macOS asks whether it may use the microphone, which is for the game's voice chat and not required.
 - **The game's window:** it opens behind the browser, so switch to it with Command+Tab. The first time it is a window: the game's options have full screen, and the game remembers it.
 - **The launcher's icon:** it is in the menu bar, where a PC has the tray.
 - **Updates:** the launcher updates itself, but not what the line installed around it: the script that runs it, and plutonium-mac-aio. When a new launcher needs those newer, or the server needs a newer launcher, the room says that your launcher needs an update. Paste the room's line into Terminal again.
