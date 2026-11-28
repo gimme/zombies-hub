@@ -379,8 +379,8 @@ func (la *launcher) run(ctx context.Context, args []string) int {
 		return la.link(ctx, args[0])
 	default:
 		la.notify("zombies-launcher: the launcher of a Zombies server. Run it with nothing after its name to install it; "+
-			"then a Black Ops II room's game on the server's page starts it. \"zombies-launcher uninstall\" takes it off "+
-			"the PC again, as uninstalling it in Windows' Settings does.", true)
+			"then a room of Black Ops II or Black Ops III on the server's page starts it. \"zombies-launcher uninstall\" "+
+			"takes it off the PC again, as uninstalling it in Windows' Settings does.", true)
 		return 2
 	}
 	if err != nil {
