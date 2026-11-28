@@ -257,6 +257,11 @@ func TestStayingLauncherSaysWhatItDoes(t *testing.T) {
 		})
 	}
 	eventually(t, "the game started", func() bool { return g.count() == 1 })
+	g.mu.Lock()
+	first := g.all[0]
+	g.mu.Unlock()
+	// the room's game is up: the game is asked to join it from its console too, and the button says what it said
+	eventually(t, "the game asked its room's game to let it in", func() bool { return len(first.typed()) == 1 })
 	says("the game launches", "Launching the game")
 	set(func(play *launcherapi.Play) { play.InGame, play.Game = true, nil })
 	says("the game is in", "")
@@ -264,10 +269,7 @@ func TestStayingLauncherSaysWhatItDoes(t *testing.T) {
 	set(func(play *launcherapi.Play) { play.Game = gameOf("two", false) })
 	says("the room's next game starts", "Joining the game")
 	set(func(play *launcherapi.Play) { play.Game = gameOf("two", true) })
-	g.mu.Lock()
-	first := g.all[0]
-	g.mu.Unlock()
-	eventually(t, "the game joined the next game", func() bool { return len(first.typed()) == 1 })
+	eventually(t, "the game joined the next game", func() bool { return len(first.typed()) == 2 })
 	says("the game joins the next game", "Joining the game")
 	set(func(play *launcherapi.Play) { play.InGame, play.Game = true, nil })
 	says("the game is in the next game", "")
@@ -275,10 +277,66 @@ func TestStayingLauncherSaysWhatItDoes(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 	says("the game is out of the room's game", "")
 	tl.press() // Join the game
-	eventually(t, "the game joined again", func() bool { return len(first.typed()) == 2 })
+	eventually(t, "the game joined again", func() bool { return len(first.typed()) == 3 })
 	says("the game joins again", "Joining the game")
 	if g.count() != 1 || first.stopped.Load() {
 		t.Errorf("the launcher started %d games, and closed the first: %v", g.count(), first.stopped.Load())
 	}
 	quit()
+}
+
+// A game of Black Ops II asks its room's game once to let it in, as it starts, and never again: when the room's game
+// is not up by then, the game is not in it, however long it waits. So the launcher has the game ask from its console
+// once the room's game is up, and again a while later for as long as the server doesn't have the game in it, a few
+// times in all. Once the server has the game in, the launcher has it ask no more.
+func TestAsksAgainUntilTheGameIsIn(t *testing.T) {
+	for _, c := range []struct {
+		what string
+		in   bool // the server has the game in after its first ask
+		asks int
+	}{{"a game that never gets in", false, joinTries}, {"a game that is in after its first ask", true, 1}} {
+		l := newFakeServer(t)
+		gameOf := func(up bool) *launcherapi.Game {
+			return &launcherapi.Game{ID: "one", Port: l.port(), Password: "pw", Name: "Ann", Up: up}
+		}
+		l.play = launcherapi.Play{Player: "Ann", Room: "ABCD", Game: gameOf(false), Plutonium: 1}
+		tl := newTestLauncher(t, "")
+		tl.joinEvery = 150 * time.Millisecond
+		dir := filepath.Join(t.TempDir(), "Black Ops II")
+		write(t, filepath.Join(dir, "zone", "all", "patch_zm.ff"), "the patch")
+		write(t, filepath.Join(dir, "binkw32.dll"), "bink")
+		tl.copies = func(*title) []string { return []string{dir} }
+		g, _, quit := stayWithTray(t, tl, l.link(), true)
+		set := func(change func(play *launcherapi.Play)) {
+			l.mu.Lock()
+			change(&l.play)
+			l.mu.Unlock()
+		}
+		eventually(t, c.what+": the game started", func() bool { return g.count() == 1 })
+		g.mu.Lock()
+		first := g.all[0]
+		g.mu.Unlock()
+		time.Sleep(100 * time.Millisecond)
+		if typed := first.typed(); len(typed) != 0 {
+			t.Fatalf("%s: it was told %q before the room's game was up", c.what, typed)
+		}
+		set(func(play *launcherapi.Play) { play.Game = gameOf(true) })
+		eventually(t, c.what+": the game asked the room's game, once that was up", func() bool { return len(first.typed()) >= 1 })
+		if c.in {
+			set(func(play *launcherapi.Play) { play.InGame, play.Game = true, nil })
+		} else {
+			eventually(t, c.what+": the game asked again", func() bool { return len(first.typed()) == joinTries })
+		}
+		time.Sleep(500 * time.Millisecond) // more than three times what the launcher waits before it asks again
+		typed := first.typed()
+		if len(typed) != c.asks || slices.ContainsFunc(typed, func(line string) bool {
+			return line != "password pw;connect 127.0.0.1:"+strconv.Itoa(l.port())
+		}) {
+			t.Errorf("%s: it was told %q, not the line that joins %d times", c.what, typed, c.asks)
+		}
+		if g.count() != 1 || first.stopped.Load() {
+			t.Errorf("%s: the launcher started %d games, and closed the first: %v", c.what, g.count(), first.stopped.Load())
+		}
+		quit()
+	}
 }

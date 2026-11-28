@@ -154,6 +154,9 @@ type launcher struct {
 	probe                func(port int) (mapName string, ok bool)
 	settle, retype       time.Duration
 	tick                 time.Duration // between two looks at whether the player's game still runs (stay)
+	// joinEvery is how long a game of Black Ops II is given to get into a room's game before the launcher has it ask
+	// again (stayWith); 0 for the default, ten seconds.
+	joinEvery time.Duration
 	// away is how long the launcher keeps its call to the server open with nothing to do: its player is in no Black
 	// Ops II room, or the server can't be reached. After that it rests (idle). 0 for no limit.
 	away  time.Duration
@@ -988,6 +991,10 @@ type game interface {
 	join(line string) error
 }
 
+// joinTries is how often the launcher has a game of Black Ops II ask a room's game to let it in, at most, for as
+// long as the server doesn't have the game in it (stayWith).
+const joinTries = 3
+
 // rejoins reports whether the player's game, which runs, can join the room's game, play.Game, without starting again.
 // rev is the revision of Plutonium that the game started with, and from the folder it started from. A game of Black
 // Ops II can't join when the room's game's Plutonium is of another revision: a room's game turns away a game of
@@ -1013,17 +1020,23 @@ func (la *launcher) rejoins(play *launcherapi.Play, dir, from string, rev int) b
 // room's next game. rejoin returns false when the console can't be reached: the game then has to start again.
 func (la *launcher) rejoin(g game, l link, play *launcherapi.Play) bool {
 	to := play.Game
-	line, err := consoleLine(to.Password, l.host+":"+strconv.Itoa(to.Port))
-	if err == nil {
-		err = g.join(line)
-	}
-	if err != nil {
+	if err := la.typeJoin(g, l, to); err != nil {
 		la.say("The game that runs couldn't join the room's game (%v): it starts again.", err)
 		return false
 	}
 	la.say("")
 	la.say("%s joins the room's game as %s.", la.title().name, to.Name)
 	return true
+}
+
+// typeJoin types the line into the console of the player's game g that has it ask the room's game to to let it in
+// (consoleLine).
+func (la *launcher) typeJoin(g game, l link, to *launcherapi.Game) error {
+	line, err := consoleLine(to.Password, l.host+":"+strconv.Itoa(to.Port))
+	if err != nil {
+		return err
+	}
+	return g.join(line)
 }
 
 // stay starts the player's game, which joins the room's game, and stays with it for as long as it runs, so that the
@@ -1215,6 +1228,23 @@ func (la *launcher) stayWith(ctx context.Context, srv *server, l link, g game, d
 		}
 	}
 	asked := false // the player asked to join the room's game again
+	// A game of Black Ops II asks a room's game once to let it in, and never again when no answer comes: Plutonium
+	// sends one packet for it, which the server drops until the room's game is up. A game that started sooner than
+	// the room's game did, as on a fast PC, is so not in it, however long it waits, and nor is one whose packet was
+	// lost on the way. So the launcher has the game ask from its console as soon as the room's game is up, also when
+	// the game's own command line asks (launchT6), and again every joinEvery for as long as the server doesn't have
+	// the game in the room's game, joinTries times at most. Nothing is lost by it: a line typed into a game that is
+	// still starting waits in the game's console until the game takes it, and a game that asks twice joins as one
+	// that asks once. typed is when the launcher last had the game ask the room's game to, and tries how often. Once
+	// the server has had the game in the room's game, the launcher has it ask no more by itself: a game that is out
+	// of the room's game again joins when its player asks (asked). A game on BOIII sees to its own line
+	// (boiiiGame.watch).
+	every := la.joinEvery
+	if every <= 0 {
+		every = 10 * time.Second
+	}
+	var typed time.Time
+	tries := 0
 	for g.running() && ctx.Err() == nil {
 		play, next, err := srv.latest()
 		ok := err == nil && play != nil
@@ -1225,11 +1255,26 @@ func (la *launcher) stayWith(ctx context.Context, srv *server, l link, g game, d
 		if ok && play.InGame {
 			show("")
 			asked = false
+			tries = joinTries // a game that was in the room's game, and is out of it again, asks when the player does
 		}
 		if alone && to == nil && status == launching && time.Since(begun) >= aloneStarts {
 			show("")
 		}
 		again := false
+		if t == titleT6 && ok && play.Game != nil && to != nil && play.Game.ID == to.ID && play.Game.Up && !asked &&
+			tries < joinTries && time.Since(typed) >= every {
+			// The room's game is up, and the player's game is not in it. A try that the console can't be reached for
+			// counts as one: the game is not started again for it, as it may be on its way in. The room's button
+			// says what it said: the game launches, or joins.
+			if tries > 0 {
+				la.say("")
+				la.say("%s is not in the room's game yet, and asks again.", t.name)
+			}
+			if la.rejoins(play, dir, from, rev) {
+				la.typeJoin(g, l, play.Game)
+			}
+			typed, tries = time.Now(), tries+1
+		}
 		if ok && play.Game != nil && (to == nil || play.Game.ID != to.ID || asked) {
 			switch {
 			case t == titleT7 && !hasZone(from, play.Needs):
@@ -1249,6 +1294,7 @@ func (la *launcher) stayWith(ctx context.Context, srv *server, l link, g game, d
 			case la.rejoin(g, l, play):
 				show("Joining the game")
 				to, asked = play.Game, false
+				typed, tries = time.Now(), 1
 				continue
 			default:
 				again = true
@@ -1306,6 +1352,7 @@ func (la *launcher) stayWith(ctx context.Context, srv *server, l link, g game, d
 			return nil
 		}
 		rev, alone = info(play, t).Plutonium, false
+		typed, tries = time.Time{}, 0
 		status, begun = launching, time.Now() // also after "Updating Plutonium", which launch may have reported
 		la.doing(ctx, srv, status)
 	}

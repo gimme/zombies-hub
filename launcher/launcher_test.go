@@ -1410,7 +1410,8 @@ func TestStaysRestartsForTheNextGame(t *testing.T) {
 	set(func(play *launcherapi.Play) { play.Game, play.Plutonium = gameOf("second", false), 2 })
 	eventually(t, "the launcher started the player's game again for the next game's Plutonium", func() bool { return started() == 2 })
 	mu.Lock()
-	if !games[0].stopped.Load() || len(games[0].typed()) != 0 || !slices.Equal(revisions, []int{1, 2}) {
+	// the first game was told nothing for the next game: at most the line for its own room's game, which was up
+	if !games[0].stopped.Load() || len(games[0].typed()) > 1 || !slices.Equal(revisions, []int{1, 2}) {
 		t.Errorf("the first game: closed %v, told %q; the revisions the games started with: %v",
 			games[0].stopped.Load(), games[0].typed(), revisions)
 	}
@@ -1418,14 +1419,15 @@ func TestStaysRestartsForTheNextGame(t *testing.T) {
 	mu.Unlock()
 	set(func(play *launcherapi.Play) { play.Game = gameOf("third", true) })
 	eventually(t, "the launcher started the player's game again, its console out of reach", func() bool { return started() == 3 })
+	mu.Lock()
+	third := games[2]
+	mu.Unlock()
+	eventually(t, "the game asked its room's game, which is up, to let it in", func() bool { return len(third.typed()) == 1 })
 	set(func(play *launcherapi.Play) { // the player asked for another name during the last game
 		play.Game = gameOf("fourth", true)
 		play.Game.Name = "Annie"
 	})
-	mu.Lock()
-	third := games[2]
-	mu.Unlock()
-	eventually(t, "the game joined the next game under the name it has", func() bool { return len(third.typed()) == 1 })
+	eventually(t, "the game joined the next game under the name it has", func() bool { return len(third.typed()) == 2 })
 	cancel()
 	select {
 	case <-done:

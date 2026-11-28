@@ -570,9 +570,10 @@ func (l *lobby) launcherOf(req *http.Request) *player {
 // launcherPlay returns what p's PC is to play now. That is their room's game when the room is a PC room, p has a
 // seat in the game, and p's own game is not in it yet. launcherPlay returns the game from its start, once the
 // server's copy of Plutonium or BOIII is up to date for it (pcJoins), and before the game is up. The launcher
-// then starts the player's game at once, because it takes time to start. The player's game asks to join for half a
-// minute from then, and the relay lets it in once the room's game is up (pcSeat). The answer says when that is
-// (Game.Up): a player's game that runs already, from the room's last game, joins only then. The answer also has what
+// then starts the player's game at once, because it takes time to start. The relay lets a player's game in once the
+// room's game is up (pcSeat), and drops what it sends before. The answer says when that is (Game.Up): the launcher
+// has the player's game ask to join from then, also a game that it has just started, because a game on Plutonium
+// asks once, as it starts, and not again when no answer comes (launcher/main.go: stayWith). The answer also has what
 // the server says of each PC title that it hosts (launcherapi.Title): the zones of its maps, and for Black Ops II the
 // revision of the server's copy of Plutonium, which the player's copy has to match. The caller sets the port, and
 // which titles' game files the server sends (launcherAnswer). The caller holds l.mu.
