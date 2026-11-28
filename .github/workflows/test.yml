@@ -1,9 +1,9 @@
 # .github/workflows/test.yml - check the code on every push to main and on every pull request.
 #
-# The go jobs vet and test the Go code, as docker/test-go.sh does, without Docker. The Linux job covers every package.
-# The Windows job covers the launcher and the packages it shares with the server: the launcher is a Windows program,
-# and some of its tests run only there. The server is a Linux program and does not compile for Windows. Go's version
-# is the one go.mod names.
+# The go jobs vet and test the Go code, as docker/test-go.sh does, without Docker. The Linux job covers every package,
+# and checks first that each file is formatted as gofmt formats it. The Windows job covers the launcher and the
+# packages it shares with the server: the launcher is a Windows program, and some of its tests run only there. The
+# server is a Linux program and does not compile for Windows. Go's version is the one go.mod names.
 #
 # The page job checks the page's TypeScript, runs its tests and builds the page (web/), as the image's build does
 # (docker/Dockerfile, stage web-build).
@@ -37,6 +37,14 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
+      # gofmt lists the files that it would format otherwise. The step fails when it lists any, and shows them.
+      - if: matrix.os == 'ubuntu-latest'
+        run: |
+          files=$(gofmt -l server launcher internal cmd e2e/standin)
+          if [ -n "$files" ]; then
+            echo "::error::gofmt would format these files otherwise (run gofmt -w on them): $(echo $files)"
+            exit 1
+          fi
       - run: go vet ${{ matrix.packages }}
       # setup-go keeps Go's build cache between runs, which also holds test results. -count=1 runs every test anyway.
       - run: go test -count=1 ${{ matrix.packages }}
