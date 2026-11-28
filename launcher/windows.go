@@ -281,6 +281,9 @@ func (p *process) join(line string) error {
 	return nil
 }
 
+// leave types the console's disconnect, which takes the game out of the game it is in.
+func (p *process) leave() error { return p.join(leaveLine) }
+
 // presses returns two channels, each of which gets a value each time the player asks something of their launcher (id)
 // while it runs: join, to join again (the room's button), and solo, to play alone (the lobby's Play local). Each
 // waits for a Windows event. The launcher that another link of theirs starts sets the event (press) before it ends.

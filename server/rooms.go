@@ -350,6 +350,7 @@ type roomGame struct {
 	eggSeconds int64
 	won        int    // a T6 game of Grief: the team that won it, 1 or 2, at game over (pcSaid), or 0
 	ending     string // why it is being stopped, or "" while it is not
+	leaving    bool   // a PC game: it quits in a moment, once its players' games have had time to leave it (quit)
 	vacant     bool   // no one plays it or is on their way into it (checkGame), so the room's host may end it
 	// stats has each player's line of the scoreboard, by their seat's address ("bo1_lobby: stats"). The game reports
 	// the lines of the characters that are in it before each report of a round or of game over, and keepRounds
@@ -1860,7 +1861,28 @@ func (l *lobby) stop(r *room, why string) {
 	}
 	rg.ending = why
 	log.Printf("server: room %s's game ends: %s", r.code, why)
-	rg.cancel()
+	l.quit(rg)
+}
+
+// pcLeave is how long a PC game runs on once the server has it quit with a player's game in it. A game that is in a
+// game that quits tells its player that the server went away, as of a fault. So the players' launchers hear of the
+// end at once (launcherapi.Play.Leave), and have the players' games leave by their own consoles: those are at their
+// menus, with nothing said, before the room's game quits. pcLeave is well short of the second and a half that a PC
+// game has, once its end has played out, until its level exits (game.stop). Tests change it.
+var pcLeave = 500 * time.Millisecond
+
+// quit has rg's game quit: at once, or pcLeave later for a PC game with the game of a player in it whose launcher
+// has it leave first. A player who joined by hand has no such launcher (setHand). The caller holds l.mu.
+func (l *lobby) quit(rg *roomGame) {
+	switch {
+	case rg.leaving: // it quits in a moment
+	case ownPC(rg) && slices.ContainsFunc(rg.seats, func(s *seat) bool { return s.in && !s.left && !s.player.byHand }):
+		rg.leaving = true
+		time.AfterFunc(pcLeave, rg.cancel)
+		l.change()
+	default:
+		rg.cancel()
+	}
 }
 
 // scored stores a player's line of the scoreboard as the game reported it (stats), by their seat's address. The

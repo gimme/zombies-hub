@@ -980,3 +980,24 @@ func TestUninstallWithBlackOpsIII(t *testing.T) {
 		}
 	}
 }
+
+// A game on BOIII leaves the game it is in with its console's disconnect, typed at once, and a line that was yet to be
+// typed is typed no more.
+func TestBoiiiLeaves(t *testing.T) {
+	tl := newT7Launcher(t, "")
+	tl.at.Store("") // the game answers nothing: a line for it waits
+	g, err := tl.startBoiii(t7Copy(t, filepath.Join(t.TempDir(), "Black Ops III")), "Ann")
+	if err != nil {
+		t.Fatal(err)
+	}
+	g.join("password pw;connect host:1")
+	if err := g.leave(); err != nil || !slices.Equal(tl.game(0).typed(), []string{leaveLine}) {
+		t.Fatalf("the game, told to leave: %v, typed %q", err, tl.game(0).typed())
+	}
+	tl.at.Store(boiiiMenu) // the game is at its menu, where it would take the line that waited
+	time.Sleep(200 * time.Millisecond)
+	if typed := tl.game(0).typed(); !slices.Equal(typed, []string{leaveLine}) {
+		t.Errorf("the game, after it left: typed %q", typed)
+	}
+	g.stop()
+}

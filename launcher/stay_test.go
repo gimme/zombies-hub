@@ -340,3 +340,44 @@ func TestAsksAgainUntilTheGameIsIn(t *testing.T) {
 		quit()
 	}
 }
+
+// When a room's game ends with the player's game in it, the server says so a moment before it quits the game
+// (Play.Leave), and the launcher has the player's game leave first, with its console's disconnect: once for a game.
+func TestLeavesTheRoomsGameThatEnds(t *testing.T) {
+	l := newFakeServer(t)
+	l.play = launcherapi.Play{Player: "Ann", Room: "ABCD", Plutonium: 1,
+		Game: &launcherapi.Game{ID: "one", Port: l.port(), Password: "pw", Name: "Ann"}}
+	tl := newTestLauncher(t, "")
+	dir := filepath.Join(t.TempDir(), "Black Ops II")
+	write(t, filepath.Join(dir, "zone", "all", "patch_zm.ff"), "the patch")
+	write(t, filepath.Join(dir, "binkw32.dll"), "bink")
+	tl.copies = func(*title) []string { return []string{dir} }
+	g, _, quit := stayWithTray(t, tl, l.link(), true)
+	set := func(change func(play *launcherapi.Play)) {
+		l.mu.Lock()
+		change(&l.play)
+		l.mu.Unlock()
+	}
+	eventually(t, "the game started", func() bool { return g.count() == 1 })
+	g.mu.Lock()
+	first := g.all[0]
+	g.mu.Unlock()
+	set(func(play *launcherapi.Play) { play.InGame, play.Game = true, nil })
+	time.Sleep(100 * time.Millisecond)
+	if typed := first.typed(); len(typed) != 0 {
+		t.Fatalf("the game was told %q while it was in the room's game", typed)
+	}
+	set(func(play *launcherapi.Play) { play.Leave = true }) // game over, and its end has played out
+	eventually(t, "the game left the room's game", func() bool { return slices.Equal(first.typed(), []string{leaveLine}) })
+	set(func(play *launcherapi.Play) { play.InGame, play.Leave = false, false }) // the room's game is gone
+	time.Sleep(100 * time.Millisecond)
+	// the room's next game ends the same way
+	set(func(play *launcherapi.Play) { play.InGame, play.Leave = true, true })
+	eventually(t, "the game left the room's next game", func() bool {
+		return slices.Equal(first.typed(), []string{leaveLine, leaveLine})
+	})
+	if g.count() != 1 || first.stopped.Load() {
+		t.Errorf("the launcher started %d games, and closed the first: %v", g.count(), first.stopped.Load())
+	}
+	quit()
+}

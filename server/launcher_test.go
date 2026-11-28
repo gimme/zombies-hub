@@ -831,3 +831,55 @@ func TestLauncherPacks(t *testing.T) {
 		t.Errorf("the title, to the page of a server that sends none of it: %+v", v.Titles[0])
 	}
 }
+
+// A PC game that ends with a player's game in it quits a moment after its end has played out, and the player's
+// launcher hears of that moment, to have their game leave first: a game that is in a game that quits tells its
+// player that the server went away. The launcher of a player who joins by hand is told nothing, as it has no game of
+// theirs to tell, and their room's game quits at once.
+func TestLauncherPlayLeave(t *testing.T) {
+	was := pcLeave
+	pcLeave = time.Second
+	t.Cleanup(func() { pcLeave = was })
+	for _, byHand := range []bool{false, true} {
+		l, target := t6Lobby(t)
+		h := &web{lobby: l, publicPort: 4000}
+		ann := l.hello("", "Ann")
+		a := ann.Token
+		if err := do(l, a, "create", "map", "zm_standard_town"); err != "" {
+			t.Fatal(err)
+		}
+		pagesOpen(l, a)
+		if byHand {
+			do(l, a, "hand", "hand", "true")
+		}
+		readyAll(l, a)
+		waitView(t, l, a, "the game's server up", func(v view) bool { return v.Room.T6 != nil && v.Room.T6.Up })
+		pagesAt(l, "127.0.0.1", a)
+		game := t6GameAt(t, "127.0.0.1", target)
+		t6SeenAt(t, game)
+		waitView(t, l, a, "Ann in the game", func(v view) bool { return v.Room.Members[0].InGame })
+		if play := playOf(t, h, ann.Key); play.Leave {
+			t.Fatalf("by hand %v: told to leave a game that runs: %+v", byHand, play)
+		}
+		// game over, and the game's end plays out a moment later
+		game.SetDeadline(time.Time{})
+		game.Write([]byte("\xff\xff\xff\xffover"))
+		told := false
+		v := waitView(t, l, a, "the game's end played out", func(v view) bool {
+			if playOf(t, h, ann.Key).Leave {
+				told = true
+			}
+			return told || v.Room.State == "open"
+		})
+		if told == byHand {
+			t.Fatalf("by hand %v: the launcher was told to have the game leave: %v", byHand, told)
+		}
+		if !byHand && v.Room.State != "ending" {
+			t.Errorf("the room as the launcher is told: %q, where its game is yet to quit", v.Room.State)
+		}
+		waitView(t, l, a, "the room open again", func(v view) bool { return v.Room.State == "open" })
+		if play := playOf(t, h, ann.Key); play.Leave || play.InGame || play.Game != nil {
+			t.Errorf("by hand %v: to the launcher, once the game is gone: %+v", byHand, play)
+		}
+	}
+}

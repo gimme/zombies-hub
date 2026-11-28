@@ -260,6 +260,8 @@ func (g *fakeGame) join(line string) error {
 	return nil
 }
 
+func (g *fakeGame) leave() error { return g.join(leaveLine) }
+
 func (g *fakeGame) typed() []string {
 	g.mu.Lock()
 	defer g.mu.Unlock()

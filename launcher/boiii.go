@@ -207,6 +207,21 @@ func (b *boiiiGame) join(line string) error {
 	return nil
 }
 
+// leave types the console's disconnect, at once: the game is in a game then, and takes a line. A line that was yet to
+// be typed is typed no more.
+func (b *boiiiGame) leave() error {
+	b.mu.Lock()
+	b.line = ""
+	stopped := b.stopped
+	b.mu.Unlock()
+	if stopped {
+		return nil
+	}
+	b.typing.Lock()
+	defer b.typing.Unlock()
+	return b.game.join(leaveLine)
+}
+
 // watch types the game's line when the game takes it, for as long as the game runs. The game takes a line once it
 // has answered on its port for settle: its menu runs then, or a game that it is in. After a line that was to take it
 // into a room's game, a game that is still at its menu again later has not joined, so the line is typed again.

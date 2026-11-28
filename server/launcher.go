@@ -618,6 +618,8 @@ func (l *lobby) launcherPlay(p *player) launcherapi.Play {
 	}
 	s := r.seatOf(p)
 	password, joins := pcJoins(r.game)
+	// The room's game quits in a moment, with p's game in it: the launcher has p's game leave it first (quit).
+	play.Leave = s != nil && r.game.leaving && s.in && !s.left && !p.byHand
 	if s == nil || !joins || s.left || r.game.ending != "" {
 		return play
 	}

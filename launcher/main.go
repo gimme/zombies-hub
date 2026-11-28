@@ -984,12 +984,18 @@ func (la *launcher) launchT6(ctx context.Context, srv *server, l link, play *lau
 }
 
 // game is the player's game that the launcher started. running reports whether it still runs, and stop closes it.
-// join types a line into the game's console, as if the player typed it there (consoleLine).
+// join types a line into the game's console, as if the player typed it there (consoleLine). leave has the game leave
+// the game that it is in, with its console's disconnect: the game is then at its menu.
 type game interface {
 	running() bool
 	stop()
 	join(line string) error
+	leave() error
 }
+
+// leaveLine is the command of a game's console that takes the game out of the game it is in, back to its menu. It
+// does nothing in a game that is at its menu.
+const leaveLine = "disconnect"
 
 // joinTries is how often the launcher has a game of Black Ops II ask a room's game to let it in, at most, for as
 // long as the server doesn't have the game in it (stayWith).
@@ -1245,6 +1251,7 @@ func (la *launcher) stayWith(ctx context.Context, srv *server, l link, g game, d
 	}
 	var typed time.Time
 	tries := 0
+	leaving := false // the launcher had the game leave the room's game that ends (Play.Leave)
 	for g.running() && ctx.Err() == nil {
 		play, next, err := srv.latest()
 		ok := err == nil && play != nil
@@ -1256,6 +1263,16 @@ func (la *launcher) stayWith(ctx context.Context, srv *server, l link, g game, d
 			show("")
 			asked = false
 			tries = joinTries // a game that was in the room's game, and is out of it again, asks when the player does
+		}
+		// The room's game ends, with the player's game in it: the game leaves before the server quits the room's
+		// game, and is then at its menu with nothing said, where it would say that the server went away.
+		if ok && play.Leave != leaving {
+			if leaving = play.Leave; leaving {
+				if err := g.leave(); err == nil {
+					la.say("")
+					la.say("The room's game ends: %s leaves it.", t.name)
+				}
+			}
 		}
 		if alone && to == nil && status == launching && time.Since(begun) >= aloneStarts {
 			show("")

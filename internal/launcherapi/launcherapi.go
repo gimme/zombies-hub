@@ -160,6 +160,12 @@ type Play struct {
 	// Game is the room's game, from its start, when the game has a seat for the player and the player's game is not
 	// in it yet. It is nil while the room waits for its players, and when the game has no seat for the player.
 	Game *Game `json:"game,omitempty"`
+	// Leave is set for the moment between the end of the room's game, with the player's game in it, and the server
+	// quitting it. A player's game that is still in a game that quits says that its server went away, as of a fault.
+	// So the launcher has the player's game leave first, by its own console, and the game is back at its menu with
+	// nothing said. A server from before this field quits the game at once, as does a server for a launcher from
+	// before it, a moment later.
+	Leave bool `json:"leave,omitempty"`
 	// Needs is the zone of the room's map, among the Zones of the room's title (Title).
 	Needs string `json:"needs,omitempty"`
 	// Titles has what the server says of each title that it hosts and a launcher starts, by the title's id.

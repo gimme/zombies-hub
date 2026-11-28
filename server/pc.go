@@ -352,7 +352,7 @@ func (l *lobby) pcSaid(r *room, rg *roomGame, line string) {
 		return
 	default: // the end has played out, or no one is left to watch it, or the game rotates its map
 		l.stop(r, over)
-		rg.cancel()
+		l.quit(rg) // for a game that was over already, which stop leaves as it is
 	}
 	l.change()
 }
