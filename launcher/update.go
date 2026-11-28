@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"zombies/internal/launcherapi"
@@ -82,26 +83,47 @@ func (la *launcher) install() error {
 }
 
 // uninstall removes the launcher from the PC. Windows runs it from its list of installed apps (register). It removes
-// the launcher's links, its entry in that list, and its folder with what the launcher kept there. It deletes the
-// game files that the launcher downloaded when the player agrees: each file it downloaded, and nothing else in their
-// folder. Plutonium stays. It is in Plutonium's own folder, and the player's other games on Plutonium run from that
-// folder too. uninstall asks that one question, when there are downloaded game files, and shows nothing more unless
-// something is left to report.
+// the launcher's links, its entry in that list, and its folder with what the launcher kept there: its settings, its
+// log, the notes of the player's presses (pressNote), and its copy of BOIII's program (boiii.go). It deletes the game
+// files that the launcher downloaded of a title when the player agrees: each file it downloaded, and nothing else in
+// their folder. Plutonium stays. It is in Plutonium's own folder, and the player's other games on Plutonium run from
+// that folder too. What BOIII keeps in its own folder stays as well (%LOCALAPPDATA%\boiii), as it does for a player
+// who starts BOIII by hand. uninstall asks that one question, when there are downloaded game files: it names the
+// titles they are of, their size in all, and their folders. It shows nothing more unless something is left to report.
 func (la *launcher) uninstall() error {
 	if launchers() {
 		return errors.New(appName + " is running. Quit it from the tray, close the game, then uninstall again.")
 	}
 	la.loadConfig()
-	files := la.downloads()
-	state, bytes, downloaded := synced(files)
-	wipe := downloaded && la.confirm(fmt.Sprintf("Also delete the downloaded Black Ops II files (%s)?\n\n%s", megabytes(bytes), files))
+	// the game files that the launcher downloaded, of each title that it has any of, with the record of them (synced)
+	type downloaded struct {
+		of    *title
+		files string
+		state syncState
+	}
+	var has []downloaded
+	var names, folders []string
+	var total int64
+	for _, t := range titles {
+		files := la.cfg.downloads(t, la.home)
+		if state, bytes, ok := synced(files); ok {
+			has = append(has, downloaded{t, files, state})
+			names, folders, total = append(names, t.name), append(folders, files), total+bytes
+		}
+	}
+	wipe := len(has) > 0 && la.confirm(fmt.Sprintf("Also delete the downloaded %s files (%s)?\n\n%s",
+		strings.Join(names, " and "), megabytes(total), strings.Join(folders, "\n")))
 	if err := la.unregister(); err != nil {
 		return fmt.Errorf("Windows wouldn't remove the launcher's entries: %v", err)
 	}
-	left := false
+	var left []string // the folders that still have files of the launcher's, which Windows wouldn't delete
 	if wipe {
-		if left = unsync(files, state) > 0; !left && la.cfg.T6Files == "" {
-			os.Remove(filepath.Dir(files)) // the folder the launcher made for them at a disk's root, if it made one
+		for _, d := range has {
+			if unsync(d.files, d.state) > 0 {
+				left = append(left, d.files)
+			} else if *la.cfg.files(d.of) == "" {
+				os.Remove(filepath.Dir(d.files)) // the folder the launcher made for them at a disk's root, if it made one
+			}
 		}
 	}
 	// Empty the launcher's own folder: first what it kept there, then the program, then the folder if nothing else
@@ -110,6 +132,18 @@ func (la *launcher) uninstall() error {
 	for _, file := range []string{la.configFile(), la.configFile() + ".tmp", filepath.Join(la.home, "launcher.log"),
 		exe + ".old", exe + ".new", exe + ".new.tmp"} {
 		os.Remove(file)
+	}
+	if kept, err := os.ReadDir(la.home); err == nil {
+		for _, file := range kept { // the notes of the player's presses
+			if name := file.Name(); strings.HasPrefix(name, "press-") && strings.HasSuffix(name, ".txt") {
+				os.Remove(filepath.Join(la.home, name))
+			}
+		}
+	}
+	// BOIII's program is in a folder that is all the launcher's, with what BOIII left beside it as it brought itself
+	// up to date. The folder goes whole.
+	if la.boiii != "" && os.RemoveAll(la.boiii) != nil {
+		left = append(left, la.boiii)
 	}
 	if err := os.Remove(exe); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		// Windows deletes no running program. This program is deleted once it has ended.
@@ -121,9 +155,9 @@ func (la *launcher) uninstall() error {
 		os.Remove(la.home)
 	}
 	la.say("%s is uninstalled.", appName)
-	if left {
-		la.notify(fmt.Sprintf("%s is uninstalled, but couldn't delete some of the game files (is the game open?).\n\n%s",
-			appName, files), false)
+	if len(left) > 0 {
+		la.notify(fmt.Sprintf("%s is uninstalled, but couldn't delete some of its files (is the game open?).\n\n%s",
+			appName, strings.Join(left, "\n")), false)
 	}
 	return nil
 }

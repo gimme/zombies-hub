@@ -45,7 +45,7 @@ If something goes wrong:
 - **Antivirus removes Plutonium's files:** add an exception for `%LOCALAPPDATA%\Plutonium`.
 - **Anything else:** the launcher's log is `%LOCALAPPDATA%\Zombies Launcher\launcher.log`.
 
-To remove the launcher, uninstall Zombies Launcher in Windows' Settings under Apps. It asks whether to delete the game files that it downloaded too. Plutonium stays: to remove it, delete its folder.
+To remove the launcher, uninstall Zombies Launcher in Windows' Settings under Apps. It asks whether to delete the game files that it downloaded too, and says how large they are. Its copy of BOIII's program goes with it. Plutonium stays, and so does what BOIII keeps in `%LOCALAPPDATA%\boiii`: to remove those, delete their folders.
 
 ## Black Ops III
 

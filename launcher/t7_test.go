@@ -914,3 +914,69 @@ func TestRoomOfTheOtherTitleKeepsTheGameOpen(t *testing.T) {
 		t.Fatal("the launcher did not end as it was quit")
 	}
 }
+
+// Uninstalled, the launcher takes what it has for Black Ops III with it too: its copy of BOIII's program, with what
+// BOIII left beside it, and the notes of the player's presses. It asks once about the game files that it downloaded,
+// of both titles together, with their size in all, and deletes them when the player says so.
+func TestUninstallWithBlackOpsIII(t *testing.T) {
+	gone := func(file string) bool {
+		_, err := os.Stat(file)
+		return os.IsNotExist(err)
+	}
+	for _, c := range []struct {
+		answers string
+		wipe    bool
+	}{{"y\n", true}, {"n\n", false}} {
+		tl := newT7Launcher(t, "")
+		tl.exe = filepath.Join(tl.home, exeName)
+		write(t, tl.exe, "the launcher")
+		// the game files that it downloaded of each title, with the record of them, which has their sizes
+		var downloaded, folders []string
+		for of, size := range map[*title]int64{titleT6: 9e9, titleT7: 51e9} {
+			dir := filepath.Join(tl.home, of.id)
+			write(t, filepath.Join(dir, "zone", "a.ff"), "contents")
+			state, _ := json.Marshal(syncState{Files: map[string]syncHas{"zone/a.ff": {Size: size}}})
+			write(t, filepath.Join(dir, launcherapi.StateFile), string(state))
+			downloaded, folders = append(downloaded, filepath.Join(dir, "zone", "a.ff")), append(folders, dir)
+		}
+		// BOIII's program, the record of it, and the program that BOIII set aside as it brought itself up to date
+		for _, name := range []string{boiii.Exe, boiii.Exe + ".old", "zombies-launcher-files.json"} {
+			write(t, filepath.Join(tl.boiii, name), "BOIII's")
+		}
+		// the notes of the player's presses, of both kinds
+		press, err := parseLink("zombies-launcher://host/play?key=0123456789abcdef&of=t7")
+		if err != nil {
+			t.Fatal(err)
+		}
+		notePress(tl.home, press)
+		press.solo = true
+		notePress(tl.home, press)
+		tl.again(c.answers)
+		if code := tl.run(context.Background(), []string{"uninstall"}); code != 0 {
+			t.Fatalf("uninstalled, answered %q: %d\n%s", c.answers, code, tl.out)
+		}
+		out := tl.out.String()
+		if strings.Count(out, "Also delete") != 1 ||
+			!strings.Contains(out, "Also delete the downloaded Black Ops II and Black Ops III files (60.0 GB)?") ||
+			!strings.Contains(out, folders[0]) || !strings.Contains(out, folders[1]) {
+			t.Errorf("uninstalled, answered %q: what it asked\n%s", c.answers, out)
+		}
+		if gone(downloaded[0]) != c.wipe || gone(downloaded[1]) != c.wipe {
+			t.Errorf("uninstalled, answered %q: the downloaded files gone: %v, %v", c.answers, gone(downloaded[0]),
+				gone(downloaded[1]))
+		}
+		if !gone(tl.boiii) {
+			t.Errorf("uninstalled, answered %q: BOIII's folder is still there", c.answers)
+		}
+		// what is left of the launcher's folder: the game files that the player kept, and nothing else
+		var left []string
+		if kept, err := os.ReadDir(tl.home); err == nil {
+			for _, file := range kept {
+				left = append(left, file.Name())
+			}
+		}
+		if want := map[bool][]string{true: nil, false: {titleT6.id, titleT7.id}}[c.wipe]; !slices.Equal(left, want) {
+			t.Errorf("uninstalled, answered %q: the launcher's folder has %q, not %q", c.answers, left, want)
+		}
+	}
+}
