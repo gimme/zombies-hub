@@ -1,8 +1,11 @@
 // web/src/backdrop.ts - the page's background: the loading screen of a map, with an atmosphere for the map over it.
 //
 // The background is the loading screen of one map (setBackdrop). The server sends the picture from the game files
-// (server/mapart.go: GET /maps/<map>/loadscreen). In the lobby, the map is that of the result that shows, else that
-// of the room, else the map of Black Ops that the player picked to play locally (show.ts: show). A page that plays a
+// (server/mapart.go: GET /maps/<map>/loadscreen). In the lobby, the map is the one that the player last came to,
+// which the browser keeps: their room's map, or the map that they picked to play locally. Before they have come to
+// any it is Kino der Toten, or a map of the first game that a server without Black Ops has (titles.ts: firstBehind).
+// Nothing takes the background back to an earlier one, but that a result or a report has its own map behind it while
+// it shows (show.ts: show). A page that plays a
 // map alone shows that map (main.ts: startPage). A new picture fades in once it has loaded. Without a picture, the
 // atmosphere is on black: the server has no game files, or the page is not served by a lobby.
 //

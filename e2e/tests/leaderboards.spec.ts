@@ -43,6 +43,12 @@ test("the leaderboards list a game's players, and open its report", async ({ ser
   await playRoomGame(lea, ola);
   server.command(`${code} over 5`);
   await expect(lea.locator('#results')).toBeVisible();
+  // back in the room, its host picks another map, which is behind the page from then on
+  const backdrop = lea.locator('#backdropimg');
+  await expect(backdrop).toHaveAttribute('src', '/maps/zombie_theater/loadscreen');
+  await lea.locator('#resultsback').click();
+  await lea.locator('#mapgrid').getByRole('radio', { name: 'Ascension', exact: true }).click();
+  await expect(backdrop).toHaveAttribute('src', '/maps/zombie_cosmodrome/loadscreen');
 
   await lea.locator('#boardsopen').click();
   // first the board of all the maps: its table lists the player, and their card has their round on the room's map
@@ -56,13 +62,17 @@ test("the leaderboards list a game's players, and open its report", async ({ ser
   await expect(rows).toHaveCount(2);
   for (const row of await rows.all()) await expect(row.locator('td').first()).toHaveText('1');
 
-  // the row opens the game's report, in the room's results' place, and goes back to the boards
+  // the row opens the game's report, in the room's results' place, and goes back to the boards. The report has its
+  // game's map behind it for as long as it shows: the page's own backdrop is the same after it.
+  await expect(backdrop).toHaveAttribute('src', '/maps/zombie_cosmodrome/loadscreen');
   await lea.locator('#boardtables tr.mine .rowlink').click();
   await expect(lea.locator('#results')).toBeVisible();
   await expect(lea.locator('#resultsback')).toHaveText('Back to the leaderboards');
   await expect(lea.locator('#resulttitle')).toHaveText('Round 5');
+  await expect(backdrop).toHaveAttribute('src', '/maps/zombie_theater/loadscreen');
   await lea.locator('#resultsback').click();
   await expect(lea.locator('#boards')).toBeVisible();
+  await expect(backdrop).toHaveAttribute('src', '/maps/zombie_cosmodrome/loadscreen');
   await lea.locator('#boardtabs button:nth-child(2)').click();
   await expect(lea.locator('#boardtabs button:nth-child(2)')).toHaveAttribute('aria-checked', 'true');
 

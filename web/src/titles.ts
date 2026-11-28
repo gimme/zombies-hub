@@ -37,6 +37,21 @@ export const versusesOf = (maps: MapInfo[], of: string): Versus[] =>
   VERSUS.filter((v) => mapsOf(maps, of, v.id).some((m) => m.have));
 
 /**
+ * The map that is behind the lobby in a browser that has come to no map yet (maps.ts: behindMap). It is of the first
+ * game that the server has a map of, in the games' order: Black Ops, then Black Ops II, then Black Ops III. Of that
+ * game it is Kino der Toten where the server has it, else the server's default map where that is the game's, else
+ * the game's first map. '' on a server with no map.
+ */
+export function firstBehind(maps: MapInfo[], defaultMap: string): string {
+  for (const of of ['t5', 't6', 't7']) {
+    const has = maps.filter((m) => m.of === of && m.have);
+    const map = has.find((m) => m.name === 'zombie_theater') || has.find((m) => m.name === defaultMap) || has[0];
+    if (map) return map.name;
+  }
+  return '';
+}
+
+/**
  * Whether a title's games are played on the players' own PCs, outside the page (server/title.go: inPage): Black Ops
  * II's, on Plutonium, and Black Ops III's, on BOIII. The page needs no map for them, and does not run the engine.
  */

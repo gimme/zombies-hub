@@ -2,7 +2,7 @@
 import type { MapInfo, View } from './api';
 import { view } from './lobby';
 import { store } from './storage';
-import { hasPictures } from './titles';
+import { firstBehind, hasPictures } from './titles';
 
 /** What the lobby says of a map. A map that the view does not list has only its name. */
 export const mapInfo = (name: string): MapInfo =>
@@ -39,6 +39,19 @@ export const lastTitle = {
   get: (): string => store.get('zombies-title'),
   set: (of: string): void => store.set('zombies-title', of),
 };
+
+/**
+ * The map whose loading screen is behind the lobby (show.ts: show): the one that the player last came to, which the
+ * browser's storage keeps (cameTo). Before they have come to any, it is Kino der Toten, or on a server without
+ * Black Ops, a map of the first game that the server has (titles.ts: firstBehind).
+ */
+export const behindMap = (v: View): string => store.get('zombies-backdrop') || firstBehind(v.maps, v.defaultMap);
+
+/**
+ * Notes that the player came to a map, which is behind the lobby from now on (behindMap): they came into a room on
+ * it, their room's host picked it, or they picked it to play locally.
+ */
+export const cameTo = (name: string): void => store.set('zombies-backdrop', name);
 
 // A picture of nothing, one clear pixel, for a map that the server has no picture of. An <img> of it shows what is
 // behind it, and none of what a browser draws for a picture that is missing.

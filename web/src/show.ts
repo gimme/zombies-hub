@@ -21,7 +21,7 @@ import {
   ending, firstLook, gameEnded, joinUnlessElsewhere, leaveSoon, lookAgain, otherTab, showMapAlone, solo,
 } from './game';
 import { act, me, offline, page, setView, view } from './lobby';
-import { mapInfo, soloMapName, t5Maps } from './maps';
+import { behindMap, cameTo, mapInfo, soloMapName, t5Maps } from './maps';
 import { musicOutside } from './music';
 import { lobbyMode } from './params';
 import { showName, showPictures } from './profile';
@@ -37,6 +37,7 @@ import { hasPictures, ownPC } from './titles';
 import { onWindows } from './windows';
 
 let shownRoom = ''; // the code of the room that the page last showed
+let roomMapDrawn = ''; // the map of the room that the page last drew, or '' for none: the player comes to another (show)
 let quietRoom = ''; // the code of the room in which the player's game ran outside the page, while they are in it
 let roomPushed = false; // going into the room added a step to the browser's history, which leaving it goes back from
 const urlRoom = (url: URL): string => (url.searchParams.get('room') || '').toUpperCase();
@@ -108,10 +109,16 @@ export function show(v: View): void {
   $('resultsback').textContent = report ? 'Back to the leaderboards' : 'Back to the room';
   if (boardsOpen) loadBoards();
   if (report) showResult(report);
-  // The backdrop is the loading screen of the map of the result that shows, else of the room's. Outside a room it
-  // is set once the page to play locally is drawn (below).
-  const behind = report ? report.map : result ? result.map : room ? room.map : '';
-  setBackdrop(behind, hasPictures(mapInfo(behind)));
+  // The backdrop is the loading screen of the map that the player last came to, which the browser keeps
+  // (maps.ts: behindMap). They come to a map as they come into a room on it, and as their room's host picks it. The
+  // page to play locally notes the map that they pick there (solo.ts). Nothing takes the backdrop back: it stays as
+  // the player leaves their room, and is the same when the page loads again. A result or a report has its own map
+  // behind it for as long as it shows, and is none that the player came to. A map that the server has not, as the
+  // one kept may be since, has no picture to ask for.
+  if (room && room.map !== roomMapDrawn) cameTo(room.map);
+  roomMapDrawn = room ? room.map : '';
+  const behind = (report ? report.map : result ? result.map : '') || behindMap(v);
+  if (behind) setBackdrop(behind, !!mapInfo(behind).have && hasPictures(mapInfo(behind)));
   // The store says what it has of the map of the view's button. A download of another map stops.
   const buttonMap = windows || (room && ownPC(room.of)) ? '' : room ? room.map : soloMapName(v);
   if (player.store.downloading && player.store.downloading !== buttonMap) stopDownload();
@@ -119,9 +126,6 @@ export function show(v: View): void {
   if (!room) {
     showRooms(v);
     showSolo(v);
-    // Outside a room, the backdrop is the loading screen of the map that the player picked to play locally
-    // (soloMapName). That is a map of Black Ops: a game of the player's own PC has them pick none in the page.
-    if (!behind) setBackdrop(soloMapName(v));
     for (const id of ['make', 'joincode', 'code']) $<HTMLButtonElement | HTMLInputElement>(id).disabled = offline;
     // The room is gone while the engine still loads or plays its game, because the lobby started again. The page
     // leaves the game.

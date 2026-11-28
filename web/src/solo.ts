@@ -29,7 +29,7 @@ import { knowMap, type MapButton, mapButton, showNote } from './files';
 import { endNote, forgetLastEnd, lastEnd } from './game';
 import { offline, page } from './lobby';
 import { showDesc, showMaps } from './mapgrid';
-import { hasTitle, lastTitle, mapInfo, mapPicture, soloMapName, t5Maps } from './maps';
+import { cameTo, hasTitle, lastTitle, mapInfo, mapPicture, soloMapName, t5Maps } from './maps';
 import { showNotice } from './notice';
 import { params } from './params';
 import { inWords, placeInstall, showInstall, site, type Words } from './room';
@@ -101,6 +101,7 @@ export function showSolo(v: View): void {
   showMaps($('solomaps'), t5Maps(v.maps), picked, (name) => {
     if (name === picked) return;
     store.set('zombies-solo-map', name);
+    cameTo(name); // the lobby's backdrop is this map's from now on
     page.redraw();
   }, true);
   knowMap(picked);

@@ -166,6 +166,8 @@ test("Play local has Black Ops III's maps: none is picked, and a click downloads
 
 test("a Black Ops III map has its picture in the game's map select, and its loading screen behind the page", async ({ player }) => {
   const ann = await player('Ann');
+  // a browser that has come to no map yet has Kino der Toten behind the page
+  await expect(ann.locator('#backdropimg')).toHaveAttribute('src', '/maps/zombie_theater/loadscreen');
   await ann.locator('#make').click();
   await ann.locator('#titlepick').getByRole('radio', { name: 'Black Ops III', exact: true }).click();
   await expect(ann.locator('#maptitle')).toHaveText('The Giant');
@@ -198,16 +200,29 @@ test("a Black Ops III map has its picture in the game's map select, and its load
   await expect(shot.locator('img')).toHaveAttribute('src', '/maps/zm_tomb/preview');
   await expect.poll(() => backdrop.evaluate(picture)).toBe('16x9 blue');
 
-  // Outside a room the backdrop is Black Ops' map to play locally: also while Play local shows Black Ops III, of
-  // which no map is picked there. That game's maps have their pictures in its grid.
+  // The backdrop is the map that the player last came to, and nothing takes it back. It stays as she leaves the room,
+  // and while Play local shows Black Ops III, of which no map is picked there: that game's maps have their pictures
+  // in its grid. Nor does it change as Play local shows Black Ops, until she picks a map of it to play.
   await ann.locator('#leave').click();
-  await expect(backdrop).toHaveAttribute('src', '/maps/zombie_theater/loadscreen');
+  await expect(ann.locator('#make')).toBeVisible();
+  await expect(backdrop).toHaveAttribute('src', '/maps/zm_tomb/loadscreen');
   await ann.locator('#soloopen').click();
   await ann.locator('#solotitles').getByRole('radio', { name: 'Black Ops III', exact: true }).click();
   await expect(ann.locator('#solotitle')).toHaveText('Black Ops III');
   const tile = ann.locator('#solomaps .maptile', { hasText: 'Origins' });
   await expect.poll(() => tile.locator('img').evaluate(picture)).toBe('640x270 red');
-  await expect(backdrop).toHaveAttribute('src', '/maps/zombie_theater/loadscreen');
+  await expect(backdrop).toHaveAttribute('src', '/maps/zm_tomb/loadscreen');
+  await ann.locator('#solotitles').getByRole('radio', { name: 'Black Ops', exact: true }).click();
+  await expect(ann.locator('#solotitle')).toHaveText('Kino der Toten');
+  await expect(backdrop).toHaveAttribute('src', '/maps/zm_tomb/loadscreen');
+  await ann.locator('#solomaps').getByRole('radio', { name: 'Ascension', exact: true }).click();
+  await expect(ann.locator('#solotitle')).toHaveText('Ascension');
+  await expect(backdrop).toHaveAttribute('src', '/maps/zombie_cosmodrome/loadscreen');
+  // and it stays as she goes back to the lobby, and when the page loads again: the browser keeps it
   await ann.locator('#soloback').click();
-  await expect(backdrop).toHaveAttribute('src', '/maps/zombie_theater/loadscreen');
+  await expect(ann.locator('#make')).toBeVisible();
+  await expect(backdrop).toHaveAttribute('src', '/maps/zombie_cosmodrome/loadscreen');
+  await ann.reload();
+  await expect(ann.locator('#make')).toBeVisible();
+  await expect(backdrop).toHaveAttribute('src', '/maps/zombie_cosmodrome/loadscreen');
 });
