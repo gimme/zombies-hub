@@ -134,9 +134,9 @@ type launcher struct {
 	hide func()
 	// rerun starts the launcher again with the same link, to replace this run (update).
 	rerun func(exe, link string) error
-	// register makes Windows start exe for links of the launcher's scheme, and adds exe to the installed apps.
-	// unregister undoes both.
-	register   func(exe string) error
+	// register makes Windows start exe for links of the launcher's scheme, and adds exe to the installed apps, with
+	// its version, the number that the list shows beside it. unregister undoes both.
+	register   func(exe, version string) error
 	unregister func() error
 	// later deletes the launcher's program once this run has ended, and then its folder dir if it is empty.
 	later func(exe, dir string) error
@@ -363,6 +363,11 @@ func (la *launcher) run(ctx context.Context, args []string) int {
 		err = la.uninstall()
 	case len(args) == 1 && strings.HasPrefix(strings.ToLower(args[0]), launcherapi.Scheme+":"):
 		la.clicked = true // the player's click on the room's button started the launcher with the link
+		// A launcher that an update put in the place of another (updatedEnv) registers itself again: Windows' list of
+		// installed apps then says its version, and not that of the launcher that the player installed by hand.
+		if os.Getenv(updatedEnv) != "" && sameFile(la.exe, la.installed()) {
+			la.register(la.installed(), strconv.FormatInt(la.version, 10))
+		}
 		// A link to play alone with no server (link.offline) has the launcher start the game, and end: it has no
 		// server to stay for.
 		if l, err := parseLink(args[0]); err == nil && l.offline() {

@@ -116,7 +116,7 @@ jobs:
         run: |
           # this version's release, which a run that is started again finds there
           gh release view "$TAG" >/dev/null 2>&1 ||
-            gh release create "$TAG" --verify-tag --title "Zombies Launcher $VERSION" \
+            gh release create "$TAG" --verify-tag --title "Zombies Launcher v$VERSION" \
               --notes "Zombies Launcher, version $VERSION. Installed launchers update themselves to it."
           gh release upload "$TAG" release/zombies-launcher-setup.exe release/zombies-launcher.sig \
             release/zombies-launcher-mac.sh release/zombies-launcher.png --clobber

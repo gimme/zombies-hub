@@ -147,11 +147,12 @@ func TestGameIn(t *testing.T) {
 
 // On a PC where the launcher finds the game, as Steam installed it, the launcher asks nothing, shows no picker and no
 // message: its run is as it was. The tray's menu says which folder the game starts from, and does nothing until the
-// player clicks one of its items.
+// player clicks one of its items. Its first line has the launcher's version.
 func TestFoundCopyAsksNothing(t *testing.T) {
 	l := downloading(t, "one") // a game with an ID: the launcher starts the player's game into it once, and not again
 	own := copyOf(t, filepath.Join(t.TempDir(), "SteamLibrary", "steamapps", "common", titleT6.folder))
 	tl := newTestLauncher(t, "")
+	tl.version = 4
 	d := answer(tl, true)
 	tl.copies = func(*title) []string { return []string{own} }
 	g, menu, quit := stayWithTray(t, tl, l.link(), false)
@@ -167,6 +168,9 @@ func TestFoundCopyAsksNothing(t *testing.T) {
 	if !slices.Contains(texts, "Black Ops II: your copy, "+short(own)) || !slices.Contains(texts, "Choose Black Ops II folder…") ||
 		slices.ContainsFunc(texts, func(s string) bool { return strings.HasPrefix(s, "Delete") }) {
 		t.Errorf("the menu: %q", texts)
+	}
+	if !strings.HasPrefix(texts[0], "Zombies Launcher v4: ") {
+		t.Errorf("the menu's first line: %q", texts[0])
 	}
 	if asked, picked, told := d.seen(); asked+picked+told != 0 {
 		t.Errorf("on a PC with the game, the launcher asked %d questions, showed %d pickers and %d messages: %q %q",

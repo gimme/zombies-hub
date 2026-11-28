@@ -187,13 +187,16 @@ func TestUpdateNeedsItsMakersWord(t *testing.T) {
 }
 
 // A launcher that is no release of its maker's never replaces itself, and asks GitHub nothing: a dev build (version
-// 0), a build without its maker's key, a launcher outside its folder, and a launcher that an update started.
+// 0), a build without its maker's key, a launcher outside its folder, and a launcher that an update started. That
+// last one registers itself again, so that Windows' list of installed apps has its version: no other run registers
+// anything.
 func TestUpdateOnlyForReleases(t *testing.T) {
 	public, private, _ := release.NewKey()
 	key, _ := release.ParsePrivate(private)
 	releases := newFakeReleases(t)
 	releases.publish(t, key, 8, "the launcher, build 8")
 	tl, installed, l := updatingLauncher(t, public, releases)
+	registered := len(tl.registered)
 	try := func(what string) {
 		t.Helper()
 		write(t, installed, "the launcher, build 7")
@@ -214,8 +217,14 @@ func TestUpdateOnlyForReleases(t *testing.T) {
 	write(t, tl.exe, "the launcher, build 7")
 	try("a launcher outside its folder")
 	tl.exe = installed
+	if len(tl.registered) != registered {
+		t.Errorf("a run that no update started registered the launcher: %q", tl.registered[registered:])
+	}
 	t.Setenv(updatedEnv, "1")
 	try("a launcher that an update started")
+	if got := tl.registered[registered:]; len(got) != 1 || got[0] != installed || tl.versions[len(tl.versions)-1] != "7" {
+		t.Errorf("a launcher that an update started registered %q, as version %q", got, tl.versions)
+	}
 }
 
 // The launcher sends its version with every call. A server that doesn't take it gets no more calls: the launcher

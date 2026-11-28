@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -25,6 +26,16 @@ const exeName = "zombies-launcher.exe"
 // appName is the launcher's name on a player's PC: in Windows' list of installed apps, in a browser's question
 // whether a link may open it, and as the name of its folder.
 const appName = "Zombies Launcher"
+
+// versionName returns the launcher's version as a player reads it after the launcher's name, in the tray's menu:
+// "v4" for release 4, as the release's tag and title have it, or "dev build" for a build that is no release
+// (version). Windows' list of installed apps has the number alone (register).
+func (la *launcher) versionName() string {
+	if la.version <= 0 {
+		return "dev build"
+	}
+	return "v" + strconv.FormatInt(la.version, 10)
+}
 
 // updatedEnv is the environment variable that is set for a launcher that replaced another in the same run (update).
 // Such a launcher does not replace itself with another build.
@@ -75,7 +86,7 @@ func (la *launcher) install() error {
 			return fmt.Errorf("The launcher couldn't be copied to its folder, %s: %v", la.home, err)
 		}
 	}
-	if err := la.register(to); err != nil {
+	if err := la.register(to, strconv.FormatInt(la.version, 10)); err != nil {
 		return fmt.Errorf("Windows wouldn't register the launcher's links: %v", err)
 	}
 	la.notify(appName+" successfully installed.", false)

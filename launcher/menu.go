@@ -7,12 +7,13 @@ import (
 	"path/filepath"
 )
 
-// The launcher's icon in the tray has a menu (serve), which the tray shows when the player clicks the icon. Besides
-// opening the server's page and quitting, the menu is where the player sees and changes the game files that the
-// launcher uses. A greyed line says which folder a game starts from. "Choose Black Ops II folder…" points the
-// launcher at the player's own copy in Windows' folder picker, with the same check as the run's question (pickOwn).
-// "Delete downloaded Black Ops II files…" deletes the files that the launcher downloaded, as uninstalling does.
-// Nothing of this runs until the player clicks an item, so a PC where the launcher finds the game sees nothing new.
+// The launcher's icon in the tray has a menu (serve), which the tray shows when the player clicks the icon. Its first
+// line names the launcher, with its version (versionName), and the server. Besides opening the server's page and
+// quitting, the menu is where the player sees and changes the game files that the launcher uses. A greyed line says
+// which folder a game starts from. "Choose Black Ops II folder…" points the launcher at the player's own copy in
+// Windows' folder picker, with the same check as the run's question (pickOwn). "Delete downloaded Black Ops II
+// files…" deletes the files that the launcher downloaded, as uninstalling does. Nothing of this runs until the player
+// clicks an item, so a PC where the launcher finds the game sees nothing new.
 //
 // Each line of a group names its game. The launcher starts two (title.go), and keeps each one's folders under that
 // game's names in the config (config.own, config.files). The menu has the group of the game that the launcher is at,
@@ -67,7 +68,7 @@ func (la *launcher) menu(host string, open func()) func() []menuItem {
 		go la.look()
 	}
 	return func() []menuItem {
-		items := []menuItem{{text: appName + ": " + host}, {}, {text: "Open the page", do: open}, {}}
+		items := []menuItem{{text: appName + " " + la.versionName() + ": " + host}, {}, {text: "Open the page", do: open}, {}}
 		if la.boxes {
 			at := la.title()
 			for _, t := range titles {

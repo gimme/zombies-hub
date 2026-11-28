@@ -9,7 +9,7 @@ import "errors"
 
 var errWindows = errors.New("the launcher runs on Windows")
 
-func register(exe string) error { return errWindows }
+func register(exe, version string) error { return errWindows }
 
 func unregister() error { return errWindows }
 

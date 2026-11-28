@@ -213,6 +213,7 @@ type testLauncher struct {
 	started    []started
 	reran      []string
 	registered []string
+	versions   []string // the version that each of its registrations named
 	later      []string // what it left to delete once it has ended
 	// the games it started; whether one stays open once started, as a player's does, where a test says so: else it
 	// is closed at once, and the launcher ends with it
@@ -296,8 +297,9 @@ func newTestLauncher(t *testing.T, answers string) *testLauncher {
 			tl.reran = append(tl.reran, exe+" "+link)
 			return nil
 		},
-		register: func(exe string) error {
+		register: func(exe, version string) error {
 			tl.registered = append(tl.registered, exe)
+			tl.versions = append(tl.versions, version)
 			return nil
 		},
 		unregister: func() error {
@@ -1439,18 +1441,20 @@ func TestStaysRestartsForTheNextGame(t *testing.T) {
 }
 
 // Installed, the launcher is in its folder, and Windows starts it there; and its latest release takes its place when
-// that is a later build, in the same run.
+// that is a later build, in the same run. Windows' list of installed apps has the version of the launcher that is
+// there: the one that the player installed, and then the one that took its place.
 func TestInstallAndUpdate(t *testing.T) {
 	tl := newTestLauncher(t, "")
 	downloaded := filepath.Join(t.TempDir(), "zombies-launcher-setup (1).exe")
 	write(t, downloaded, "the launcher, build 1")
-	tl.exe = downloaded
+	tl.exe, tl.version = downloaded, 1
 	if code := tl.run(context.Background(), nil); code != 0 {
 		t.Fatalf("the install: %d\n%s", code, tl.out)
 	}
 	installed := filepath.Join(tl.home, exeName)
-	if read(t, installed) != "the launcher, build 1" || !slices.Equal(tl.registered, []string{installed}) {
-		t.Errorf("installed: %q, registered %q", read(t, installed), tl.registered)
+	if read(t, installed) != "the launcher, build 1" || !slices.Equal(tl.registered, []string{installed}) ||
+		!slices.Equal(tl.versions, []string{"1"}) {
+		t.Errorf("installed: %q, registered %q, as version %q", read(t, installed), tl.registered, tl.versions)
 	}
 	// again, from its folder, and with a newer download over an installed one
 	tl.exe = installed

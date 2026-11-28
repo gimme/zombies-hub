@@ -37,8 +37,9 @@ const nameKey = `Software\Classes\Applications\` + exeName
 const appKey = `Software\Microsoft\Windows\CurrentVersion\Uninstall\zombies-launcher`
 
 // register makes Windows start exe with a link of the launcher's scheme, for this user (a browser asks them first).
-// It also adds exe to the user's installed apps, where they uninstall it.
-func register(exe string) error {
+// It also adds exe to the user's installed apps, where they uninstall it, and where the list shows version beside
+// the launcher's name.
+func register(exe, version string) error {
 	k, _, err := registry.CreateKey(registry.CURRENT_USER, classKey, registry.SET_VALUE)
 	if err != nil {
 		return err
@@ -74,8 +75,8 @@ func register(exe string) error {
 		return err
 	}
 	defer a.Close()
-	for _, v := range [][2]string{{"DisplayName", appName}, {"UninstallString", `"` + exe + `" uninstall`},
-		{"InstallLocation", filepath.Dir(exe)}, {"DisplayIcon", exe}} {
+	for _, v := range [][2]string{{"DisplayName", appName}, {"DisplayVersion", version},
+		{"UninstallString", `"` + exe + `" uninstall`}, {"InstallLocation", filepath.Dir(exe)}, {"DisplayIcon", exe}} {
 		if err := a.SetStringValue(v[0], v[1]); err != nil {
 			return err
 		}
