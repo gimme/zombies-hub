@@ -69,6 +69,27 @@ func (tl *t7Launcher) game(n int) *fakeGame {
 	return tl.games[n]
 }
 
+// runUntilSaid runs the link, and closes the game that the run starts once the server has heard that the game folder
+// has the zones has: the run ends with its game, and runUntilSaid returns its exit code. The launcher says what the
+// folder has with its next call for what to play, and the end of a run cuts that call off. A game that closed as it
+// started would so end the run before the call was made, now and then.
+func (tl *t7Launcher) runUntilSaid(t *testing.T, l *fakeServer, link, has string) int {
+	t.Helper()
+	done := make(chan int, 1)
+	go func() { done <- tl.run(context.Background(), []string{link}) }()
+	eventually(t, "the game started, and the launcher said that the folder has "+has, func() bool {
+		return tl.game(0) != nil && l.said() == has
+	})
+	tl.game(0).open.Store(false) // the player closes the game
+	select {
+	case code := <-done:
+		return code
+	case <-time.After(5 * time.Second):
+		t.Fatal("the launcher did not end as its game was closed")
+		return -1
+	}
+}
+
 // t7Copy makes a copy of Black Ops III with the given maps in dir, as Steam installs it, and returns dir.
 func t7Copy(t *testing.T, dir string, maps ...string) string {
 	t.Helper()
@@ -345,8 +366,9 @@ func TestBoiiiDownloadsByMap(t *testing.T) {
 		}
 		return tl
 	}
-	tl := run("\n")
-	if code := tl.run(context.Background(), []string{l.link()}); code != 0 || len(tl.started) != 1 {
+	// the first run says which maps the folder has: the room's, and no other
+	tl := newT7Launcher(t, "\n")
+	if code := tl.runUntilSaid(t, l, l.link(), "zone/zm_factory.ff"); code != 0 || len(tl.started) != 1 {
 		t.Fatalf("a PC without the game: %d, started %+v\n%s", code, tl.started, tl.out)
 	}
 	dir := filepath.Join(tl.home, "t7")
@@ -369,12 +391,6 @@ func TestBoiiiDownloadsByMap(t *testing.T) {
 	}
 	if !strings.Contains(tl.out.String(), "Downloading 6 of the game's 6 files") {
 		t.Errorf("what the launcher said of the download:\n%s", tl.out)
-	}
-	l.mu.Lock()
-	has := l.has[len(l.has)-1]
-	l.mu.Unlock()
-	if has != "zone/zm_factory.ff" {
-		t.Errorf("the maps that the launcher said the folder has: %q", has)
 	}
 	// the next room's map, and a file of the first map that the server has another of since: both, and nothing else
 	l.mu.Lock()
@@ -421,16 +437,9 @@ func TestBoiiiAlone(t *testing.T) {
 	l.play = launcherapi.Play{Player: "Ann", Titles: map[string]launcherapi.Title{
 		launcherapi.T7: {Zones: t7Zones, Downloads: true}}}
 	tl := newT7Launcher(t, "\n")
-	tl.start = func(exe, line, dir string) (game, error) {
-		tl.started = append(tl.started, started{exe, line, dir})
-		g := &fakeGame{}
-		tl.mu.Lock()
-		tl.games = append(tl.games, g)
-		tl.mu.Unlock()
-		return g, nil
-	}
 	link := l.link() + "&solo=1&name=Ann&of=t7&map=zm_tomb"
-	if code := tl.run(context.Background(), []string{link}); code != 0 || len(tl.started) != 1 ||
+	// the launcher says that the folder has the map that the player picked, and no other
+	if code := tl.runUntilSaid(t, l, link, "zone/zm_tomb.ff"); code != 0 || len(tl.started) != 1 ||
 		tl.started[0].dir != filepath.Join(tl.home, "t7") {
 		t.Fatalf("Black Ops III alone: %d, started %+v\n%s", code, tl.started, tl.out)
 	}
@@ -445,10 +454,10 @@ func TestBoiiiAlone(t *testing.T) {
 		t.Errorf("what the launcher said:\n%s", tl.out)
 	}
 	l.mu.Lock()
-	ofs, has := slices.Clone(l.ofs), l.has[len(l.has)-1]
+	ofs := slices.Clone(l.ofs)
 	l.mu.Unlock()
-	if !slices.Contains(ofs, launcherapi.T7) || has != "zone/zm_tomb.ff" {
-		t.Errorf("what the launcher said: at %q, has %q", ofs, has)
+	if !slices.Contains(ofs, launcherapi.T7) {
+		t.Errorf("the launcher said that it is at %q", ofs)
 	}
 	if tl.title() != titleT7 {
 		t.Errorf("the run was at %s", tl.title().name)
