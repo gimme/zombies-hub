@@ -135,7 +135,7 @@ func TestLinkOf(t *testing.T) {
 }
 
 // A game on BOIII plays under the name in BOIII's settings in the game's folder. The launcher writes the name there
-// and leaves the rest of the file, and puts back what the file had.
+// and leaves the rest of the file.
 func TestBoiiiName(t *testing.T) {
 	for name, want := range map[string]string{"Ann": "Ann", "": "Player", "Ann \"Zed\" %~": "Ann Zed",
 		"A name of twenty chars": "A name of twenty"} {
@@ -154,26 +154,18 @@ func TestBoiiiName(t *testing.T) {
 	}
 	// a file as BOIII writes it, with a byte order mark
 	write(t, file, "\xef\xbb\xbf"+`{"playerName":"Gimmeh","selectedVersion":"latest"}`)
-	restore, err := setBoiiiName(dir, "Ann")
+	err := setBoiiiName(dir, "Ann")
 	if got := members(); err != nil || got["playerName"] != "Ann" || got["selectedVersion"] != "latest" {
 		t.Errorf("the name, in a file with more: %v, %v", got, err)
 	}
-	restore()
-	if got := members(); got["playerName"] != "Gimmeh" || got["selectedVersion"] != "latest" {
-		t.Errorf("the file, with the player's own name back: %v", got)
-	}
 	// no file yet, and one that is no JSON
 	os.RemoveAll(filepath.Dir(file))
-	restore, err = setBoiiiName(dir, "Ann")
-	if got := members(); err != nil || got["playerName"] != "Ann" {
+	err = setBoiiiName(dir, "Ann")
+	if got := members(); err != nil || len(got) != 1 || got["playerName"] != "Ann" {
 		t.Errorf("the name, in a new file: %v, %v", got, err)
 	}
-	restore()
-	if got := members(); len(got) != 0 {
-		t.Errorf("the new file, without the name: %v", got)
-	}
 	write(t, file, "not JSON")
-	if _, err := setBoiiiName(dir, "Ann"); err != nil || members()["playerName"] != "Ann" {
+	if err := setBoiiiName(dir, "Ann"); err != nil || members()["playerName"] != "Ann" {
 		t.Errorf("the name, over a file that is no JSON: %v, %v", members(), err)
 	}
 }
@@ -252,8 +244,8 @@ func TestBoiiiRoom(t *testing.T) {
 	if tl.game(1) != nil {
 		t.Fatalf("the launcher started the game again for the room's next game\n%s", tl.out)
 	}
-	// the room goes to a map of Black Ops II: this game is closed, with its console's quit, and the name put back,
-	// by a launcher that ends here
+	// the room goes to a map of Black Ops II: this game is closed, with its console's quit, by a launcher that ends
+	// here
 	set(func(play *launcherapi.Play) { play.Of, play.Needs, play.Game = launcherapi.T6, "", nil })
 	select {
 	case <-done:
@@ -263,9 +255,10 @@ func TestBoiiiRoom(t *testing.T) {
 	if g := tl.game(0); !g.stopped.Load() || !slices.Equal(g.typed(), []string{join, join, "quit"}) {
 		t.Errorf("the game, as the room plays another title: stopped %v, told %q", g.stopped.Load(), g.typed())
 	}
-	eventually(t, "the player's own name is back", func() bool {
-		return strings.Contains(read(t, settings), `"playerName":"Gimmeh"`)
-	})
+	// the name stays in BOIII's settings: the launcher puts nothing back
+	if !strings.Contains(read(t, settings), `"playerName":"Ann 2"`) {
+		t.Errorf("BOIII's settings, once the game is closed: %s", read(t, settings))
+	}
 }
 
 // A line typed before a game on BOIII runs its menu is lost, so the launcher types it only once the game has answered

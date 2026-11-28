@@ -24,7 +24,9 @@ import (
 //
 // A game on BOIII plays under the name in a file of BOIII's in the game's folder (boiii_players/properties.json), and
 // takes none on its command line. The launcher writes the name that the room's game knows the player by there before
-// it starts the game, and puts the player's own back once the game is closed (boiiiName).
+// it starts the game (setBoiiiName), and the name stays there. The launcher puts back nothing once the game is
+// closed: it could only while it still runs then, and a player who quits it first, or shuts the PC down, would keep
+// the name all the same.
 //
 // Nothing on BOIII's command line joins a game safely. A password set there is replaced as the game reads its saved
 // settings, and a connect there is made the moment the game's menu loads, where the game then crashed as it loaded
@@ -81,43 +83,25 @@ func boiiiName(name string) string {
 
 // setBoiiiName writes the name that the game plays under into BOIII's settings in the game folder dir
 // (boiii_players/properties.json: one JSON object, which BOIII writes with a byte order mark). Each other member of
-// the file stays as it is. It returns what puts the name back that the file had: the player's own, in a copy of the
-// game that they also start by hand.
-func setBoiiiName(dir, name string) (restore func(), err error) {
+// the file stays as it is. The name stays in the file from then on, also for a game that the player starts by hand in
+// the same folder.
+func setBoiiiName(dir, name string) error {
 	file := filepath.Join(dir, "boiii_players", "properties.json")
-	set := func(value json.RawMessage) error {
-		members := map[string]json.RawMessage{}
-		switch data, err := os.ReadFile(file); {
-		case err == nil:
-			if json.Unmarshal(bytes.TrimPrefix(data, []byte("\xef\xbb\xbf")), &members) != nil || members == nil {
-				members = map[string]json.RawMessage{} // BOIII starts over from a file that it can't read, too
-			}
-		case !os.IsNotExist(err):
-			return err
+	members := map[string]json.RawMessage{}
+	switch data, err := os.ReadFile(file); {
+	case err == nil:
+		if json.Unmarshal(bytes.TrimPrefix(data, []byte("\xef\xbb\xbf")), &members) != nil || members == nil {
+			members = map[string]json.RawMessage{} // BOIII starts over from a file that it can't read, too
 		}
-		if value == nil {
-			delete(members, "playerName")
-		} else {
-			members["playerName"] = value
-		}
-		data, err := json.Marshal(members)
-		if err != nil {
-			return err
-		}
-		return writeFile(file, data)
+	case !os.IsNotExist(err):
+		return err
 	}
-	var had json.RawMessage
-	if data, err := os.ReadFile(file); err == nil {
-		members := map[string]json.RawMessage{}
-		if json.Unmarshal(bytes.TrimPrefix(data, []byte("\xef\xbb\xbf")), &members) == nil {
-			had = members["playerName"]
-		}
+	members["playerName"], _ = json.Marshal(name)
+	data, err := json.Marshal(members)
+	if err != nil {
+		return err
 	}
-	value, _ := json.Marshal(name)
-	if err := set(value); err != nil {
-		return func() {}, err
-	}
-	return func() { set(had) }, nil
+	return writeFile(file, data)
 }
 
 // freeUDPPort returns a UDP port that nothing on the PC has now, for the game to take as its own.
@@ -170,23 +154,19 @@ func (la *launcher) startBoiii(dir, name string) (game, error) {
 	if strings.ContainsAny(exe+dir, "\"\r\n") || dir == "" {
 		return nil, fmt.Errorf("The game can't be started from the folder %q.", dir)
 	}
-	restore, err := setBoiiiName(dir, boiiiName(name))
-	if err != nil {
+	if err := setBoiiiName(dir, boiiiName(name)); err != nil {
 		la.say("The game plays under the name it has: its settings couldn't be written (%v).", err)
 	}
 	port, err := freeUDPPort()
 	if err != nil {
-		restore()
 		return nil, fmt.Errorf("Black Ops III couldn't be started: no free UDP port for it (%v).", err)
 	}
 	g, err := la.start(exe, fmt.Sprintf(`"%s" -launch +set net_port %d`, exe, port), dir)
 	if err != nil {
-		restore()
 		return nil, fmt.Errorf("BOIII couldn't be started: %v\n\nIf your antivirus removed the file, add an exception "+
 			"for BOIII's folder:\n  %s", err, la.boiii)
 	}
-	b := &boiiiGame{game: g, port: port, probe: la.probe, tick: la.tick, settle: la.settle, retype: la.retype,
-		restore: restore}
+	b := &boiiiGame{game: g, port: port, probe: la.probe, tick: la.tick, settle: la.settle, retype: la.retype}
 	if b.probe == nil {
 		b.probe = probeBoiii
 	}
@@ -204,14 +184,12 @@ type boiiiGame struct {
 	// settle is how long the game has to have answered before a line is typed, and retype how long the game may stay
 	// at its menu after a line that was to take it into a room's game, before the line is typed again.
 	settle, retype time.Duration
-	restore        func() // puts the player's own name back in BOIII's settings, once the game is closed
 
 	mu      sync.Mutex
 	line    string // the line to type, or "" when there is none to type
 	tries   int    // how often it has been typed
 	typed   time.Time
 	stopped bool
-	once    sync.Once // restore runs once
 	// typing is held while a line is typed into the console, so that watch's line and stop's quit don't mix: a line
 	// typed after the quit would take the quit's place before the game read it.
 	typing sync.Mutex
@@ -231,8 +209,7 @@ func (b *boiiiGame) join(line string) error {
 
 // watch types the game's line when the game takes it, for as long as the game runs. The game takes a line once it
 // has answered on its port for settle: its menu runs then, or a game that it is in. After a line that was to take it
-// into a room's game, a game that is still at its menu again later has not joined, so the line is typed again. watch
-// puts the player's name back once the game is closed.
+// into a room's game, a game that is still at its menu again later has not joined, so the line is typed again.
 func (b *boiiiGame) watch() {
 	tick, settle, retype := b.tick, b.settle, b.retype
 	if tick <= 0 {
@@ -282,7 +259,6 @@ func (b *boiiiGame) watch() {
 			b.typing.Unlock()
 		}
 	}
-	b.once.Do(b.restore)
 }
 
 // stop closes the game: with the quit command of its console, which lets the game save its settings, and as any
@@ -302,5 +278,4 @@ func (b *boiiiGame) stop() {
 		}
 	}
 	b.game.stop()
-	b.once.Do(b.restore)
 }
